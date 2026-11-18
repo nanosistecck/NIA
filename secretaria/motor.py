@@ -43,12 +43,42 @@ if str(RAIZ) not in sys.path:
 
 from core import secretaria as SEC  # noqa: E402
 
+# v1.0.40 (11/11): os 2.5 de audio nativo DERRUBAM a sessao (1011 "Internal error") bem quando a pessoa
+# pede para deixar recado (medido: 3 de 3 quedas; os 3.x, nenhuma) e o motor antigo desligava junto.
+# Agora o 3.8 e' o principal; os outros ficam de reserva (cota, chave sem acesso ao modelo).
 LIVE_MODELOS = [
+    "models/gemini-3.8-live",
+    "models/gemini-3.1-flash-live-preview",
     "models/gemini-2.5-flash-native-audio-preview-12-2025",
-    "models/gemini-live-2.5-flash-preview",
+    "models/gemini-2.5-flash-native-audio-latest",
 ]
-TEXTO_MODELOS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"]
+# Resumo do fim da ligacao. 11/11: os "lite" deram 503 (alta demanda) juntos; os flash ficam de reserva.
+TEXTO_MODELOS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.5-flash", "gemini-flash-latest",
+                 "gemini-3.1-flash-lite"]
 URL_WHATSAPP = "https://web.whatsapp.com/"
+
+# v1.0.40 (11/11, pedido do Diego: "ela desliga na cara"). O pedido de encerrar da Gemini so' vale
+# quando QUEM LIGOU se despediu (ou disse que nao precisa de mais nada depois que ela perguntou),
+# quando a pessoa ficou calada muito tempo, ou no limite de tempo. Textos ja' sem acento (SEC._norm).
+_RX_DESPEDIDA = re.compile(
+    r"\b(tchau|tchauzinho|xau|adeus|ate (mais|logo|breve|amanha|depois|a proxima|outra hora|segunda|sexta|semana"
+    r"|mais tarde|ja)|falou|flw|pode desligar|vou desligar|ja vou desligar|fica com deus|vai com deus|um abraco"
+    r"|beijo|bjs|bye|goodbye|good bye|see you|talk (to you )?(later|soon)|have a (good|nice|great) (day|night|one)"
+    r"|take care)\b")
+_RX_NEGATIVA = re.compile(
+    r"^(nao|n|nada|nada nao|so isso|e so isso|era so isso|so|so mesmo|e isso|isso mesmo|tudo certo|tudo bem|ta bom"
+    r"|ta otimo|beleza|blz|ok|okay|obrigad[oa]|muito obrigad[oa]|valeu|nao obrigad[oa]|nao precisa|no|nope|nothing"
+    r"|that s it|that s all|no thanks|no thank you|i m good|all good|thanks|thank you)\b")
+_RX_CONTINUA = re.compile(
+    r"\b(quanto|quanta|como|qual|quais|quando|onde|porque|por que|mas|tambem|outra|outro|queria|quero|gostaria"
+    r"|preciso|poderia|pode me|me fala|me diz|explica|e o|e a|e os|e as|e se|how|what|which|when|where|why|but"
+    r"|also|want|need|could|can you|tell me|and the|and what|and how)\b")
+_RX_PERGUNTOU_MAIS = re.compile(
+    r"(mais alguma coisa|algo mais|mais algum|em que mais|ajudar em mais|ajudar em algo mais|precisa de mais"
+    r"|deseja mais|alguma outra|outra coisa|anything else|something else|help (you )?with anything|else i can)")
+SILENCIO_PARA_ENCERRAR_S = 25.0
+# Depois que a voz dela termina de tocar, o eco ainda volta pela ligacao por uns 0,3-0,6 s.
+CAUDA_ECO_S = 0.8
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -147,6 +177,31 @@ class Ligacao:
         self.fim = asyncio.Event()
         self.motivo_fim = ""
         self.voz = ""
+        # v1.0.40 (11/11, "ela desliga na cara"): quando quem liga falou por ultimo (som e texto),
+        # o limite de tempo, e a retomada da voz ao vivo se a Gemini cair no meio (erro 1011).
+        self.ultima_voz = 0.0           # monotonic: ultimo pedaco com voz de quem liga (energia)
+        self.ultima_fala_pessoa = 0.0   # monotonic: ultimo texto reconhecido de quem liga
+        self.atendida_mono = 0.0
+        self.limite = False             # o relogio chegou no tempo maximo
+        self.sessao = None              # a sessao da voz ao vivo em uso (troca na reconexao)
+        self.handle = None              # para retomar a mesma conversa na Gemini
+        self.modelo = ""                # o modelo da voz em uso
+        self.evitar_modelo = ""         # caiu de novo logo depois de voltar: tenta outro
+        self.ultima_reconexao = 0.0
+        self.reconexoes = 0
+        self.recusas_encerrar = 0
+        self.turno_fechado = asyncio.Event()   # a Gemini terminou a fala (a despedida inteira saiu)
+        self.buf_pessoa: list[str] = []
+        # v1.0.40 (teste do Diego 11/11 15h14, "ela repetiu muito"): ate' quando a voz DELA esta' tocando.
+        # Nesse tempo (e um pouco depois) o que volta pela ligacao e' ECO dela e nao vai para a Gemini.
+        self.fala_ate = 0.0
+        self.avisou_silencio = 0      # o vigia do silencio ja' cutucou a Gemini (1 = "alo?", 2 = despedir)
+        self.mudo_depois = False      # ja' se despediu e pediu para desligar: nada mais sai na ligacao
+        # A pessoa ainda estava falando quando ela comecou a responder (o eco nao volta em menos de
+        # ~0,3 s, entao voz forte logo no comeco da fala dela e' a PESSOA): ela para e escuta.
+        self.inicio_fala = 0.0
+        self.descartar_turno = False  # o resto da resposta que ela comecou nao sai mais
+        self.escuta_livre_ate = 0.0   # logo depois disso, o que a pessoa fala passa direto
 
 
 class PaginaPW:
@@ -379,7 +434,7 @@ class Motor:
                 nav.carregar(self.teste or URL_WHATSAPP)
                 laco.call_soon_threadsafe(lambda: fut.done() or fut.set_result(nav))
             except Exception as exc:  # noqa: BLE001
-                laco.call_soon_threadsafe(lambda: fut.done() or fut.set_exception(exc))
+                laco.call_soon_threadsafe(lambda e=exc: fut.done() or fut.set_exception(e))
 
         self.executor.no_qt(_criar)
         self.nav = await asyncio.wait_for(fut, 30.0)
@@ -811,7 +866,20 @@ class Motor:
                 "Introduce yourself only once; do not repeat the introduction or the owner's situation.",
                 "MESSAGE: whenever the caller gives a name, phone number or subject, or asks for a call back, call anotar_recado "
                 "with everything they said BEFORE saying you noted it. Never say 'noted' without calling anotar_recado.",
-                f"END: when done, say goodbye in one sentence and then call encerrar_ligacao. Maximum call length: {minutos} minutes.",
+                "NEVER HANG UP ON THE CALLER. Taking a message or answering a question does NOT end the call: after "
+                "anotar_recado, confirm the message in one sentence, ask if there is anything else you can help with, and "
+                "WAIT for the answer.",
+                "'Good morning', 'good afternoon', 'good evening', 'hi', 'how are you', 'thanks' and 'ok' on their own are "
+                "NOT goodbyes.",
+                "Never say goodbye before the caller does. Only when the caller says goodbye (bye, see you, talk later) or "
+                "says they need nothing else after you asked, say goodbye in one short sentence and then call "
+                "encerrar_ligacao. When in doubt, do NOT end the call: ask if there is anything else.",
+                "If the caller goes silent, ask 'Hello, are you still there?' before thinking about ending the call.",
+                "DO NOT REPEAT: ask 'anything else I can help with?' at most ONCE in the whole call; after that, if "
+                "the caller says nothing, wait in silence. If they only say 'I see', 'ok', 'right' or 'hmm', just "
+                "say 'Sure!' or 'Great!' and wait: never repeat questions or sentences you already said. If you hear "
+                "your own words coming back (echo on the line), ignore them: do not answer them.",
+                f"Maximum call length: {minutos} minutes.",
                 f"OWNER'S SITUATION NOW: {situacao or 'busy, no forecast'}",
                 "INFORMATION (written by the owner):",
                 base or "(nothing written yet)",
@@ -845,7 +913,19 @@ class Motor:
             "RECADO: sempre que a pessoa disser nome, telefone, assunto ou pedir retorno, chame anotar_recado com tudo o "
             "que ela disse ANTES de dizer que anotou. Nunca diga 'anotei' sem ter chamado anotar_recado. Se faltar algo "
             "importante (nome, assunto), pergunte uma vez.",
-            f"ENCERRAR: quando a conversa terminar, despeça-se em uma frase e só então chame encerrar_ligacao. "
+            "NUNCA DESLIGUE NA CARA DA PESSOA. Anotar recado ou responder uma pergunta NÃO termina a ligação: depois de "
+            "chamar anotar_recado, confirme o recado em uma frase, pergunte se pode ajudar em mais alguma coisa e "
+            "ESPERE a resposta.",
+            "'Bom dia', 'boa tarde', 'boa noite', 'oi', 'tudo bem?', 'obrigado' e 'ok' sozinhos NÃO são despedida.",
+            "Nunca diga tchau antes da pessoa. Só quando ela se despedir (tchau, até logo, até mais, falou) ou disser "
+            "que não precisa de mais nada depois que você perguntou, despeça-se em uma frase curta e então chame "
+            "encerrar_ligacao. Na dúvida, NÃO encerre: pergunte se pode ajudar em mais alguma coisa.",
+            "Se a pessoa ficar em silêncio, pergunte 'Alô, você ainda está aí?' antes de pensar em encerrar.",
+            "NÃO REPITA: pergunte 'posso ajudar em mais alguma coisa?' no máximo UMA vez na ligação inteira; depois "
+            "disso, se a pessoa não disser nada, fique em silêncio esperando. Se ela disser só 'entendi', 'ok', "
+            "'certo', 'tá bom' ou 'hum', responda só 'Certo!' ou 'Que bom!' e espere: não repita perguntas nem "
+            "frases que você já disse. Se você ouvir as suas próprias palavras de volta (eco da ligação), ignore: "
+            "não responda a elas.",
             f"A ligação dura no máximo {minutos} minutos.",
             f"SITUAÇÃO DO DONO AGORA: {situacao or 'ocupado, sem previsão de quando atende'}",
             "INFORMAÇÕES (escritas pelo dono):",
@@ -874,7 +954,9 @@ class Motor:
             }, required=["recado"])))
         decl.append(types.FunctionDeclaration(
             name="encerrar_ligacao",
-            description="Desliga a ligacao. Chame so' DEPOIS de se despedir.",
+            description="Desliga a ligacao. So' DEPOIS que a PESSOA se despediu (tchau, ate logo) ou disse que nao precisa "
+                        "de mais nada, e depois de voce se despedir. NUNCA logo depois de anotar recado. / Hangs up: only "
+                        "after the CALLER said goodbye or that they need nothing else, never right after taking a message.",
             parameters=types.Schema(type="OBJECT", properties={
                 "motivo": types.Schema(type="STRING", description="Por que encerrou, em poucas palavras"),
             })))
@@ -902,23 +984,16 @@ class Motor:
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             thinking_config=types.ThinkingConfig(thinking_budget=0),
+            # v1.0.40: espera ~1,1 s de silencio antes de responder (com a protecao contra eco, o que a
+            # pessoa fala por cima dela se perde; com 0,8 s ela ainda entrava na pausa entre duas frases).
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    silence_duration_ms=1100, end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW)),
         )
         cliente = genai.Client(api_key=chave)
         # 1) A VOZ PRIMEIRO, a ligacao depois: se a Gemini recusar (cota, chave), a
         #    ligacao segue tocando para o dono em vez de ser atendida em silencio.
-        sessao_cm = None
-        sessao = None
-        erro = None
-        for modelo in LIVE_MODELOS:
-            try:
-                sessao_cm = cliente.aio.live.connect(model=modelo, config=config)
-                sessao = await asyncio.wait_for(sessao_cm.__aenter__(), timeout=12.0)
-                log(f"voz ao vivo aberta: {modelo} voz={lig.voz}")
-                break
-            except Exception as exc:  # noqa: BLE001
-                erro = exc
-                sessao, sessao_cm = None, None
-                log(f"voz ao vivo {modelo} nao abriu: {str(exc)[:200]}")
+        sessao_cm, sessao, erro, _rotulo = await self._abrir_voz(cliente, types, config, lig)
         if sessao is None:
             texto = SEC.txt("A secretária não conseguiu abrir a voz agora", "The assistant could not start her voice right now")
             if erro is not None and re.search(r"429|quota|exhaust|RESOURCE", str(erro), re.I):
@@ -926,6 +1001,11 @@ class Motor:
             self.eventos.por("erro", id=lig.id, texto=texto + SEC.txt(". A ligação continua tocando.", ". The call is still ringing."))
             lig.decidida = False
             return
+        lig.sessao = sessao
+        tarefas: list = []
+        relogio = None
+        vigia_silencio = None
+        espera_fim = None
         try:
             # 2) Atende: o "microfone" da ligacao passa a ser a voz da secretaria.
             if self.lig is not lig or lig.estado != "tocando":
@@ -939,6 +1019,7 @@ class Motor:
                 return
             lig.estado = "secretaria"
             lig.atendida_em = time.time()
+            lig.atendida_mono = time.monotonic()
             lig.fila = asyncio.Queue(maxsize=80)
             self.eventos.por("atendeu", id=lig.id, nome=lig.nome, quem="secretaria",
                              voz=SEC.nome_da_voz(self.cfg.get("voz") or "leda"))
@@ -948,51 +1029,319 @@ class Motor:
                     f"[SISTEMA] A ligação de {lig.nome} acabou de ser atendida por você. Cumprimente agora.")
                     if not _em_ingles() else f"[SYSTEM] The call from {lig.nome} was just answered by you. Greet now.")]),
                 turn_complete=True)
-            tarefas = [
-                asyncio.create_task(self._mandar_audio(lig, sessao, types)),
-                asyncio.create_task(self._receber(lig, sessao, types)),
-                asyncio.create_task(self._relogio(lig, sessao, types)),
-            ]
+            tarefas = [asyncio.create_task(self._mandar_audio(lig, sessao, types)),
+                       asyncio.create_task(self._receber(lig, sessao, types))]
+            relogio = asyncio.create_task(self._relogio(lig, types))
+            vigia_silencio = asyncio.create_task(self._vigia_silencio(lig, types))
             espera_fim = asyncio.create_task(lig.fim.wait())
-            espera_enc = asyncio.create_task(lig.encerrar_pedido.wait())
-            prontas, _ = await asyncio.wait([espera_fim, espera_enc, *tarefas], return_when=asyncio.FIRST_COMPLETED)
-            if espera_enc in prontas and not lig.fim.is_set():
-                await self._esvaziar_voz(lig)
-                await self._clicar(lig.pagina, "desligar")
-                lig.motivo_fim = lig.motivo_fim or "a secretaria encerrou"
-            for t in [espera_fim, espera_enc, *tarefas]:
-                t.cancel()
-            for t in tarefas:
-                if t in prontas and t.exception() is not None:
-                    log("tarefa da conversa caiu: " + repr(t.exception())[:300])
+            while True:
+                espera_enc = asyncio.create_task(lig.encerrar_pedido.wait())
+                prontas, _ = await asyncio.wait([espera_fim, espera_enc, *tarefas], return_when=asyncio.FIRST_COMPLETED)
+                if espera_fim in prontas or lig.fim.is_set():
+                    espera_enc.cancel()
+                    break
+                if espera_enc in prontas:
+                    # Ela se despediu (o pedido ja' passou pela conferencia) ou acabou o tempo.
+                    # v1.0.40: espera a Gemini terminar a fala (a despedida pode vir depois do pedido),
+                    # termina de tocar, espera um instante e SO' desliga se a pessoa nao voltou a
+                    # falar ("espera, so' mais uma coisa").
+                    try:
+                        await asyncio.wait_for(lig.turno_fechado.wait(), timeout=4.0)
+                    except asyncio.TimeoutError:
+                        pass
+                    await self._esvaziar_voz(lig)
+                    if not lig.limite and await self._pessoa_voltou(lig, 2.5):
+                        log("a pessoa voltou a falar depois da despedida: a ligacao continua")
+                        lig.encerrar_pedido.clear()
+                        lig.motivo_fim = ""
+                        continue
                     if not lig.fim.is_set():
                         await self._clicar(lig.pagina, "desligar")
+                    lig.motivo_fim = lig.motivo_fim or "a secretaria encerrou"
+                    break
+                espera_enc.cancel()
+                # Uma tarefa da voz terminou: quase sempre a Gemini derrubou a sessao (1011, go_away).
+                caiu = next((t for t in tarefas if t in prontas), None)
+                exc = None
+                if caiu is not None and not caiu.cancelled():
+                    exc = caiu.exception()
+                log("tarefa da conversa caiu: " + repr(exc)[:300])
+                for t in tarefas:
+                    t.cancel()
+                tarefas = []
+                if lig.fim.is_set() or lig.estado != "secretaria":
+                    break
+                # v1.0.40: a ligacao NAO cai junto. Reabre a voz e continua a MESMA conversa
+                # (retomada da Gemini; sem ela, a conversa ate' aqui vai na instrucao).
+                novo = None
+                if time.monotonic() - lig.ultima_reconexao < 15.0:
+                    # Voltou e caiu de novo em seguida: a conversa guardada na Gemini esta' "doente".
+                    # Abre conversa nova (com o que foi falado na instrucao), de preferencia noutro modelo.
+                    log(f"caiu de novo logo depois de voltar: conversa nova, evitando {lig.modelo}")
+                    lig.handle = None
+                    lig.evitar_modelo = lig.modelo
+                if lig.reconexoes < 4:
+                    lig.reconexoes += 1
+                    lig.ultima_reconexao = time.monotonic()
+                    try:
+                        await asyncio.wait_for(sessao_cm.__aexit__(None, None, None), timeout=3.0)
+                    except Exception:
+                        pass
+                    sessao_cm = None
+                    cfg_ctx = config.model_copy(update={"system_instruction": types.Content(
+                        parts=[types.Part(text=self._instrucao(lig) + self._contexto_da_conversa(lig))])})
+                    novo = await self._abrir_voz(cliente, types, cfg_ctx, lig, config_retomar=config)
+                if not novo or novo[1] is None:
+                    log("a voz nao voltou: desligando")
+                    lig.motivo_fim = SEC.txt("a conexão com a Gemini caiu", "the Gemini connection dropped")
+                    if not lig.fim.is_set():
+                        await self._clicar(lig.pagina, "desligar")
+                    break
+                sessao_cm, sessao, _erro, rotulo = novo
+                lig.sessao = sessao
+                log(f"voz de volta ({rotulo}), reconexao {lig.reconexoes}")
+                while lig.fila.qsize() > 30:          # fica so' o fim do que a pessoa falou na queda
+                    try:
+                        lig.fila.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                tarefas = [asyncio.create_task(self._mandar_audio(lig, sessao, types)),
+                           asyncio.create_task(self._receber(lig, sessao, types))]
+                if time.monotonic() - lig.ultima_voz < 2.0:
+                    # A pessoa esta' falando agora: nada de falar por cima dela; so' o aviso, e ela
+                    # responde quando a pessoa terminar.
+                    await self._contexto(sessao, types, SEC.txt(
+                        "[SISTEMA] A linha da ligação falhou por um instante e já voltou; a pessoa está falando agora. "
+                        "Não se apresente de novo. Escute e responda ao que ela disser; se faltou um pedaço, peça "
+                        "desculpas rapidinho e peça para ela repetir.",
+                        "[SYSTEM] The call line dropped for a moment and is back; the caller is talking now. Do not "
+                        "introduce yourself again. Listen and answer what they say; if you missed part of it, "
+                        "apologize briefly and ask them to repeat."), responder=False)
+                else:
+                    await self._contexto(sessao, types, SEC.txt(
+                        "[SISTEMA] A linha da ligação falhou por um instante e já voltou. Não se apresente de novo. "
+                        "Continue a conversa de onde parou (se a pessoa tinha acabado de falar, peça desculpas "
+                        "rapidinho e peça para ela repetir).",
+                        "[SYSTEM] The call line dropped for a moment and is back. Do not introduce yourself again. "
+                        "Continue where you left off (if the caller had just spoken, apologize briefly and ask them "
+                        "to repeat)."), responder=True)
         finally:
+            for t in [relogio, vigia_silencio, espera_fim, *tarefas]:
+                if t is not None:
+                    t.cancel()
             try:
-                await asyncio.wait_for(sessao_cm.__aexit__(None, None, None), timeout=5.0)
+                if sessao_cm is not None:
+                    await asyncio.wait_for(sessao_cm.__aexit__(None, None, None), timeout=5.0)
             except Exception:
                 pass
+
+    async def _contexto(self, sessao, types, texto: str, responder: bool) -> None:
+        """Um aviso [SISTEMA] para a Gemini. responder=False: so' entra no contexto (ela nao fala agora)."""
+        try:
+            await sessao.send_client_content(turns=types.Content(role="user", parts=[types.Part(text=texto)]),
+                                             turn_complete=responder)
+        except Exception as exc:  # noqa: BLE001
+            log(f"aviso para a Gemini: {str(exc)[:120]}")
+
+    async def _abrir_voz(self, cliente, types, config, lig: Ligacao, config_retomar=None):
+        """Abre a voz ao vivo -> (sessao_cm, sessao, erro, rotulo).
+
+        v1.0.40: pede a RETOMADA de sessao (a Gemini manda um codigo para continuar a mesma
+        conversa se a linha cair). `config_retomar` = reconexao: tenta primeiro com esse codigo.
+        Se o modelo recusar a opcao, abre do jeito antigo. Cota/chave/tempo: passa ao proximo modelo."""
+        erro = None
+        modelos = list(LIVE_MODELOS)
+        if lig.modelo in modelos and config_retomar is not None:
+            # Reconexao: o codigo de retomada so' vale no MESMO modelo; ele vai primeiro.
+            modelos.remove(lig.modelo)
+            modelos.insert(0, lig.modelo)
+        if lig.evitar_modelo in modelos:
+            modelos.remove(lig.evitar_modelo)
+            modelos.append(lig.evitar_modelo)
+        for modelo in modelos:
+            # "Pensar" zero so' existe nos 2.5; os 3.x recusam/ignoram a opcao.
+            pensar = {"thinking_config": types.ThinkingConfig(thinking_budget=0) if "2.5" in modelo else None}
+            tentativas = []
+            if config_retomar is not None and lig.handle and modelo == lig.modelo:
+                tentativas.append(("retomada", config_retomar.model_copy(update={
+                    **pensar, "session_resumption": types.SessionResumptionConfig(handle=lig.handle)})))
+            tentativas.append(("nova", config.model_copy(update={
+                **pensar, "session_resumption": types.SessionResumptionConfig()})))
+            # "simples" = do jeito da v1.0.39 (sem retomada e sem o ajuste de silencio), caso o modelo recuse.
+            tentativas.append(("simples", config.model_copy(update={**pensar, "realtime_input_config": None})))
+            for rotulo, cfg in tentativas:
+                cm = None
+                try:
+                    cm = cliente.aio.live.connect(model=modelo, config=cfg)
+                    try:
+                        sessao = await asyncio.wait_for(cm.__aenter__(), timeout=12.0)
+                    except Exception as exc_ret:  # noqa: BLE001
+                        # 11/11: logo depois da queda o servidor ainda acha a conversa antiga conectada
+                        # ("session is already connected to an existing client"): 1 s e de novo.
+                        if rotulo != "retomada" or "already connected" not in str(exc_ret):
+                            raise
+                        log("retomada: a conversa antiga ainda estava presa no servidor; tentando de novo em 1 s")
+                        await asyncio.sleep(1.0)
+                        cm = cliente.aio.live.connect(model=modelo, config=cfg)
+                        sessao = await asyncio.wait_for(cm.__aenter__(), timeout=12.0)
+                    log(f"voz ao vivo aberta ({rotulo}): {modelo} voz={lig.voz}")
+                    if modelo != lig.modelo:
+                        lig.handle = None          # o codigo de retomada era de outro modelo
+                    lig.modelo = modelo
+                    return cm, sessao, None, rotulo
+                except Exception as exc:  # noqa: BLE001
+                    erro = exc
+                    log(f"voz ao vivo {modelo} ({rotulo}) nao abriu: {str(exc)[:200]}")
+                    if rotulo == "retomada":
+                        lig.handle = None          # codigo vencido: segue com a conversa na instrucao
+                        continue
+                    if isinstance(exc, asyncio.TimeoutError) or re.search(
+                            r"429|quota|exhaust|RESOURCE|API key|PERMISSION|401|403|not found|404", str(exc), re.I):
+                        break
+        return None, None, erro, ""
+
+    def _contexto_da_conversa(self, lig: Ligacao) -> str:
+        """A conversa ate' aqui, para a voz reaberta continuar de onde parou (sem a retomada da Gemini)."""
+        falas = lig.conversa[-24:]
+        if not falas:
+            return ""
+        t = SEC.txt
+        linhas = ["", "", t("A LIGAÇÃO JÁ ESTÁ EM ANDAMENTO (a linha caiu um instante e voltou). Você JÁ se apresentou: "
+                            "NÃO se apresente de novo. Conversa até agora:",
+                            "THE CALL IS ALREADY IN PROGRESS (the line dropped for a moment and came back). You ALREADY "
+                            "introduced yourself: do NOT do it again. Conversation so far:")]
+        for quem, texto in falas:
+            rot = {"pessoa": lig.nome, "secretaria": t("Você", "You"), "dono": t("O dono respondeu", "The owner answered")}.get(quem, quem)
+            linhas.append(f"{rot}: {texto}")
+        if lig.recados:
+            linhas.append(t("Recados já anotados: ", "Messages already taken: ") + "; ".join(r["recado"] for r in lig.recados))
+        return "\n".join(linhas)
+
+    async def _pessoa_voltou(self, lig: Ligacao, segundos: float) -> bool:
+        """Depois da despedida dela: a pessoa falou de novo nesse intervalo? (som ou texto)"""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < segundos:
+            if lig.fim.is_set():
+                return False
+            if lig.ultima_voz > t0 + 0.25 or lig.ultima_fala_pessoa > t0 + 0.25:
+                # Falou alguma coisa. Se for so' outro "tchau" de volta, pode desligar.
+                ate = time.monotonic() + 1.5
+                while time.monotonic() < ate and not lig.fim.is_set():
+                    texto = " ".join("".join(lig.buf_pessoa).split())
+                    n = SEC._norm(texto)  # noqa: SLF001
+                    if n:
+                        if _RX_DESPEDIDA.search(n) and len(n.split()) <= 6 and not _RX_CONTINUA.search(n):
+                            return False
+                        if len(n.split()) >= 3:
+                            return True
+                    await asyncio.sleep(0.1)
+                return True
+            await asyncio.sleep(0.1)
+        return False
+
+    @staticmethod
+    def _ja_se_despediu(lig: Ligacao) -> bool:
+        """A ultima fala dela (antes do pedido de desligar) ja' e' uma despedida?"""
+        ultima = next((SEC._norm(t) for q, t in reversed(lig.conversa) if q == "secretaria"), "")  # noqa: SLF001
+        return bool(ultima) and bool(_RX_DESPEDIDA.search(ultima) or re.search(
+            r"\b(tenha (um|uma)|boa (tarde|noite)|bom dia|obrigad[oa] pela ligacao|have a|thanks for calling)\b", ultima))
+
+    @staticmethod
+    def _ja_perguntou_mais(lig: Ligacao) -> bool:
+        """Ela ja' perguntou "posso ajudar em mais alguma coisa?" nesta ligacao? (para nao repetir)"""
+        return any(q == "secretaria" and _RX_PERGUNTOU_MAIS.search(SEC._norm(t))  # noqa: SLF001
+                   for q, t in lig.conversa)
+
+    def _pode_encerrar(self, lig: Ligacao) -> tuple[bool, str]:
+        """v1.0.40: o pedido de desligar da Gemini so' vale se quem ligou se despediu."""
+        if lig.limite:
+            return True, "limite de tempo"
+        agora = time.monotonic()
+        ultima = max(lig.ultima_voz, lig.ultima_fala_pessoa, lig.atendida_mono or agora)
+        if agora - ultima >= SILENCIO_PARA_ENCERRAR_S:
+            return True, f"a pessoa esta calada ha {agora - ultima:.0f} s"
+        pessoa = [(i, t) for i, (q, t) in enumerate(lig.conversa) if q == "pessoa"]
+        if not pessoa:
+            return False, "a pessoa ainda nao falou nada"
+        i_ult, ult = pessoa[-1]
+        n = SEC._norm(ult)  # noqa: SLF001
+        if _RX_DESPEDIDA.search(n):
+            return True, "a pessoa se despediu"
+        anterior = next((SEC._norm(t) for q, t in reversed(lig.conversa[:i_ult]) if q == "secretaria"), "")  # noqa: SLF001
+        # (Sem barrar pelo "?": "Só isso mesmo. Muito obrigada, viu?" e' despedida — teste do Diego 11/11.
+        # O que e' pergunta de verdade, o _RX_CONTINUA pega: "tá bom, e o preço?", "mas quanto custa?".)
+        if (anterior and _RX_PERGUNTOU_MAIS.search(anterior) and len(n.split()) <= 10
+                and _RX_NEGATIVA.search(n) and not _RX_CONTINUA.search(n)):
+            return True, "a pessoa disse que nao precisa de mais nada"
+        return False, "a pessoa ainda nao se despediu"
 
     async def _mandar_audio(self, lig: Ligacao, sessao, types) -> None:
         import array  # noqa: PLC0415
         fila: asyncio.Queue = lig.fila
         pedacos, soma, picos, relatos = 0, 0.0, 0, 0
+        seguidos = 0
+        cedo = 0
         while True:
             dado = await fila.get()
             if not dado:
                 continue
-            await sessao.send_realtime_input(audio=types.Blob(data=dado, mime_type="audio/pcm;rate=16000"))
+            rms = 0.0
+            try:
+                a = array.array("h", dado[: len(dado) // 2 * 2])
+                if a:
+                    amostra = a[::4]
+                    rms = (sum(x * x for x in amostra) / max(1, len(amostra))) ** 0.5
+            except Exception:
+                pass
+            # v1.0.40 (teste do Diego 11/11, "ela repetiu muito"): com o celular perto da caixa do PC
+            # (opcao ouvir no PC) ou em viva-voz, a voz DELA volta pela ligacao; ela ouvia a si mesma e
+            # respondia de novo, sem parar. Enquanto ela fala (e um pouco depois), vai SILENCIO no lugar.
+            # (Testado 11/11: deixar passar "quem fala por cima, mais forte que o eco" deixou o eco da
+            # caixa passar de novo; meio-duplex e' o que segura. A espera de 1,1 s antes de ela
+            # responder diminui o atropelo.)
+            agora = time.monotonic()
+            eco = agora < lig.fala_ate + CAUDA_ECO_S
+            # A pessoa ainda estava falando quando ela comecou a responder: nos primeiros ~0,3 s da fala
+            # dela o eco ainda nao teve tempo de voltar, entao voz forte ai' e' a PESSOA continuando a frase.
+            # Ela para (o resto da resposta nao sai) e a continuacao passa direto para a Gemini.
+            if eco and agora - lig.inicio_fala < 0.3 and agora - lig.ultima_voz < 2.0:
+                cedo = cedo + 1 if rms > 1500.0 else 0
+                if cedo >= 2:
+                    cedo = 0
+                    lig.descartar_turno = True
+                    lig.fala_ate = agora
+                    lig.escuta_livre_ate = agora + 1.5
+                    try:
+                        lig.pagina.executar("window.__secLimpar && window.__secLimpar()")
+                    except Exception:
+                        pass
+                    log("a pessoa ainda estava falando quando ela comecou: ela parou para escutar")
+                    # A Gemini precisa saber que NINGUEM ouviu o que ela comecou (senao fica esperando
+                    # resposta a uma pergunta que nao saiu na ligacao). Sem pedir resposta agora.
+                    asyncio.ensure_future(self._contexto(sessao, types, SEC.txt(
+                        "[SISTEMA] A pessoa continuou falando e NÃO ouviu nada do que você começou a dizer agora. "
+                        "Espere ela terminar e responda ao que ela disser.",
+                        "[SYSTEM] The caller kept talking and did NOT hear anything you just started to say. Wait "
+                        "for them to finish and answer what they say."), responder=False))
+            else:
+                cedo = 0
+            if agora < lig.escuta_livre_ate:
+                eco = False
+            await sessao.send_realtime_input(audio=types.Blob(data=bytes(len(dado)) if eco else dado,
+                                                              mime_type="audio/pcm;rate=16000"))
+            # v1.0.40: quando quem liga FALOU por ultimo (2 pedacos de 100 ms seguidos com voz; nas
+            # ligacoes reais a voz da 2.500 a 3.500 e o silencio fica abaixo de 150).
+            if rms > 700 and not eco:
+                seguidos += 1
+                if seguidos >= 2:
+                    lig.ultima_voz = time.monotonic()
+            else:
+                seguidos = 0
             # Registro do VOLUME de quem liga (a cada ~3 s, ate 20 vezes por ligacao): mostra na hora
             # se a escuta da secretaria esta recebendo voz ou silencio.
             if relatos < 20:
-                try:
-                    a = array.array("h", dado[: len(dado) // 2 * 2])
-                    if a:
-                        rms = (sum(x * x for x in a[::4]) / max(1, len(a[::4]))) ** 0.5
-                        soma += rms
-                        picos += rms > 500
-                except Exception:
-                    pass
+                soma += rms
+                picos += rms > 500
                 pedacos += 1
                 if pedacos >= 30:
                     log(f"escuta: {pedacos} pedacos de 100 ms, volume medio {soma / pedacos:.0f}, com voz {picos}")
@@ -1000,8 +1349,13 @@ class Motor:
                     relatos += 1
 
     async def _tocar(self, lig: Ligacao, dados: bytes) -> None:
-        if not dados:
+        if not dados or lig.mudo_depois or lig.descartar_turno:
             return
+        # A voz dela e' PCM 16 bits 24 kHz (2 bytes x 24.000 por segundo); a pagina toca em tempo real.
+        agora = time.monotonic()
+        if lig.fala_ate < agora:
+            lig.inicio_fala = agora              # comecou uma fala nova dela
+        lig.fala_ate = max(lig.fala_ate, agora) + len(dados) / 48000.0
         try:
             lig.pagina.executar("window.__secTocar && window.__secTocar('" + base64.b64encode(dados).decode("ascii") + "')")
         except Exception as exc:  # noqa: BLE001
@@ -1023,13 +1377,17 @@ class Motor:
 
     async def _receber(self, lig: Ligacao, sessao, types) -> None:
         pedaco = bytearray()
-        ultima = time.monotonic()
         fala_pessoa: list[str] = []
+        lig.buf_pessoa = fala_pessoa       # o que a pessoa esta falando agora (ainda sem fim de turno)
         fala_sec: list[str] = []
 
+        def _limpa(lista: list) -> str:
+            # v1.0.40: o modelo novo escreve marcas na transcricao ("<no speech>{pause}", "<noise>").
+            return " ".join(re.sub(r"<[^<>]{1,24}>|\{[^{}]{1,24}\}", " ", "".join(lista)).split())
+
         def _fechar_turno() -> None:
-            p = " ".join("".join(fala_pessoa).split())
-            s = " ".join("".join(fala_sec).split())
+            p = _limpa(fala_pessoa)
+            s = "" if lig.mudo_depois else _limpa(fala_sec)     # o que ela "falou" depois do tchau nao saiu
             if p:
                 lig.conversa.append(("pessoa", p))
                 self.eventos.por("fala", id=lig.id, quem="pessoa", texto=p)
@@ -1038,13 +1396,28 @@ class Motor:
                 self.eventos.por("fala", id=lig.id, quem="secretaria", texto=s)
             fala_pessoa.clear()
             fala_sec.clear()
+            lig.turno_fechado.set()
 
+        try:
+            await self._receber_laco(lig, sessao, types, pedaco, fala_pessoa, fala_sec, _fechar_turno)
+        finally:
+            # v1.0.40: se a linha cair no meio, a ultima fala nao se perde (vai para a reconexao e o arquivo).
+            _fechar_turno()
+
+    async def _receber_laco(self, lig: Ligacao, sessao, types, pedaco: bytearray, fala_pessoa: list,
+                            fala_sec: list, _fechar_turno) -> None:
+        ultima = time.monotonic()
         while True:
             async for msg in sessao.receive():
+                ret = getattr(msg, "session_resumption_update", None)
+                if ret is not None and getattr(ret, "resumable", False) and getattr(ret, "new_handle", None):
+                    lig.handle = ret.new_handle        # v1.0.40: para continuar a conversa se a linha cair
                 sc = getattr(msg, "server_content", None)
                 if sc is not None:
                     if getattr(sc, "interrupted", False):
                         pedaco.clear()
+                        lig.fala_ate = time.monotonic()       # a pagina joga fora o que faltava tocar
+                        lig.descartar_turno = False
                         try:
                             lig.pagina.executar("window.__secLimpar && window.__secLimpar()")
                         except Exception:
@@ -1062,6 +1435,8 @@ class Motor:
                     ent = getattr(sc, "input_transcription", None)
                     if ent is not None and getattr(ent, "text", None):
                         fala_pessoa.append(ent.text)
+                        if re.search(r"\w", ent.text):
+                            lig.ultima_fala_pessoa = time.monotonic()
                     sai = getattr(sc, "output_transcription", None)
                     if sai is not None and getattr(sai, "text", None):
                         fala_sec.append(sai.text)
@@ -1070,6 +1445,7 @@ class Motor:
                             await self._tocar(lig, bytes(pedaco))
                             pedaco.clear()
                         _fechar_turno()
+                        lig.descartar_turno = False           # a proxima resposta dela sai normal
                 chamada = getattr(msg, "tool_call", None)
                 if chamada is not None:
                     if pedaco:
@@ -1088,14 +1464,59 @@ class Motor:
                 await self._tocar(lig, bytes(pedaco))
                 pedaco.clear()
 
-    async def _relogio(self, lig: Ligacao, sessao, types) -> None:
+    async def _vigia_silencio(self, lig: Ligacao, types) -> None:
+        """v1.0.40: a ligacao nunca fica pendurada. A pessoa calada 30 s: "alo, ainda esta' ai'?" (uma vez);
+        mais 15 s sem resposta: despedida e encerra. Falou de novo = volta a contar do zero."""
+        t_aviso = 0.0
+        while not lig.fim.is_set():
+            await asyncio.sleep(1.0)
+            if self.respostas:                   # esperando o dono responder uma pergunta: nao cutuca
+                continue
+            agora = time.monotonic()
+            voz_pessoa = max(lig.ultima_voz, lig.ultima_fala_pessoa)
+            if lig.avisou_silencio and voz_pessoa > t_aviso:
+                lig.avisou_silencio = 0          # a pessoa respondeu
+            # Depois de um aviso, conta a partir DELE (antes o 2o aviso saia 1 s depois do 1o).
+            calado = agora - max(voz_pessoa, lig.fala_ate, t_aviso, lig.atendida_mono or agora)
+            texto = None
+            if lig.avisou_silencio == 0 and calado >= 30.0:
+                texto = SEC.txt("[SISTEMA] A pessoa está em silêncio há 30 segundos. Pergunte uma vez: "
+                                "'Alô, você ainda está aí?'",
+                                "[SYSTEM] The caller has been silent for 30 seconds. Ask once: "
+                                "'Hello, are you still there?'")
+            elif lig.avisou_silencio == 1 and calado >= 15.0:
+                texto = SEC.txt("[SISTEMA] A pessoa continua sem responder. Despeça-se em uma frase curta e chame "
+                                "encerrar_ligacao.",
+                                "[SYSTEM] The caller still does not answer. Say a short goodbye and call "
+                                "encerrar_ligacao.")
+            elif lig.avisou_silencio == 2 and calado >= 15.0:
+                log("silencio: a Gemini nao encerrou; o motor encerra")
+                lig.motivo_fim = lig.motivo_fim or SEC.txt("a pessoa ficou em silêncio", "the caller went silent")
+                lig.encerrar_pedido.set()
+                return
+            if texto:
+                lig.avisou_silencio += 1
+                t_aviso = agora
+                log(f"silencio de {calado:.0f} s: cutucando a Gemini ({lig.avisou_silencio})")
+                try:
+                    await lig.sessao.send_client_content(
+                        turns=types.Content(role="user", parts=[types.Part(text=texto)]), turn_complete=True)
+                except Exception as exc:  # noqa: BLE001
+                    log(f"silencio: {str(exc)[:120]}")
+
+    async def _relogio(self, lig: Ligacao, types) -> None:
         maximo = max(1, int(self.cfg.get("duracao_max_min") or 5)) * 60
         await asyncio.sleep(max(10, maximo - 30))
-        aviso = ("[SISTEMA] Falta meio minuto para o limite da ligação: despeça-se agora e chame encerrar_ligacao."
-                 if not _em_ingles() else "[SYSTEM] 30 seconds left: say goodbye now and call encerrar_ligacao.")
+        lig.limite = True
+        aviso = ("[SISTEMA] Falta meio minuto para o limite da ligação: avise com educação que precisa encerrar, "
+                 "ofereça anotar o recado se ainda não anotou, despeça-se e chame encerrar_ligacao."
+                 if not _em_ingles() else
+                 "[SYSTEM] 30 seconds left: politely say you need to end the call, offer to take a message if you have "
+                 "not yet, say goodbye and call encerrar_ligacao.")
         try:
-            await sessao.send_client_content(turns=types.Content(role="user", parts=[types.Part(text=aviso)]),
-                                             turn_complete=True)
+            # A sessao em uso agora (pode ter mudado numa reconexao).
+            await lig.sessao.send_client_content(turns=types.Content(role="user", parts=[types.Part(text=aviso)]),
+                                                 turn_complete=True)
         except Exception:
             pass
         await asyncio.sleep(30)
@@ -1110,11 +1531,54 @@ class Motor:
             if item["recado"]:
                 lig.recados.append(item)
                 self.eventos.por("recado", id=lig.id, nome=lig.nome, **item)
-            return {"ok": True, "anotado": True}
+            # v1.0.40: era aqui que ela desligava na cara (anotava e ja' chamava encerrar_ligacao).
+            if self._ja_perguntou_mais(lig):
+                return {"ok": True, "anotado": True, "instrucao": SEC.txt(
+                    "Recado anotado. Confirme o recado em uma frase curta. Você JÁ perguntou se a pessoa precisa de "
+                    "mais alguma coisa: NÃO pergunte de novo. Não se despeça e não encerre: espere em silêncio.",
+                    "Message taken. Confirm it in one short sentence. You ALREADY asked if they need anything else: "
+                    "do NOT ask again. Do not say goodbye or end the call: wait in silence.")}
+            return {"ok": True, "anotado": True, "instrucao": SEC.txt(
+                "Recado anotado. Agora confirme o recado em uma frase e pergunte UMA vez se pode ajudar em mais alguma "
+                "coisa. NÃO se despeça e NÃO encerre a ligação: espere em silêncio a pessoa responder.",
+                "Message taken. Now confirm it in one sentence and ask ONCE if there is anything else you can help "
+                "with. Do NOT say goodbye and do NOT end the call: wait in silence for the caller to answer.")}
         if nome == "encerrar_ligacao":
+            pode, porque = self._pode_encerrar(lig)
+            if not pode:
+                lig.recusas_encerrar += 1
+                log(f"encerrar RECUSADO ({porque}): a ligacao continua")
+                if self._ja_perguntou_mais(lig):
+                    return {"ok": False, "encerrada": False, "instrucao": SEC.txt(
+                        "A ligação NÃO foi encerrada: a pessoa ainda não se despediu. Não diga tchau e NÃO pergunte de "
+                        "novo se ela precisa de algo (você já perguntou). Espere em silêncio a pessoa falar.",
+                        "The call was NOT ended: the caller has not said goodbye. Do not say goodbye and do NOT ask "
+                        "again if they need anything (you already asked). Wait in silence for them to speak.")}
+                return {"ok": False, "encerrada": False, "instrucao": SEC.txt(
+                    "A ligação NÃO foi encerrada: a pessoa ainda não se despediu. Não diga tchau. Se você ainda não "
+                    "perguntou se ela precisa de mais alguma coisa, pergunte uma vez; se já perguntou, NÃO repita: "
+                    "espere em silêncio. Só chame encerrar_ligacao de novo depois que a pessoa se despedir (tchau, "
+                    "até logo) ou disser que não precisa de mais nada.",
+                    "The call was NOT ended: the caller has not said goodbye. Do not say goodbye. If you have not "
+                    "asked yet whether they need anything else, ask once; if you already asked, do NOT repeat it: "
+                    "wait in silence. Only call encerrar_ligacao again after the caller says goodbye or says they "
+                    "need nothing else.")}
+            log(f"encerrar aceito ({porque})")
             lig.motivo_fim = str(args.get("motivo") or "conversa terminada")
+            # A despedida dela pode vir DEPOIS desta resposta (os 3.x fazem assim): o motor espera o
+            # fim da fala antes de desligar. Se ela JA' se despediu, nada mais sai na ligacao (11/11: o
+            # 3.8 dizia "This ends the call." / "The line has been disconnected." depois do tchau).
+            lig.turno_fechado.clear()
             lig.encerrar_pedido.set()
-            return {"ok": True}
+            if self._ja_se_despediu(lig):
+                lig.mudo_depois = True
+                return {"ok": True, "instrucao": SEC.txt("Ligação encerrada. Não diga mais nada.",
+                                                         "Call ended. Say nothing else.")}
+            return {"ok": True, "instrucao": SEC.txt(
+                "A ligação vai ser desligada agora. Se você ainda não se despediu, diga só uma despedida curta em "
+                "português (ex.: 'Tchau, tenha uma boa noite!'). Não diga mais nada.",
+                "The call is being ended now. If you have not said goodbye yet, say only a short goodbye. "
+                "Say nothing else.")}
         if nome == "perguntar_ao_dono":
             pergunta = str(args.get("pergunta") or "").strip()
             if not pergunta:
@@ -1365,6 +1829,17 @@ class Motor:
                     "diag": self.ultimo_diag}
         if acao == "diags":
             return {"ok": True, "diags": self.diags[-80:]}
+        if acao == "derrubar_voz" and self.teste:
+            # So' na bancada (v1.0.40): imita a Gemini derrubando a voz no meio da ligacao (erro 1011).
+            lig = self.lig
+            ws = getattr(getattr(lig, "sessao", None), "_ws", None)
+            if ws is None:
+                return {"ok": False, "erro": "sem voz aberta"}
+            try:
+                await ws.close(code=1011, reason="teste da bancada")
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "erro": str(exc)[:160]}
+            return {"ok": True, "tinha_codigo_de_retomada": bool(lig.handle)}
         if acao == "clicar_texto":
             try:
                 r = await self.pagina.evaluate(

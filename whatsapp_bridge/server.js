@@ -42,7 +42,7 @@ const LAST_DISCONNECT_FILE = path.join(ROOT, 'last_disconnect.json');
 const DB_FILE = path.join(ROOT, 'mark_xlviii_whatsapp_db.json');
 const DB_BAK_FILE = DB_FILE + '.bak';
 const MEDIA_DIR = path.join(ROOT, 'media');
-const VERSION = '2026-10-13-ponte-estavel-39';
+const VERSION = '2026-11-11-ponte-jarvis-40';
 const BOOT_AT = new Date().toISOString();
 const MAX_SEND_BYTES = Number(process.env.MARKXLVIII_WHATSAPP_MAX_FILE_MB || process.env.CYBERBOT_WHATSAPP_MAX_FILE_MB || 100) * 1024 * 1024;
 try { fs.mkdirSync(MEDIA_DIR, { recursive: true }); } catch (_) {}
@@ -1765,15 +1765,13 @@ async function start({ fresh = false } = {}) {
       auth: { creds: state && state.creds, keys: chaves },
       logger: baileysLogger,
       // printQRInTerminal saiu (13/10/2026): obsoleto no 6.7.x, so gerava aviso.
-      // O SISTEMA QUE O CELULAR MOSTRA em "Aparelhos conectados" (27/09/2026).
-      // Era sempre Windows — no cliente do Big Linux o WhatsApp dele mostrava
-      // um aparelho Windows que ele nao tem. Agora e o sistema de verdade.
-      // (Nao muda o historico: o syncFullHistory esta desligado logo abaixo.)
-      browser: process.platform === 'linux'
-        ? ['Linux', 'Mark-XLVIII', require('os').release()]
-        : process.platform === 'darwin'
-          ? Browsers.macOS('Mark-XLVIII')
-          : Browsers.windows('Mark-XLVIII'),
+      // O NOME QUE O CELULAR MOSTRA em "Aparelhos conectados".
+      // v1.0.40 (11/11/2026, pedido do Diego): aparece "JARVIS" (antes era o
+      // sistema: Windows / Mac OS / Linux). O WhatsApp grava o nome no
+      // PAREAMENTO: vale para quem conectar (ler o QR) depois desta versao.
+      // 'Desktop' = icone de computador. (O historico nao muda: syncFullHistory
+      // continua desligado logo abaixo.)
+      browser: ['JARVIS', 'Desktop', '1.0.40'],
       connectTimeoutMs: 30000,
       // 60 s / 30 s (13/10/2026), o recomendado: com 15 s as consultas de
       // sessao em rede lenta estouravam e o envio dava "Timed Out".
@@ -2320,6 +2318,18 @@ app.post('/send', async (req, res) => {
     log('send ok', jid, id, `${Date.now() - t0}ms`);
     return res.json({ ok:true, result, id, jid });
   } catch(e) { responderErroDeEnvio(res, e, 'send'); }
+});
+// v1.0.40 (11/11/2026): a SECRETARIA DO CHAT mostra "digitando..." / "gravando audio..."
+// enquanto prepara a resposta. So' nesta conversa (nunca 'available', ver PRESENCA 13/10).
+app.post('/presence', async (req, res) => {
+  try {
+    if (!currentConnected()) return res.json({ ok: false, error: 'not connected', error_code: 'not_connected' });
+    const pedido = String(req.body.state || '');
+    const estado = ['composing', 'recording', 'paused'].includes(pedido) ? pedido : 'paused';
+    const jid = await resolveJid(req.body.to);
+    await withTimeout(Promise.resolve(sock.sendPresenceUpdate(estado, jid)), 3000, 'presence');
+    res.json({ ok: true });
+  } catch (e) { res.json({ ok: false, error: String(e?.message || e) }); }
 });
 app.post('/delete-last-sent', async (req, res) => {
   try {

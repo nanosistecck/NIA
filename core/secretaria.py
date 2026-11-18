@@ -80,19 +80,46 @@ PADRAO: dict = {
     # Arquivos de informacao FORA da pasta dela (ex.: a base na Area de Trabalho), lidos em
     # toda ligacao junto com os da pasta. O dono edita onde quiser.
     "arquivos_extras": [],
+    # ── v1.0.40: a SECRETARIA NO CHAT (core/secretaria_chat.py) ──────────────────────────
+    # Responde as MENSAGENS do WhatsApp (texto e audio) com a mesma base das ligacoes.
+    "chat_ligado": False,
+    # texto = digitando | audio = mensagem de voz com a voz dela | misto = alterna os dois
+    # (audio recebido -> responde em audio).
+    "chat_formato": "texto",
+    # Ela ouve os audios que mandarem (a Gemini escuta o arquivo) e responde.
+    "chat_ouvir_audios": True,
+    # Espera a pessoa terminar de mandar as mensagens seguidas antes de responder (segundos).
+    "chat_espera_s": 8,
+    # Modo ME PERGUNTA com o dono no PC: espera ele responder primeiro (segundos).
+    "chat_espera_dono_s": 60,
 }
+FORMATOS_CHAT = {
+    "texto": ("SÓ TEXTO", "Responde só digitando (mensagem escrita)"),
+    "audio": ("SÓ ÁUDIO", "Responde só com áudio, na voz escolhida"),
+    "misto": ("OS DOIS", "Uma hora digita, outra hora manda áudio (quem mandou áudio recebe áudio)"),
+}
+FORMATOS_CHAT_EN = {
+    "texto": ("TEXT ONLY", "Replies only by typing (written message)"),
+    "audio": ("AUDIO ONLY", "Replies only with audio, in the chosen voice"),
+    "misto": ("BOTH", "Sometimes types, sometimes sends audio (audio received = audio reply)"),
+}
+
+
+def formatos_chat() -> dict:
+    """{chave: (rotulo curto, explicacao)} na lingua do JARVIS (v1.0.40)."""
+    return FORMATOS_CHAT_EN if _ingles() else FORMATOS_CHAT
 MENSAGEM_RECUSA_EN = "Hi! I can't take your call right now, I'll get back to you as soon as I can."
 
 MODOS = {
-    "perguntar": "Me pergunta antes (se eu não responder, ela atende e pode me perguntar coisas na ligação)",
-    "sempre": "100% automática (atende sozinha e responde só pelo que está nos TXT, sem me perguntar)",
-    "so_avisar": "Só me avisa quem está ligando",
+    "perguntar": "Me pergunta antes (se eu não decidir, ela atende a ligação; se eu não responder a mensagem, ela responde)",
+    "sempre": "100% automática (atende e responde sozinha, só pelo que está nos TXT, sem me perguntar)",
+    "so_avisar": "Só me avisa quem está ligando ou mandando mensagem",
 }
 MODOS_CURTOS = {"perguntar": "ME PERGUNTA", "sempre": "100% AUTOMÁTICA", "so_avisar": "SÓ ME AVISA"}
 MODOS_EN = {
-    "perguntar": "Ask me first (if I don't answer, she picks up and can ask me things during the call)",
-    "sempre": "100% automatic (she answers by herself and replies only from the TXT files, without asking me)",
-    "so_avisar": "Just tell me who is calling",
+    "perguntar": "Ask me first (if I don't decide, she answers the call; if I don't reply to a message, she replies)",
+    "sempre": "100% automatic (she answers and replies by herself, only from the TXT files, without asking me)",
+    "so_avisar": "Just tell me who is calling or messaging",
 }
 MODOS_CURTOS_EN = {"perguntar": "ASK ME", "sempre": "100% AUTOMATIC", "so_avisar": "JUST TELL ME"}
 
@@ -130,6 +157,8 @@ def carregar() -> dict:
         pass
     if cfg.get("modo") not in MODOS:
         cfg["modo"] = "perguntar"
+    if cfg.get("chat_formato") not in FORMATOS_CHAT:
+        cfg["chat_formato"] = "texto"
     for k in ("nunca_atender_sozinha", "sempre_recusar"):
         if not isinstance(cfg.get(k), list):
             cfg[k] = [s.strip() for s in str(cfg.get(k) or "").split(",") if s.strip()]
@@ -205,6 +234,11 @@ def pasta_do_dono() -> Path:
 
 def pasta_ligacoes() -> Path:
     return pasta_do_dono() / "ligacoes"
+
+
+def pasta_mensagens() -> Path:
+    """v1.0.40: cada conversa do chat que ela respondeu (um arquivo por pessoa por dia)."""
+    return pasta_do_dono() / "mensagens"
 
 
 def arq_informacoes() -> Path:
@@ -491,10 +525,15 @@ _RE_DONO = re.compile(
     r"|let me (answer|take|talk)|leave it to me|put (it|him|her|them|the call) through"
     r"|pass (it|him|her|them|the call) to me|transfer( it| the call)?( to me)?|i want to (answer|talk))\b")
 _RE_RECUSAR = re.compile(
-    r"\b(recusa|recusar|rejeita|rejeitar|nao atende|nao atenda|nao quero atender|desliga|derruba|ignora|"
-    r"nao posso atender"
-    r"|decline|reject|refuse|don t answer|dont answer|do not answer|hang up|ignore( it| the call)?"
-    r"|i can t (answer|talk)|i cannot (answer|talk)|not now)\b")
+    r"\b(recusa|recusar|rejeita|rejeitar|nao atende|nao atenda|nao quero atender|nao posso atender"
+    r"|decline|reject|refuse|don t answer|dont answer|do not answer"
+    r"|i can t (answer|talk)|i cannot (answer|talk))\b"
+    # v1.0.40 (11/11): o JARVIS nao anuncia mais a ligacao em voz alta, entao o dono pode estar falando
+    # de OUTRA coisa enquanto toca. "desliga", "ignora", "hang up" so' valem sozinhos ou com a ligacao
+    # ("desliga", "desliga ai", "ignora essa ligacao", "desliga e fala que...") — "desliga a musica" NAO.
+    r"|\b(desliga|derruba|ignora|hang up|ignore|not now)"
+    r"( (a|essa) (ligacao|chamada)| ela| ele| ai| isso| it| the call| this one| him| her| them)?"
+    r"( e (manda|mande|fala|diz|diga|avisa|escreve|responde)\b.*| and (tell|text|message|say|let)\b.*)?$")
 _RE_DEIXA_TOCAR = re.compile(r"\b(deixa tocar|deixa ai|deixa quieto|nao faz nada|let it ring|leave it|do nothing)\b")
 _RE_SECRETARIA = re.compile(
     r"\b(atende|atenda|atender|pode atender|atende (ai|ele|ela|pra mim|por mim)|secretaria|fala com (ele|ela)|"
@@ -533,8 +572,10 @@ def interpretar_decisao(texto: str) -> dict | None:
         return {"decisao": "recusar", "mensagem": msg}
     if _RE_DEIXA_TOCAR.search(t):
         return {"decisao": "ignorar"}
-    if _RE_SECRETARIA.search(t) or t in ("sim", "pode", "pode sim", "ok", "beleza", "vai",
-                                         "yes", "yeah", "yep", "sure", "please", "go"):
+    # v1.0.40: "sim", "ok", "beleza", "pode" sozinhos NAO decidem mais: eram a resposta a pergunta
+    # falada "Eu atendo, voce atende ou recuso?", que o JARVIS nao faz mais (o dono diria "ok" para
+    # outra coisa e a frase sumia).
+    if _RE_SECRETARIA.search(t):
         return {"decisao": "secretaria"}
     return None
 
@@ -552,6 +593,44 @@ def interpretar_durante_ligacao(texto: str) -> str | None:
         if rx.search(t):
             return acao
     return None
+
+
+_RE_RESP_QUE = re.compile(r"\b(manda|mande|fala|diz|diga|avisa|avise|escreve|responde|responda)"
+                          r"( pra (ele|ela)| para (ele|ela)| a (ele|ela))? que (.+)$")
+_RE_RESP_THAT = re.compile(r"\b(tell|text|message|say|let|answer|reply)( (him|her|them))?( know)? that (.+)$"
+                           r"|\btell (him|her|them) (.+)$")
+_RE_RESP_CURTA = re.compile(r"\b(responde|responda|answer|reply)( pra (ele|ela)| para (ele|ela)| (him|her|them))? "
+                            r"(?P<r>sim|nao|pode|pode sim|nao pode|claro|yes|no|sure)$")
+
+
+def resposta_para_ela(texto: str) -> str | None:
+    """Fala do dono com a pergunta dela esperando -> o texto da resposta, ou None.
+
+    v1.0.40 (11/11): o JARVIS NAO le mais a pergunta em voz alta (pedido do Diego: nada de falar
+    quando alguem liga), entao a fala solta do dono (ele conversando outra coisa com o JARVIS) nao pode
+    virar resposta para quem ligou. Vale so' quando ele diz que e' resposta: "responde que sim", "fala
+    pra ela que eu chego as 5", "diz que pode", "responde sim", "tell her that ...". Fora isso a
+    resposta vai pelo cartao (campo + RESPONDER)."""
+    t = _norm(texto)
+    if not t:
+        return None
+    original = " ".join(str(texto or "").split())
+    m = _RE_RESP_CURTA.search(t)
+    if m:
+        r = m.group("r")
+        return {"nao": "Não", "nao pode": "Não pode"}.get(r, r[:1].upper() + r[1:])
+    if _RE_RESP_QUE.search(t):
+        achou = re.search(r"\b(?:manda|mande|fala|diz|diga|avisa|avise|escreve|responde|responda)\b.*?\bque\b\s*(.+)$",
+                          original, re.IGNORECASE)
+    elif _RE_RESP_THAT.search(t):
+        achou = (re.search(r"\bthat\b\s*(.+)$", original, re.IGNORECASE)
+                 or re.search(r"\btell\s+(?:him|her|them)\b\s*(.+)$", original, re.IGNORECASE))
+    else:
+        return None
+    resto = (achou.group(1) if achou else "").strip(" .,!")
+    if not resto:
+        return None
+    return resto[:1].upper() + resto[1:]
 
 
 def nome_bate(nome: str, lista) -> bool:

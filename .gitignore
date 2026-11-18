@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Logs, caches e dados de runtime
+logs/
+cache/
+memory/diario.jsonl
+
+# Segredos / credenciais (nao vao para o GitHub)
+config/api_keys.json
+config/remote_bridge.json
+
+# WhatsApp bridge: artefatos de runtime
+whatsapp_bridge/node_modules/
+whatsapp_bridge/auth/
+whatsapp_bridge/media/
+whatsapp_bridge/*.log
+whatsapp_bridge/status.json
+whatsapp_bridge/wa_qr.png
+whatsapp_bridge/mark_xlviii_whatsapp_db.json
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

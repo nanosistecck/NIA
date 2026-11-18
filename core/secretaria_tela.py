@@ -16,6 +16,7 @@ da casca (JarvisUI), postos pelo main.py.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -41,6 +42,22 @@ _cartao = None
 _casca = None
 _ultimo_login = ""       # carregando | qr | conectado (vem dos eventos do motor)
 _ultimo_qr = ""          # o codigo das LIGACOES (data:image/png), mostrado na janela do CONECTAR WHATSAPP
+
+
+def whatsapp_conectado() -> bool:
+    """v1.0.40: o WhatsApp do botao CONECTAR WHATSAPP (a ponte) esta' conectado?
+
+    Le o status.json que a propria ponte grava (rapido, sem rede: roda no Qt de 1,5 em 1,5 s).
+    So' vale se foi o node que gravou e o pid dele esta' vivo."""
+    try:
+        d = json.loads((SEC.RAIZ / "whatsapp_bridge" / "status.json").read_text(encoding="utf-8", errors="ignore"))
+        if str(d.get("writer") or "") != "node" or not d.get("connected"):
+            return False
+        pid = int(d.get("pid") or 0)
+        import psutil  # noqa: PLC0415
+        return pid > 0 and psutil.pid_exists(pid)
+    except Exception:
+        return False
 
 
 def estado_ligacoes() -> dict:
@@ -488,14 +505,17 @@ def pagina(janela) -> QWidget:
         lab.setStyleSheet(f"color: {_c(cor)}; background: transparent;")
         return lab
 
-    lay.addWidget(_rot(_t("SECRETÁRIA DO WHATSAPP  ·  ela atende as suas ligações e conversa com a pessoa",
-                          "WHATSAPP ASSISTANT  ·  she answers your calls and talks to the caller"), 9, "PRI", True))
+    lay.addWidget(_rot(_t("SECRETÁRIA DO WHATSAPP  ·  ela atende as suas ligações e responde as suas mensagens",
+                          "WHATSAPP ASSISTANT  ·  she answers your calls and replies to your messages"), 9, "PRI", True))
     lay.addWidget(_rot(_t("Quando alguém te liga no WhatsApp, ela atende com a voz que você escolher, conversa ao vivo, "
-                          "te pergunta o que precisar e anota o recado. No fim te conta quem ligou e o que ficou combinado. "
-                          "Ela sempre se apresenta como assistente virtual.",
+                          "te pergunta o que precisar e anota o recado. Quem ligou e o que ficou combinado aparecem "
+                          "escritos no chat do JARVIS (ele não fala nada em voz alta). Ela sempre se apresenta como "
+                          "assistente virtual.",
                           "When someone calls you on WhatsApp, she answers with the voice you choose, talks live, asks "
-                          "you whatever she needs and takes a message. At the end she tells you who called and what was "
-                          "agreed. She always introduces herself as a virtual assistant.")))
+                          "you whatever she needs and takes a message. Who called and what was agreed show up written "
+                          "in the JARVIS chat (JARVIS says nothing out loud). She always introduces herself as a "
+                          "virtual assistant.")))
+    lay.addWidget(_rot(_t("LIGAÇÕES", "CALLS"), 8, "PRI", True))
 
     # -- liga / desliga + estado
     linha = QHBoxLayout()
@@ -505,8 +525,8 @@ def pagina(janela) -> QWidget:
 
     def _pintar_liga() -> None:
         ligada = SEC.carregar().get("ligada")
-        b_liga.setText(_t("SECRETÁRIA LIGADA  ·  clique para desligar", "ASSISTANT ON  ·  click to turn off") if ligada
-                       else _t("SECRETÁRIA DESLIGADA  ·  clique para ligar", "ASSISTANT OFF  ·  click to turn on"))
+        b_liga.setText(_t("ATENDENDO LIGAÇÕES  ·  clique para desligar", "ANSWERING CALLS  ·  click to turn off") if ligada
+                       else _t("LIGAÇÕES DESLIGADAS  ·  clique para ligar", "CALLS OFF  ·  click to turn on"))
         cor = _c("GREEN", "#00ff88") if ligada else _c("TEXT_DIM")
         b_liga.setStyleSheet(
             f"QPushButton {{ color: {cor}; background: {'rgba(0,255,136,0.08)' if ligada else 'transparent'};"
@@ -516,7 +536,7 @@ def pagina(janela) -> QWidget:
     def _atualizar_estado() -> None:
         _pintar_liga()
         if not SEC.carregar().get("ligada"):
-            estado_lab.setText(_t("Desligada: ninguém atende por você.", "Off: nobody answers for you."))
+            estado_lab.setText(_t("Desligada: ninguém atende as ligações por você.", "Off: nobody answers calls for you."))
         elif not SEC.motor_rodando():
             estado_lab.setText(_t("Ligando...", "Starting..."))
         elif _ultimo_login == "conectado":
@@ -542,6 +562,79 @@ def pagina(janela) -> QWidget:
     relogio.timeout.connect(_atualizar_estado)
     relogio.start(1500)
     _atualizar_estado()
+
+    # -- v1.0.40: as MENSAGENS (a secretaria no chat, core/secretaria_chat.py)
+    lay.addWidget(_rot(_t("MENSAGENS  ·  ela responde quem te manda mensagem no WhatsApp (texto e áudio)",
+                          "MESSAGES  ·  she replies to whoever messages you on WhatsApp (text and audio)"), 8, "PRI", True))
+    lay.addWidget(_rot(_t("Usa as mesmas informações das ligações e a voz escolhida mais abaixo, e ouve os áudios que "
+                          "mandarem. Nunca responde grupo e fica quieta na conversa em que você mesmo escreveu nos "
+                          "últimos 30 minutos. Usa o WhatsApp do botão CONECTAR WHATSAPP. Tudo fica salvo na pasta "
+                          "dela, em \"mensagens\".",
+                          "She uses the same information as the calls and the voice chosen below, and listens to the "
+                          "audio people send. She never replies in groups and stays quiet in a chat where you wrote "
+                          "yourself in the last 30 minutes. She uses the WhatsApp from the CONNECT WHATSAPP button. "
+                          "Everything is saved in her folder, under \"mensagens\".")))
+    linha_chat = QHBoxLayout()
+    b_chat = _botao("")
+    b_chat.setFixedHeight(34)
+    estado_chat = _rot("", 8, "TEXT_MED")
+    botoes_fmt: dict[str, QPushButton] = {}
+
+    def _pintar_chat() -> None:
+        c = SEC.carregar()
+        ligado = bool(c.get("chat_ligado"))
+        b_chat.setText(_t("RESPONDENDO MENSAGENS  ·  clique para desligar", "REPLYING TO MESSAGES  ·  click to turn off")
+                       if ligado else _t("MENSAGENS DESLIGADAS  ·  clique para ligar", "MESSAGES OFF  ·  click to turn on"))
+        cor = _c("GREEN", "#00ff88") if ligado else _c("TEXT_DIM")
+        b_chat.setStyleSheet(
+            f"QPushButton {{ color: {cor}; background: {'rgba(0,255,136,0.08)' if ligado else 'transparent'};"
+            f" border: 1px solid {cor}; border-radius: 4px; padding: 0 16px; }}"
+            f"QPushButton:hover {{ color: {_c('TEXT')}; border-color: {_c('TEXT')}; }}")
+        atual = str(c.get("chat_formato") or "texto")
+        for chave, b in botoes_fmt.items():
+            ativo = chave == atual
+            b.setStyleSheet(
+                f"QPushButton {{ padding: 5px 10px; border: 1px solid {_c('PRI') if ativo else _c('BORDER')};"
+                f" border-radius: 4px; background: {_c('PRI_GHO') if ativo else 'transparent'};"
+                f" color: {_c('TEXT') if ativo else _c('TEXT_MED')}; }}")
+        if not ligado:
+            estado_chat.setText(_t("Desligada: ninguém responde as mensagens por você.",
+                                   "Off: nobody replies to messages for you."))
+        elif whatsapp_conectado():
+            estado_chat.setText(_t("Pronta: respondendo as mensagens  ·  ", "Ready: replying to messages  ·  ")
+                                + SEC.formatos_chat().get(atual, ("", ""))[1])
+        else:
+            estado_chat.setText(_t("Falta conectar o WhatsApp: clique em CONECTAR WHATSAPP.",
+                                   "WhatsApp is not connected: click CONNECT WHATSAPP."))
+
+    b_chat.clicked.connect(lambda: (_mudou({"chat_ligado": not SEC.carregar().get("chat_ligado")}), _pintar_chat()))
+    linha_chat.addWidget(b_chat)
+    linha_chat.addStretch()
+    lay.addLayout(linha_chat)
+    linha_fmt = QHBoxLayout()
+    linha_fmt.setSpacing(6)
+    lay_fmt_rot = _rot(_t("Responder com:", "Reply with:"), 8, "TEXT_MED")
+    linha_fmt.addWidget(lay_fmt_rot)
+    for chave, (rotulo, explica) in SEC.formatos_chat().items():
+        b = QPushButton(rotulo)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setFont(_fx(8))
+        b.setToolTip(explica)
+        b.clicked.connect(lambda _=False, k=chave: (_mudou({"chat_formato": k}), _pintar_chat()))
+        botoes_fmt[chave] = b
+        linha_fmt.addWidget(b)
+    linha_fmt.addStretch()
+    lay.addLayout(linha_fmt)
+    lay.addWidget(estado_chat)
+    cx_audio = QCheckBox(_t("Ouvir os áudios que mandarem e responder (desligado: ela só te avisa que chegou áudio)",
+                            "Listen to the audio people send and reply (off: she only tells you an audio arrived)"))
+    cx_audio.setFont(_fx(8))
+    cx_audio.setStyleSheet(f"QCheckBox {{ color: {_c('TEXT_MED')}; background: transparent; }}")
+    cx_audio.setChecked(bool(cfg.get("chat_ouvir_audios", True)))
+    cx_audio.toggled.connect(lambda v: _mudou({"chat_ouvir_audios": bool(v)}))
+    lay.addWidget(cx_audio)
+    relogio.timeout.connect(_pintar_chat)
+    _pintar_chat()
 
     # -- como ela atende
     lay.addWidget(_rot(_t("COMO ELA ATENDE", "HOW SHE ANSWERS"), 8, "PRI", True))
@@ -615,6 +708,11 @@ def pagina(janela) -> QWidget:
         ("espera_resposta_dono_s", _t("Esperar a minha resposta numa pergunta (segundos)",
                                       "Wait for my answer to a question (seconds)"), 10, 60),
         ("duracao_max_min", _t("Duração máxima da ligação dela (minutos)", "Maximum length of her call (minutes)"), 1, 15),
+        # v1.0.40: o chat
+        ("chat_espera_s", _t("Mensagens: esperar a pessoa terminar de mandar (segundos)",
+                             "Messages: wait for the person to finish sending (seconds)"), 3, 60),
+        ("chat_espera_dono_s", _t("Mensagens no modo ME PERGUNTA: esperar eu responder primeiro (segundos)",
+                                  "Messages in ASK ME mode: wait for me to reply first (seconds)"), 15, 900),
     ]
     for i, (chave, texto, minimo, maximo) in enumerate(numeros):
         grade.addWidget(_rot(texto), i, 0)
@@ -771,8 +869,8 @@ def secao_no_whatsapp(abrir_opcoes=None) -> QWidget:
     sep.setFixedHeight(1)
     sep.setStyleSheet(f"background: {_c('GREEN_D', '#00aa55')};")
     lay.addWidget(sep)
-    titulo = QLabel(_t("SECRETÁRIA DAS LIGAÇÕES  ·  atende quem te liga no WhatsApp",
-                       "CALL ASSISTANT  ·  answers whoever calls you on WhatsApp"))
+    titulo = QLabel(_t("SECRETÁRIA  ·  atende as ligações e responde as mensagens do WhatsApp",
+                       "ASSISTANT  ·  answers WhatsApp calls and replies to messages"))
     titulo.setWordWrap(True)
     titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
     titulo.setFont(_fx(8, QFont.Weight.Bold))
@@ -813,6 +911,28 @@ def secao_no_whatsapp(abrir_opcoes=None) -> QWidget:
         linha_modos.addWidget(b)
     lay.addLayout(linha_modos)
 
+    # v1.0.40: as MENSAGENS (a secretaria no chat): liga/desliga + como ela responde.
+    linha_chat = QHBoxLayout()
+    linha_chat.setSpacing(5)
+    b_chat = QPushButton("")
+    b_chat.setCursor(Qt.CursorShape.PointingHandCursor)
+    b_chat.setFont(_fx(7, QFont.Weight.Bold))
+    b_chat.setFixedHeight(26)
+    b_chat.setToolTip(_t("Ela responde quem te manda mensagem no WhatsApp (texto e áudio), com as mesmas informações.",
+                         "She replies to whoever messages you on WhatsApp (text and audio), with the same information."))
+    linha_chat.addWidget(b_chat, 1)
+    botoes_fmt: dict[str, QPushButton] = {}
+    curtos = {"texto": _t("SÓ TEXTO", "TEXT ONLY"), "audio": _t("SÓ ÁUDIO", "AUDIO ONLY"), "misto": _t("OS DOIS", "BOTH")}
+    for chave, (_rot_fmt, explica) in SEC.formatos_chat().items():
+        b = QPushButton(curtos.get(chave, chave.upper()))
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setFont(_fx(7, QFont.Weight.Bold))
+        b.setFixedHeight(26)
+        b.setToolTip(explica)
+        botoes_fmt[chave] = b
+        linha_chat.addWidget(b)
+    lay.addLayout(linha_chat)
+
     estado = QLabel("")
     estado.setAlignment(Qt.AlignmentFlag.AlignCenter)
     estado.setWordWrap(True)
@@ -823,8 +943,8 @@ def secao_no_whatsapp(abrir_opcoes=None) -> QWidget:
     def _pintar() -> None:
         cfg = SEC.carregar()
         ligada = bool(cfg.get("ligada"))
-        b_liga.setText(_t("SECRETÁRIA LIGADA", "ASSISTANT ON") if ligada
-                       else _t("SECRETÁRIA DESLIGADA  ·  clique para ligar", "ASSISTANT OFF  ·  click to turn on"))
+        b_liga.setText(_t("LIGAÇÕES: ATENDENDO", "CALLS: ANSWERING") if ligada
+                       else _t("LIGAÇÕES: DESLIGADO  ·  ligar", "CALLS: OFF  ·  turn on"))
         cor = verde if ligada else _c("TEXT_DIM")
         b_liga.setStyleSheet(
             f"QPushButton {{ color: {cor}; background: {'#00140a' if ligada else 'transparent'};"
@@ -837,8 +957,26 @@ def secao_no_whatsapp(abrir_opcoes=None) -> QWidget:
                 f"QPushButton {{ color: {verde if ativo else _c('TEXT_MED')}; background: {'#00140a' if ativo else 'transparent'};"
                 f" border: 1px solid {verde if ativo else _c('BORDER')}; border-radius: 5px; }}"
                 f"QPushButton:hover {{ border-color: {verde}; }} QPushButton:disabled {{ color: {_c('TEXT_DIM')}; }}")
+        chat = bool(cfg.get("chat_ligado"))
+        b_chat.setText(_t("MENSAGENS: RESPONDENDO", "MESSAGES: REPLYING") if chat
+                       else _t("MENSAGENS: DESLIGADO  ·  ligar", "MESSAGES: OFF  ·  turn on"))
+        cor_chat = verde if chat else _c("TEXT_DIM")
+        b_chat.setStyleSheet(
+            f"QPushButton {{ color: {cor_chat}; background: {'#00140a' if chat else 'transparent'};"
+            f" border: 1px solid {cor_chat}; border-radius: 5px; }} QPushButton:hover {{ border-color: {verde}; }}")
+        fmt = str(cfg.get("chat_formato") or "texto")
+        for chave, b in botoes_fmt.items():
+            # A escolha fica sempre clicavel e marcada (com as mensagens desligadas, marcada em cinza).
+            ativo = chave == fmt
+            cor_b = (verde if chat else _c("TEXT")) if ativo else _c("TEXT_MED")
+            borda = (verde if chat else _c("TEXT_MED")) if ativo else _c("BORDER")
+            fundo = ("#00140a" if chat else "rgba(255,255,255,0.05)") if ativo else "transparent"
+            b.setStyleSheet(
+                f"QPushButton {{ color: {cor_b}; background: {fundo};"
+                f" border: 1px solid {borda}; border-radius: 5px; padding: 0 8px; }}"
+                f"QPushButton:hover {{ border-color: {verde}; }}")
         if not ligada:
-            estado.setText(_t("Desligada: ninguém atende as ligações por você.", "Off: nobody answers calls for you."))
+            estado.setText(_t("Ligações desligadas: ninguém atende por você.", "Calls off: nobody answers for you."))
         elif _ultimo_login == "conectado":
             estado.setText(_t("Ligações conectadas ✓  ·  voz ", "Calls connected ✓  ·  voice ")
                            + SEC.nome_da_voz(cfg.get('voz') or 'leda'))
@@ -851,6 +989,9 @@ def secao_no_whatsapp(abrir_opcoes=None) -> QWidget:
     b_liga.clicked.connect(lambda: (_mudar(_casca, {"ligada": not SEC.carregar().get("ligada")}), _pintar()))
     for chave, b in botoes_modo.items():
         b.clicked.connect(lambda _=False, k=chave: (_mudar(_casca, {"modo": k}), _pintar()))
+    b_chat.clicked.connect(lambda: (_mudar(_casca, {"chat_ligado": not SEC.carregar().get("chat_ligado")}), _pintar()))
+    for chave, b in botoes_fmt.items():
+        b.clicked.connect(lambda _=False, k=chave: (_mudar(_casca, {"chat_formato": k}), _pintar()))
     relogio = QTimer(w)
     relogio.timeout.connect(_pintar)
     relogio.start(1500)

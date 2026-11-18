@@ -3407,7 +3407,8 @@ class WhatsAppQrOverlay(QWidget):
     closed = pyqtSignal()
     _chegou = pyqtSignal(object)    # resultado da busca de status/QR (vem da linha de fundo)
     # 05/11/2026: +130 de altura para a SECRETARIA DAS LIGACOES (liga/desliga e modo).
-    _OW, _OH = 430, 650
+    # 11/11/2026 (v1.0.40): +34 para a linha das MENSAGENS (a secretaria no chat).
+    _OW, _OH = 430, 684
 
     def __init__(self, qr_path: str, parent=None):
         super().__init__(parent)

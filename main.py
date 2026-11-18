@@ -3546,7 +3546,6 @@ class JarvisLive:
         self._sec_chamada = None
         self._sec_pergunta = None
         self._sec_em_ligacao = None
-        self._sec_nao_ouvidos = []
         self._sec_mutou = False
         self._secretaria = _sec.Ponte(self._evento_secretaria, log=self._log_secretaria)
         try:
@@ -3554,6 +3553,18 @@ class JarvisLive:
             self.ui.on_secretaria_mudou = self._secretaria_mudou
         except Exception:
             pass
+        # v1.0.40 (11/11, pedido do Diego): a SECRETARIA NO CHAT responde as mensagens do WhatsApp
+        # (texto e audio). A linha dela roda sempre e so' age com a opcao ligada (aba SECRETARIA ou
+        # janela do CONECTAR WHATSAPP); nao depende das ligacoes estarem ligadas.
+        self._sec_chat = None
+        try:
+            from core.secretaria_chat import SecretariaChat  # noqa: PLC0415
+            self._sec_chat = SecretariaChat(self._evento_chat_secretaria, log=self._log_secretaria)
+            self._sec_chat.presenca(not _SEGUNDO_PLANO.is_set())
+            self._sec_chat.iniciar()
+        except Exception as exc:
+            self._sec_chat = None
+            _voice_diag("secretaria_erro", f"chat: {str(exc)[:100]}")
 
         def _subir() -> None:
             try:
@@ -3617,19 +3628,11 @@ class JarvisLive:
             self._sec_chamada = {"id": ev.get("id"), "nome": nome,
                                  "ate": time.monotonic() + max(25.0, float(auto or 0) + 20.0)}
             log(t(f"[Secretária] {nome} está ligando no WhatsApp.", f"[Assistant] {nome} is calling on WhatsApp."))
+            # v1.0.40 (11/11, pedido do Diego): o JARVIS NAO FALA mais nada quando alguem liga ou manda
+            # mensagem (antes: "Fulano esta' ligando no WhatsApp. Eu atendo, voce atende ou recuso?", o resumo
+            # no fim da ligacao, os recados do chat). Fica so' o cartao com os botoes e a linha no chat; o
+            # dono ainda decide pela voz ("atende", "recusa") se quiser.
             self._tela_secretaria({"estado": "tocando", "id": ev.get("id"), "nome": nome, "auto": auto})
-            if ev.get("presente", True):
-                if ev.get("so_avisar"):
-                    frase = t(f"{nome} está ligando no WhatsApp.", f"{nome} is calling on WhatsApp.")
-                elif auto:
-                    frase = t(f"{nome} está ligando no WhatsApp. Eu atendo, você atende ou recuso? "
-                              "Se você não disser nada, eu atendo.",
-                              f"{nome} is calling on WhatsApp. Should I answer, will you answer, or should I decline? "
-                              "If you say nothing, I'll answer.")
-                else:
-                    frase = t(f"{nome} está ligando no WhatsApp. Eu atendo, você atende ou recuso?",
-                              f"{nome} is calling on WhatsApp. Should I answer, will you answer, or should I decline?")
-                self._avisar_whatsapp(frase)
             return
         if tipo == "atendeu":
             self._sec_chamada = None
@@ -3663,10 +3666,9 @@ class JarvisLive:
             self._sec_pergunta = {"pid": ev.get("pid"), "id": ev.get("id"), "nome": nome,
                                   "ate": time.monotonic() + float(ev.get("espera") or 30) + 2.0}
             log(t(f"[Secretária] Pergunta para você: {pergunta}", f"[Assistant] Question for you: {pergunta}"))
+            # Sem voz (v1.0.40): a pergunta fica no cartao, com o campo e o botao RESPONDER.
             self._tela_secretaria({"estado": "pergunta", "id": ev.get("id"), "pid": ev.get("pid"), "nome": nome,
                                    "pergunta": pergunta, "espera": ev.get("espera")})
-            dono = _sec._nome_do_dono()  # noqa: SLF001
-            self._avisar_whatsapp(f"{dono}, {pergunta}" if dono and dono not in ("o dono", "the owner") else pergunta)
             return
         if tipo == "pergunta_expirou":
             p = self._sec_pergunta
@@ -3711,13 +3713,7 @@ class JarvisLive:
                                        "retornar": ev.get("retornar"), "urgente": ev.get("urgente"),
                                        "sub": t(f"Durou {dur // 60} min {dur % 60} s. Ficou salvo na pasta JARVIS Secretaria.",
                                                 f"Lasted {dur // 60} min {dur % 60} s. Saved in the JARVIS Secretaria folder.")})
-                if not ev.get("transferida"):
-                    falado = resumo + (t(f" Ficou combinado: {compromissos[0]}.", f" Agreed: {compromissos[0]}.")
-                                       if compromissos else "")
-                    if _SEGUNDO_PLANO.is_set():
-                        self._sec_nao_ouvidos.append(f"{nome}: {falado}")
-                    else:
-                        self._avisar_whatsapp(t(f"A ligação de {nome} terminou. {falado}", f"The call from {nome} has ended. {falado}"))
+                # Sem voz (v1.0.40): o resumo fica no balao verde e no cartao; o JARVIS nao fala.
             else:
                 log(t(f"[Secretária] A ligação com {nome} terminou.", f"[Assistant] The call with {nome} has ended."))
                 self._tela_secretaria({"estado": "esconder"})
@@ -3750,12 +3746,67 @@ class JarvisLive:
                 self._sec_ultimo_erro = (texto, time.monotonic())
             log(t("[Secretária] ", "[Assistant] ") + texto)
             self._tela_secretaria({"estado": "aviso", "titulo": t("Secretária", "Assistant"), "texto": texto, "some_em": 20})
-            if ev.get("id") is not None:
-                self._avisar_whatsapp(texto)
             return
         if tipo == "navegador_fechado":
             log(t("[Secretária] A janela do WhatsApp dela foi fechada; ela abre de novo sozinha.",
                   "[Assistant] Her WhatsApp window was closed; it reopens by itself."))
+
+    def _evento_chat_secretaria(self, ev: dict) -> None:
+        """Um evento da SECRETARIA NO CHAT (v1.0.40; linha dela, nunca o Qt).
+
+        Como nas ligacoes: a conversa inteira NAO vem para o chat do JARVIS (fica em
+        Documentos\\JARVIS Secretaria\\mensagens); aqui so' uma linha por resposta e o RECADO em destaque.
+        O JARVIS NAO FALA nada disso (11/11, pedido do Diego): fica tudo escrito."""
+        t = self._sec_t
+        tipo = ev.get("tipo")
+        nome = str(ev.get("nome") or t("alguém", "someone"))
+        log = self._log_secretaria
+        if tipo == "chat_ligado":
+            fmt = {"texto": t("só texto", "text only"), "audio": t("só áudio", "audio only"),
+                   "misto": t("os dois: uma hora escreve, outra manda áudio",
+                              "both: sometimes text, sometimes audio")}.get(str(ev.get("formato")), "")
+            log(t(f"[Secretária] Respondendo as mensagens do WhatsApp ({fmt}).",
+                  f"[Assistant] Replying to WhatsApp messages ({fmt})."))
+            return
+        if tipo == "chat_respondeu":
+            como = t(" por áudio", " by audio") if ev.get("formato") == "audio" else ""
+            texto = " ".join(str(ev.get("texto") or "").split())
+            log(t(f"[Secretária] Respondi {nome}{como}: ", f"[Assistant] I replied to {nome}{como}: ")
+                + (texto[:140] + ("..." if len(texto) > 140 else "")))
+            return
+        if tipo == "chat_recado":
+            recado = str(ev.get("recado") or "").strip()
+            retorno = str(ev.get("retorno") or "").strip()
+            linhas = [t(f"💬 MENSAGEM DE {nome.upper()} · {time.strftime('%H:%M')}",
+                        f"💬 MESSAGE FROM {nome.upper()} · {time.strftime('%H:%M')}")
+                      + (t("   ⚠ URGENTE", "   ⚠ URGENT") if ev.get("urgente") else ""),
+                      t("✉ Recado: ", "✉ Message: ") + recado
+                      + ((t("  (retorno: ", "  (call back: ") + retorno + ")") if retorno else "")]
+            # O mesmo balao verde das ligacoes ("MESSAGE NOTE:" em ingles, o ui.py pinta os dois).
+            log(t("RECADO: ", "MESSAGE NOTE: ") + "\n".join(linhas))
+            return
+        if tipo == "chat_aviso":
+            texto = " ".join(str(ev.get("texto") or "").split())
+            if ev.get("robo"):
+                log(t(f"[Secretária] {nome} {texto}", f"[Assistant] {nome} {texto}"))
+                return
+            if ev.get("so_avisar"):
+                log(t(f"[Secretária] Mensagem de {nome}: {texto}", f"[Assistant] Message from {nome}: {texto}"))
+                return
+            espera = int(ev.get("espera_s") or 60)
+            quando = (t(f"{espera} segundos", f"{espera} seconds") if espera < 120
+                      else t(f"{espera // 60} minutos", f"{espera // 60} minutes"))
+            ponto = "" if texto[-1:] in ".!?" else "."
+            log(t(f"[Secretária] Mensagem de {nome}: {texto}{ponto} Se você não responder em {quando}, eu respondo.",
+                  f"[Assistant] Message from {nome}: {texto}{ponto} If you don't reply in {quando}, I will."))
+            return
+        if tipo == "chat_dono":
+            log(t(f"[Secretária] Você está conversando com {nome}: não respondo essa conversa por 30 minutos.",
+                  f"[Assistant] You are chatting with {nome}: I won't reply in that chat for 30 minutes."))
+            return
+        if tipo == "chat_erro":
+            log(t("[Secretária] ", "[Assistant] ") + str(ev.get("texto") or t("A secretária do chat teve um problema.",
+                                                                               "The chat assistant had a problem.")))
 
     @staticmethod
     def _sec_t(pt: str, en: str) -> str:
@@ -3829,19 +3880,22 @@ class JarvisLive:
                 alvo = dict(e or {"id": p.get("id")})
                 threading.Thread(target=self._decisao_secretaria, args=(alvo, acao), daemon=True).start()
                 return True
-            self._sec_pergunta = None
-            resposta = str(texto or "").strip()
+            # v1.0.40: o JARVIS nao le mais a pergunta em voz alta; fala solta do dono (outro assunto)
+            # nao vira resposta. Vale "responde que sim", "fala pra ela que..."; senao, o cartao.
+            resposta = _sec.resposta_para_ela(texto)
+            if resposta:
+                self._sec_pergunta = None
 
-            def _mandar() -> None:
-                r = self._secretaria.responder(p["pid"], resposta)
-                if r.get("ok"):
-                    self._log_secretaria(self._sec_t(f"[Secretária] Você respondeu: {resposta}",
-                                                     f"[Assistant] You answered: {resposta}"))
-                    self._tela_secretaria({"estado": "pergunta_fim", "nome": p.get("nome")})
-                else:
-                    self._log_secretaria(self._sec_t("[Secretária] A pergunta já tinha passado; ela anotou o recado.", "[Assistant] The question had already expired; she took a message."))
-            threading.Thread(target=_mandar, daemon=True, name="secretaria-responder").start()
-            return True
+                def _mandar() -> None:
+                    r = self._secretaria.responder(p["pid"], resposta)
+                    if r.get("ok"):
+                        self._log_secretaria(self._sec_t(f"[Secretária] Você respondeu: {resposta}",
+                                                         f"[Assistant] You answered: {resposta}"))
+                        self._tela_secretaria({"estado": "pergunta_fim", "nome": p.get("nome")})
+                    else:
+                        self._log_secretaria(self._sec_t("[Secretária] A pergunta já tinha passado; ela anotou o recado.", "[Assistant] The question had already expired; she took a message."))
+                threading.Thread(target=_mandar, daemon=True, name="secretaria-responder").start()
+                return True
         if p and agora >= p["ate"]:
             self._sec_pergunta = None
         if c and agora < c["ate"]:
@@ -6605,17 +6659,14 @@ class JarvisLive:
     # espera a camera soltar, e fechar as vozes espera o Google ate 1 s.
     def _mudou_segundo_plano(self, ligado: bool) -> None:
         # SECRETARIA (05/11/2026): em segundo plano o dono esta fora — ela atende sem
-        # perguntar a ele. Na volta, o JARVIS conta o que ela atendeu.
+        # perguntar a ele. O que ela atendeu fica nos baloes do chat (v1.0.40: o JARVIS
+        # nao fala mais o resumo na volta, pedido do Diego em 11/11).
         try:
             if getattr(self, "_secretaria", None) is not None and self._secretaria.rodando():
                 threading.Thread(target=self._secretaria.presenca, args=(not ligado,), daemon=True,
                                  name="secretaria-presenca").start()
-            pendentes = getattr(self, "_sec_nao_ouvidos", None)
-            if not ligado and pendentes:
-                self._sec_nao_ouvidos = []
-                qtd = "uma ligação" if len(pendentes) == 1 else f"{len(pendentes)} ligações"
-                _frase_sec = f"Enquanto você estava fora, a secretária atendeu {qtd}. {pendentes[-1]}"
-                threading.Timer(2.5, lambda: self._avisar_whatsapp(_frase_sec)).start()
+            if getattr(self, "_sec_chat", None) is not None:
+                self._sec_chat.presenca(not ligado)       # v1.0.40: o chat tambem sabe se o dono esta' fora
         except Exception:
             pass
         if not ligado:
@@ -12426,6 +12477,12 @@ class JarvisLive:
             # velha demais ja e descartada pelo proprio agente (`_evento_velho_demais`).
             if _SEGUNDO_PLANO.is_set():
                 await asyncio.sleep(2.0)
+                continue
+            # v1.0.40: com a SECRETARIA NO CHAT ligada, quem responde e' ela. O agente antigo
+            # ficaria disputando a mesma fila da ponte e responderia junto.
+            _chat = getattr(self, "_sec_chat", None)
+            if _chat is not None and await loop.run_in_executor(None, _chat.ligado):
+                await asyncio.sleep(2.5)
                 continue
             try:
                 events = await loop.run_in_executor(None, lambda: poll_whatsapp_agent_events(20))

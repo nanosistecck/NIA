@@ -196,6 +196,18 @@ def _modelo_fora(exc: Exception) -> bool:
                                 "permission_denied", "permission denied", "403"))
 
 
+def _erro_de_chave(exc: Exception) -> bool:
+    """A CHAVE em si foi recusada (invalida, expirada, sem permissao).
+
+    Diferente de cota: aqui nao adianta esperar — a chave nao volta a valer
+    sozinha. E o sinal para o pool passar a proxima.
+    """
+    t = f"{type(exc).__name__} {exc}".lower()
+    return any(s in t for s in ("api key not valid", "api_key_invalid",
+                                "api key expired", "permission_denied",
+                                "permission denied"))
+
+
 def _erro_de_modelo(exc: Exception) -> bool:
     """O servidor recusou o MODELO (nao existe para esta chave, sem cota ou nao
     aceita a configuracao) — e nao uma queda de rede passageira."""
@@ -300,12 +312,15 @@ class GeminiCharonVoice:
         # Gemini falava sempre igual, e trocar de "mordomo" para "malandro"
         # mudava as PALAVRAS e nao mudava o TOM. Ver `_direcao_do_jeito`.
         self.jeito = str(jeito or "")
-        config_path = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        api_key = str(data.get("gemini_api_key") or "").strip()
-        if not api_key:
-            raise RuntimeError("Chave Gemini ausente em config/api_keys.json")
-        self.client = genai.Client(api_key=api_key)
+        from core.llm_router import resolver
+        self._chave = resolver("gemini") or ""
+        if not self._chave:
+            raise RuntimeError(
+                "Chave Gemini ausente: cadastre em Configuracoes > Chaves de API")
+        self.client = genai.Client(api_key=self._chave)
+        # A chave em uso recusou (cota/chave invalida)? Quem reconstroi a
+        # conexao le esta marca — ver `main._motor_voz_unica`.
+        self.chave_morta = False
         self._persistent_cm = None
         self._persistent_session = None
         self._persistent_lock = None
@@ -522,6 +537,30 @@ class GeminiCharonVoice:
         import time as _t  # noqa: PLC0415
         self._usada_em = _t.monotonic()
 
+    def _anotar_chave_ruim(self, exc: Exception) -> None:
+        """A chave da vez falhou (cota do dia ou recusada): poe no castigo do pool.
+
+        NAO troca o cliente aqui de proposito: quem segura este objeto decide
+        quando refazer a conexao (`VozCharon` para a leitura, o `main` para a
+        conversa). A marca `chave_morta` e o recado para eles.
+        """
+        try:
+            from core import llm_router as _lr  # noqa: PLC0415
+        except Exception:
+            return
+        if "descansando" in str(exc):
+            # Pausa LOCAL da voz (o `_cota_ate` daqui), nao acusacao do Google:
+            # marcar a chave aqui queimaria uma chave boa por um descanso nosso.
+            return
+        tipo = _lr.anotar_falha("gemini", str(exc), getattr(self, "_chave", None))
+        if tipo in (_lr.T_QUOTA, _lr.T_INVALIDA):
+            self.chave_morta = True
+            try:
+                from main import _voice_diag  # noqa: PLC0415
+                _voice_diag("voz_chave_fora", f"{tipo}: {str(exc)[:70]}")
+            except Exception:
+                pass
+
     async def _ensure_persistent_session(self):
         if self._persistent_lock is None:
             self._persistent_lock = asyncio.Lock()
@@ -542,6 +581,8 @@ class GeminiCharonVoice:
             except Exception as exc:
                 self._persistent_cm = None
                 self._persistent_session = None
+                if _e_cota(exc) or _erro_de_chave(exc):
+                    self._anotar_chave_ruim(exc)
                 if _e_cota(exc):
                     _anotar_cota(exc)
                     raise
@@ -606,6 +647,8 @@ class GeminiCharonVoice:
                     raise RuntimeError("sessão literal encerrou sem turn_complete")
                 except Exception as exc:
                     last_error = exc
+                    if _e_cota(exc) or _erro_de_chave(exc):
+                        self._anotar_chave_ruim(exc)
                     await self._reset_persistent_session()
             raise RuntimeError(f"falha na sessão literal: {last_error}")
 
@@ -687,6 +730,8 @@ class GeminiCharonVoice:
                         texto_turno = falta
                 except Exception as exc:
                     last_error = exc
+                    if _e_cota(exc) or _erro_de_chave(exc):
+                        self._anotar_chave_ruim(exc)
                     await self._reset_persistent_session()
                     # Nunca reinicia depois de já tocar áudio, evitando duplicação.
                     if emitted:
@@ -1300,12 +1345,12 @@ class GeminiCharonTTS:
     """Mesma voz Charon, pelo modelo de fala — outro balde de cota, bem mais barato."""
 
     def __init__(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        api_key = str(data.get("gemini_api_key") or "").strip()
-        if not api_key:
-            raise RuntimeError("Chave Gemini ausente em config/api_keys.json")
-        self.client = genai.Client(api_key=api_key)
+        from core.llm_router import resolver
+        self._chave = resolver("gemini") or ""
+        if not self._chave:
+            raise RuntimeError(
+                "Chave Gemini ausente: cadastre em Configuracoes > Chaves de API")
+        self.client = genai.Client(api_key=self._chave)
 
     def _config(self) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
@@ -1321,6 +1366,25 @@ class GeminiCharonTTS:
     # para a frente quando o balde do dia estoura — assim uma resposta nao paga
     # o pedagio de tentar um modelo que ja se sabe esgotado.
     _modelo_atual = 0
+    # A reserva so troca de chave UMA vez por chamada (evita laco se todas
+    # estiverem sem cota).
+    _trocada = False
+
+    def _trocar_chave(self, exc: Exception) -> bool:
+        """Cota/chave recusada: anota no pool e refaz o cliente com a proxima."""
+        try:
+            from core import llm_router as _lr  # noqa: PLC0415
+        except Exception:
+            return False
+        tipo = _lr.anotar_falha("gemini", str(exc), self._chave)
+        if tipo not in (_lr.T_QUOTA, _lr.T_INVALIDA):
+            return False
+        nova = _lr.proxima_chave("gemini", self._chave)
+        if not nova:
+            return False
+        self._chave = nova
+        self.client = genai.Client(api_key=nova)
+        return True
 
     def _pcm_sync(self, text: str) -> bytes:
         """Chamada bloqueante do SDK. Sempre rodar fora do laco de eventos.
@@ -1342,6 +1406,12 @@ class GeminiCharonTTS:
             except Exception as exc:
                 ultimo = exc
                 if _erro_de_modelo(exc):
+                    # TODOS OS MODELOS NO MESMO BALDE (18/11/2026): se o 429 e
+                    # da CHAVE (cota do dia/chave recusada) e existe outra
+                    # cadastrada, troca a chave e recomeca a fila uma vez.
+                    if not self._trocada and self._trocar_chave(exc):
+                        self._trocada = True
+                        return self._pcm_sync(text)
                     continue          # balde do dia acabou (ou modelo fora): proximo da fila
                 raise
             for cand in (resp.candidates or []):
@@ -1350,6 +1420,11 @@ class GeminiCharonTTS:
                     inline = getattr(part, "inline_data", None)
                     data = getattr(inline, "data", None)
                     if data:
+                        try:
+                            from core.llm_router import anotar_sucesso  # noqa: PLC0415
+                            anotar_sucesso("gemini", self._chave)
+                        except Exception:
+                            pass
                         if indice != GeminiCharonTTS._modelo_atual:
                             GeminiCharonTTS._modelo_atual = indice
                             print(f"[JARVIS] voz Charon agora pelo {modelo}")
@@ -1634,8 +1709,14 @@ class VozCharon:
         # Marcado para o `_falar_local` saber que NAO deve trocar de voz: numa
         # engasgada passageira, e melhor ficar calado neste turno e escrever no
         # chat do que responder com a voz de outra pessoa.
-        VozCharon.mudez_passageira = ("mudas" in baixo)
-        if "mudas" in baixo:
+        #
+        # ORDEM IMPORTA (18/11/2026): a mudez e testada PRIMEIRO e os outros
+        # casos viraram `elif`. Antes o bloco da mudez sobrescrevia `espera`
+        # sempre — chave recusada, que devia calar 12 h, calava 60 s, e o
+        # JARVIS voltava a bater na mesma chave invalida a cada minuto.
+        _mudo = "mudas" in baixo
+        VozCharon.mudez_passageira = _mudo
+        if _mudo:
             # MUDEZ NAO E CASTIGO DE UM MINUTO (05/09/2026, noite).
             #
             # Quando as duas conexoes emudecem, nao ha erro do Google: e uma
@@ -1648,7 +1729,7 @@ class VozCharon:
             # a ser ele. Se a mudez for de verdade (servidor ruim de longe), o
             # proximo turno cai aqui de novo e o castigo se renova sozinho.
             espera = 15.0
-        else:
+        elif not chave_ruim and not cota:
             espera = 60.0
         VozCharon._vivo_ate = _t.time() + espera
         try:
@@ -1661,6 +1742,49 @@ class VozCharon:
                                  else f"(reserva por {espera/60:.0f} min)")))
         except Exception:
             pass
+
+    # -- chave: quem falhou sai da fila, quem falou ganha credito --------------
+
+    def _anotar_sucesso(self, motor=None) -> None:
+        """A fala saiu: tira o castigo de cima da chave que a produziu."""
+        try:
+            from core.llm_router import anotar_sucesso  # noqa: PLC0415
+            anotar_sucesso("gemini", getattr(motor, "_chave", None))
+        except Exception:
+            pass
+
+    def _trocar_a_chave(self, exc: Exception) -> bool:
+        """Cota estourada ou chave recusada? Poe no castigo e passa a proxima.
+
+        Antes, chave com 429 deixava o JARVIS mudo ate a cota do dia voltar —
+        mesmo com outra chave cadastrada na tela, porque nada aqui consultava o
+        pool. Agora a chave que falhou entra em cooldown e os motores sao
+        refeitos, e eles nascem chamando `resolver()` (que devolve a proxima).
+        """
+        try:
+            from core import llm_router as _lr  # noqa: PLC0415
+        except Exception:
+            return False
+        motor = self._vivo
+        tipo = _lr.anotar_falha("gemini", str(exc), getattr(motor, "_chave", None))
+        if tipo not in (_lr.T_QUOTA, _lr.T_INVALIDA):
+            return False
+        nova = _lr.proxima_chave("gemini", getattr(motor, "_chave", None))
+        if not nova:
+            return False
+        # A chave nova so entra em uso quando o motor for refeito: os clientes
+        # do SDK guardam a chave na construcao.
+        self._vivo = None
+        self._barato = None
+        VozCharon._vivo_ate = 0.0
+        VozCharon.mudez_passageira = False
+        try:
+            from main import _voice_diag  # noqa: PLC0415
+            _voice_diag("charon_trocou_de_chave",
+                        f"{tipo}: {str(exc)[:60]} — chave nova na proxima tentativa")
+        except Exception:
+            pass
+        return True
 
     # -- o contrato que o main.py usa ----------------------------------------
 
@@ -1677,6 +1801,11 @@ class VozCharon:
         da chave gratis — antes ela era largada aberta) e a frase vai de novo
         numa conexao nova. Nada de outra voz e nada de desligar o ao-vivo por
         um tempo. Se nem assim sair, quem chamou deixa a resposta escrita.
+
+        CHAVE NOVA, FALA NOVA (18/11/2026): se o motivo for cota ou chave
+        recusada e houver outra chave cadastrada, a frase e tentada de novo na
+        hora, com a chave seguinte. Sem isso, ter duas chaves nao adiantava
+        nada para a voz.
         """
         saiu = {"sim": False}
 
@@ -1691,10 +1820,12 @@ class VozCharon:
             try:
                 vivo.speak_para_fila(texto, _marcado, modo="ler")
                 if saiu["sim"]:
+                    self._anotar_sucesso(vivo)
                     return
                 ultimo = RuntimeError("a voz devolveu o turno sem audio")
             except Exception as exc:
                 if saiu["sim"]:
+                    self._anotar_sucesso(vivo)
                     return          # ja falou: nunca repetir a frase
                 ultimo = exc
             try:
@@ -1708,6 +1839,25 @@ class VozCharon:
                     vivo._reset_persistent_session(), vivo._garantir_laco()).result(timeout=5)
             except Exception:
                 pass
+
+        # A MESMA FRASE, OUTRA CHAVE (uma vez so — repetir sempre esconderia o
+        # problema e faria o dono esperar duas vezes pela mesma falha).
+        if ultimo is not None and self._trocar_a_chave(ultimo):
+            vivo = self._ao_vivo()
+            try:
+                vivo.speak_para_fila(texto, _marcado, modo="ler")
+                if saiu["sim"]:
+                    self._anotar_sucesso(vivo)
+                    return
+                ultimo = RuntimeError("a voz devolveu o turno sem audio (chave nova)")
+            except Exception as exc:
+                if saiu["sim"]:
+                    self._anotar_sucesso(vivo)
+                    return
+                ultimo = exc
+
+        if ultimo is not None:
+            self._anotar_falha(ultimo)
         raise ultimo or RuntimeError("a voz ao vivo nao saiu")
 
     # A conexao ja tenta 2 vezes por dentro (`_corrida_unica`, conexao nova a

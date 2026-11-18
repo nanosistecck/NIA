@@ -1390,12 +1390,8 @@ def _fmt_ts(ts):
 
 
 def _read_gemini_key() -> str:
-    cfg = BASE_DIR / "config" / "api_keys.json"
-    try:
-        data = json.loads(cfg.read_text(encoding="utf-8"))
-        return str(data.get("gemini_api_key") or "").strip()
-    except Exception:
-        return ""
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 _GEMINI_MEDIA_MODELS = (

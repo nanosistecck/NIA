@@ -395,13 +395,15 @@ def _openai_morta(texto_do_erro: str) -> bool:
 
 
 class CerebroOpenRouter:
-    def __init__(self, modelo: str = MODELO_PADRAO, sistema: str = "") -> None:
+    def __init__(self, modelo: str = MODELO_PADRAO, sistema: str = "", router=None) -> None:
         # NAO LE MAIS CHAVE NENHUMA AQUI (04/09/2026). A do OpenRouter deixou
         # de existir no caminho do cerebro, e a da Gemini quem le e o
         # `cerebro_gemini`. Sem isto, o JARVIS nem abria quando faltava a chave —
         # e agora ele PRECISA abrir mesmo sem chave nenhuma do cliente, porque
         # o Codex da VPS responde de qualquer jeito.
         self.modelo = modelo or MODELO_PADRAO
+        # FASE: o Router com o pool de chaves (multi-key + failover automatico).
+        self.router = router
         # A ponte com a VPS (o `relay_client`). Quem injeta e o main.py, que e
         # quem a tem. Sem ela sobra a Gemini; sem as duas, ele avisa o dono em
         # vez de inventar resposta.
@@ -664,6 +666,14 @@ class CerebroOpenRouter:
     # A nossa API entra quando a do cliente acaba. Ver `_pensar`.
     usar_openai = True
 
+    # PROVEDORES DO CATALOGO (04/2026): qualquer provedor do `core/provedores.py`
+    # que fale OpenAI-compat e tenha chave no banco vira um degrau da escada.
+    # Fica em "reserva" (depois de Codex/Gemini/OpenAI) por padrao, para nao
+    # mudar o comportamento de quem nao cadastrou chave nenhuma. O
+    # `config/llm_routing.json` (`genericos.prioridade = "preferido"`) coloca
+    # esses provedores na frente do Codex.
+    usar_generico = True
+
     # Ate quando NAO tentar a Gemini de novo (relogio do sistema). E preenchido
     # quando ela devolve 429 de cota diaria: bater nela a cada frase so gastaria
     # o tempo do cliente esperando o erro chegar.
@@ -700,7 +710,7 @@ class CerebroOpenRouter:
             try:
                 from core.cerebro_openai import CerebroOpenAI  # noqa: PLC0415
                 if getattr(self, "_openai", None) is None:
-                    self._openai = CerebroOpenAI()
+                    self._openai = CerebroOpenAI(router=self.router)
                 # `responder` E CONVERSA FALADA: teto de 700 fichas de saida.
                 # Serve para "abre o bloco de notas", nao para um Set-Content
                 # com um programa inteiro dentro do -Value. Em 08/09/2026 o
@@ -720,7 +730,7 @@ class CerebroOpenRouter:
             try:
                 from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
                 if getattr(self, "_gemini", None) is None:
-                    self._gemini = CerebroGemini()
+                    self._gemini = CerebroGemini(router=self.router)
                 # Mesma razao do degrau acima — e aqui o teto do `responder` e
                 # ainda menor (400 fichas).
                 texto = self._gemini.escrever_longo(
@@ -731,6 +741,12 @@ class CerebroOpenRouter:
                 texto = str(exc)
                 if "429" in texto or "RESOURCE_EXHAUSTED" in texto:
                     self._gemini_ate = _t.time() + _quanto_calar_a_gemini(texto)[0]
+        # Antes do Codex: se o usuario cadastrou chave de um provedor do
+        # catalogo (Groq, Cerebras, Mistral...), ela responde comando em 1-2 s.
+        texto = self._escrever_com_generico(mensagens[0]["content"],
+                                            mensagens[1]["content"], max_tokens=1500)
+        if texto:
+            return texto
         # Ultimo degrau: o Codex da VPS (era o gratuito do OpenRouter).
         return self.escrever_comando(tarefa)
 
@@ -774,7 +790,7 @@ class CerebroOpenRouter:
             try:
                 from core.cerebro_openai import CerebroOpenAI  # noqa: PLC0415
                 if getattr(self, "_openai", None) is None:
-                    self._openai = CerebroOpenAI()
+                    self._openai = CerebroOpenAI(router=self.router)
                 t = self._openai.escrever_longo(instrucao, pedido)
                 if t.strip():
                     return t
@@ -786,7 +802,7 @@ class CerebroOpenRouter:
             try:
                 from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
                 if getattr(self, "_gemini", None) is None:
-                    self._gemini = CerebroGemini()
+                    self._gemini = CerebroGemini(router=self.router)
                 t = self._gemini.escrever_longo(instrucao, pedido)
                 if t.strip():
                     return t
@@ -794,6 +810,10 @@ class CerebroOpenRouter:
                 texto = str(exc)
                 if "429" in texto or "RESOURCE_EXHAUSTED" in texto:
                     self._gemini_ate = _t.time() + _quanto_calar_a_gemini(texto)[0]
+        # Mesmo degrau do catalogo antes do Codex (texto longo).
+        t = self._escrever_com_generico(instrucao, str(pedido))
+        if t.strip():
+            return t
         # Ultimo degrau: o Codex da VPS. Texto longo (um programa inteiro,
         # uma carta) e justamente onde ele e melhor que modelo gratuito.
         cerebro = self._cerebro_codex(a_parte=True)
@@ -886,6 +906,71 @@ class CerebroOpenRouter:
                 pass
         return None
 
+    def _provedores_genericos(self) -> list[str]:
+        """Provedores do catalogo com chave no banco e endpoint conhecido."""
+        from core.provedores import base_url_do_provedor  # noqa: PLC0415
+
+        if self.router is None or not self.usar_generico:
+            return []
+        cfg = getattr(self.router, "genericos", {}) or {}
+        if not cfg.get("ativo", True):
+            return []
+        nativos = {"gemini", "openai", "openrouter", "codex"}
+        maximo = max(1, int(cfg.get("max") or 3))
+        saida = []
+        try:
+            disponiveis = self.router.provedores_disponiveis()
+        except Exception:
+            return []
+        for provedor in disponiveis:
+            if provedor in nativos or not base_url_do_provedor(provedor):
+                continue
+            saida.append(provedor)
+        return saida[:maximo]
+
+    def _pensar_com_generico(self, mensagens: list, forcar: bool = False):
+        """Um degrau por provedor do catalogo (Groq, Cerebras, Mistral...).
+
+        Cada provedor fala OpenAI-compat, entao um cerebro so (`CerebroGenerico`)
+        serve para todos: muda o `base_url` e o modelo. Quem falha entra em
+        cooldown no pool e o proximo assume — e o mesmo failover que ja existe
+        entre chaves do mesmo provedor.
+        """
+        from core.cerebro_generico import CerebroGenerico  # noqa: PLC0415
+
+        for provedor in self._provedores_genericos():
+            try:
+                cerebro = CerebroGenerico(provedor, router=self.router)
+                r = cerebro.responder(mensagens, self._ferramentas_para(mensagens),
+                                      self.executor, forcar_ferramenta=forcar)
+                if r.get("texto") or r.get("chamou_ferramenta"):
+                    self.ultimo_cerebro = provedor
+                    return r
+            except Exception as exc:
+                print(f"[JARVIS] {provedor} nao respondeu: {str(exc)[:140]}")
+        return None
+
+    def _escrever_com_generico(self, instrucao: str, pedido: str,
+                               max_tokens: int = 9000, timeout: float = 120.0) -> str:
+        """Texto longo pelo primeiro provedor do catalogo que responder."""
+        from core.cerebro_generico import CerebroGenerico  # noqa: PLC0415
+
+        for provedor in self._provedores_genericos():
+            try:
+                cerebro = CerebroGenerico(provedor, router=self.router)
+                texto = cerebro.escrever_longo(instrucao, pedido,
+                                               max_tokens=max_tokens, timeout=timeout)
+                if texto.strip():
+                    self.ultimo_cerebro = provedor
+                    return texto
+            except Exception as exc:
+                print(f"[JARVIS] {provedor} nao escreveu: {str(exc)[:140]}")
+        return ""
+
+    def _genericos_preferidos(self) -> bool:
+        cfg = getattr(self.router, "genericos", {}) or {}
+        return str(cfg.get("prioridade") or "reserva").lower() == "preferido"
+
     def _pensar(self, mensagens: list, forcar: bool = False):
         """O CODEX PRIMEIRO. Gemini e OpenAI so se a ponte estiver fora.
 
@@ -907,6 +992,13 @@ class CerebroOpenRouter:
         """
         import time as _t  # noqa: PLC0415
 
+        # "preferido": os provedores do catalogo entram na frente do Codex.
+        # Só quem escolheu isso no config muda de comportamento; o padrão
+        # ("reserva") continua exatamente como era.
+        if self._genericos_preferidos():
+            r = self._pensar_com_generico(mensagens, forcar)
+            if r is not None:
+                return r
         r = self._pensar_com_codex(mensagens, forcar)
         if r is not None:
             return r
@@ -918,6 +1010,11 @@ class CerebroOpenRouter:
             r = self._pensar_com_openai(mensagens, forcar)
             if r is not None:
                 return r
+        # ÚLTIMO DEGRAU DO CATALOGO: Groq/Cerebras/Mistral/SambaNova... Se
+        # ninguém acima respondeu, ainda dá para falar com a chave do usuário.
+        r = self._pensar_com_generico(mensagens, forcar)
+        if r is not None:
+            return r
         return None
 
     # PAPO CURTO NAO PRECISA DE FERRAMENTA (02/09/2026).
@@ -1009,7 +1106,7 @@ class CerebroOpenRouter:
         try:
             from core.cerebro_openai import CerebroOpenAI  # noqa: PLC0415
             if getattr(self, "_openai", None) is None:
-                self._openai = CerebroOpenAI()
+                self._openai = CerebroOpenAI(router=self.router)
             r = self._openai.responder(mensagens,
                                        self._ferramentas_para(mensagens),
                                        self.executor, forcar_ferramenta=forcar)
@@ -1036,7 +1133,7 @@ class CerebroOpenRouter:
         try:
             from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
             if getattr(self, "_gemini", None) is None:
-                self._gemini = CerebroGemini()
+                self._gemini = CerebroGemini(router=self.router)
             r = self._gemini.responder(mensagens,
                                        self._ferramentas_para(mensagens),
                                        self.executor, forcar_ferramenta=forcar)

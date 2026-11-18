@@ -81,7 +81,8 @@ def _save_config_key(key: str, value) -> None:
 
 
 def _get_api_key() -> str:
-    key = _load_config().get("gemini_api_key", "")
+    from core.llm_router import resolver
+    key = resolver("gemini") or ""
     if not key:
         raise RuntimeError("gemini_api_key not found in config.")
     return key
@@ -167,7 +168,8 @@ def _save_quota_state(state: dict) -> None:
 
 def _chave_da_gemini_serve() -> bool:
     """A chave configurada tem cara de chave da Google? (ver gemini_socorro)"""
-    chave = str(_load_config().get("gemini_api_key", "") or "").strip()
+    from core.llm_router import resolver
+    chave = resolver("gemini") or ""
     try:
         from core.gemini_socorro import chave_parece_boa  # noqa: PLC0415
         return chave_parece_boa(chave)
@@ -177,9 +179,18 @@ def _chave_da_gemini_serve() -> bool:
 
 
 def _marca_da_chave() -> str:
-    """Assinatura curta da chave em uso — nunca a chave."""
+    """Assinatura curta da chave EM USO — nunca a chave.
+
+    A chave vem da MESMA porta que a visao usa (`_get_api_key` -> roteador:
+    banco da tela primeiro). Antes lia o `api_keys.json` direto; com as chaves
+    no banco a marca ficava vazia e o castigo de cota NAO sumia quando o dono
+    trocava a chave.
+    """
     import hashlib  # noqa: PLC0415
-    chave = str(_load_config().get("gemini_api_key", "") or "")
+    try:
+        chave = str(_get_api_key() or "")
+    except Exception:
+        chave = ""
     return hashlib.sha1(chave.encode("utf-8")).hexdigest()[:12] if chave else ""
 
 

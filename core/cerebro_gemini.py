@@ -20,9 +20,6 @@ traducao volta atras.
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from core.preguica import Preguicoso as _Preguicoso
 genai = _Preguicoso("google.genai")
 types = _Preguicoso("google.genai.types")
@@ -114,13 +111,22 @@ def _desembrulhar(ferramentas_openai: list) -> list:
 class CerebroGemini:
     """Mesmo contrato do cerebro principal, no modelo barato da Gemini."""
 
-    def __init__(self, chave: str | None = None) -> None:
+    def __init__(self, chave: str | None = None, router=None) -> None:
+        # FASE 2: com um Router no ar, a chave vem do POOL (multi-key). Chave
+        # explicita continua vencendo (testes, dialeto manual), e sem router o
+        # comportamento antigo (leitura do config/api_keys.json) vale.
+        if not chave and router is not None:
+            escolhido = router.escolher("gemini")
+            chave = escolhido[1].chave if escolhido else None
         if not chave:
-            caminho = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
-            chave = str(json.loads(caminho.read_text(encoding="utf-8"))
-                        .get("gemini_api_key") or "").strip()
+            # SEM router (chamada avulsa, teste): a fonte e a MESMA porta do
+            # resto do projeto — `resolver` le o banco da tela de chaves e, so'
+            # se ele estiver vazio, o `config/api_keys.json`. Ler o arquivo
+            # direto aqui deixava de fora a chave cadastrada na tela.
+            from core.llm_router import resolver  # noqa: PLC0415
+            chave = resolver("gemini") or ""
         if not chave:
-            raise RuntimeError("Chave Gemini ausente em config/api_keys.json")
+            raise RuntimeError("Chave Gemini ausente: cadastre em Configuracoes > Chaves de API")
         # Prazo de 30 s (01/10/2026): num pico do Google o pedido ficava ate 51 s
         # preso antes de voltar 503, e o degrau seguinte nem chegava a tentar.
         self.client = genai.Client(api_key=chave, http_options={"timeout": 30000})

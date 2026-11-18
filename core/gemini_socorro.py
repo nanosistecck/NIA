@@ -43,13 +43,8 @@ def definir_ponte(ponte) -> None:
 
 
 def _chave() -> str:
-    import json  # noqa: PLC0415
-    from pathlib import Path  # noqa: PLC0415
-    try:
-        arq = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
-        return str(json.loads(arq.read_text(encoding="utf-8")).get("gemini_api_key") or "").strip()
-    except Exception:
-        return ""
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 def chave_parece_boa(chave: str) -> bool:

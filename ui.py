@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
     QDialog, QGridLayout, QGraphicsDropShadowEffect, QMenu, QSystemTrayIcon,
+    QMessageBox,
 )
 
 # SEGUNDO PLANO (01/11/2026, v1.0.37): botao e tecla F9 que deixam o JARVIS so
@@ -7174,10 +7175,13 @@ class MainWindow(QMainWindow):
         lay_chave = QVBoxLayout(pag_chave)
         lay_chave.setContentsMargins(0, 8, 0, 0)
         exp_chave = QLabel(
-            "As chaves de IA ficam guardadas so neste computador.\n"
-            "Sem a chave ele ainda ouve e fala, mas nao pensa.")
+            "Cadastro multi-key e multi-provedor: escolha o provedor no catalogo\n"
+            "(Gemini, OpenAI, Groq, Cerebras, Mistral e mais) e adicione quantas\n"
+            "chaves quiser. Ficam num banco local; o roteador escolhe a chave com\n"
+            "folga e troca sozinho quando uma falha ou estoura o limite.")
         exp_chave.setFont(_fx(9))
         exp_chave.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        exp_chave.setWordWrap(True)
         lay_chave.addWidget(exp_chave)
         b_chave = QPushButton("ABRIR O CADASTRO DE CHAVES")
         b_chave.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -7190,12 +7194,11 @@ class MainWindow(QMainWindow):
 
         def _abrir_chaves():
             try:
-                dlg.accept()
-                self._show_setup()
+                self._abrir_cadastro_chaves()
             except Exception as exc:
                 _aviso_chave = getattr(self, "_ui", None)
                 if _aviso_chave is not None:
-                    _aviso_chave.write_log(f"ERR: nao abri as chaves — {str(exc)[:90]}")
+                    _aviso_chave.write_log(f"ERR: nao abri o cadastro de chaves — {str(exc)[:90]}")
         b_chave.clicked.connect(_abrir_chaves)
         lay_chave.addWidget(b_chave)
         lay_chave.addStretch()
@@ -7896,11 +7899,277 @@ class MainWindow(QMainWindow):
             encoding="utf-8",
         )
         self._ready = True
+        # A CHAVE DIGITADA AQUI TAMBEM ENTRA NA LISTA DE PROVEDORES (18/11/2026)
+        #
+        # A tela antiga (F2) gravava so' no arquivo. Quem trocasse a chave por
+        # ela nao a via no cadastro novo, nem ganhava o rodizio/castigo do
+        # roteador. O arquivo continua sendo gravado (compatibilidade), mas a
+        # chave passa a existir tambem no banco — e o `resolver` le o banco
+        # primeiro.
+        if key.strip():
+            try:
+                from core import db_chaves, llm_router
+                db_chaves.adicionar_chave("google", key.strip(), label="configuracao")
+                llm_router.recarregar()
+            except Exception:
+                pass
         if self._overlay:
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
         self._log.append_log(f"SIS: Inicializado. SO={os_name.upper()}. JARVIS online.")
+
+    def _abrir_cadastro_chaves(self):
+        """CADASTRO DE CHAVES (multi-key, multi-provedor).
+
+        O usuário escolhe o provedor no catálogo (`core/provedores.py`), cola a
+        chave e adiciona. Tudo fica no banco local (`config/jarvis.db`); o
+        roteador carrega de lá e gerencia qual chave usar (limite/fallback).
+
+        Modelo e URL são opcionais: entram sozinhos do catálogo quando o
+        provedor já é conhecido, e são obrigatórios quando ele não é (provedor
+        sem `base_url` ou sem modelo listado).
+        """
+        from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+                                     QPushButton, QScrollArea, QWidget, QComboBox)
+        from core import db_chaves
+        from core.provedores import PROVEDORES, nome_do_provedor
+
+        # Ordem do seletor: LLM primeiro, depois busca, voz e imagem.
+        prioridade = {"llm": 0, "busca": 1, "voz": 2, "imagem": 3}
+        lista = sorted(PROVEDORES.items(),
+                       key=lambda kv: (prioridade.get(str(kv[1].get("tipo") or "llm"), 9),
+                                       str(kv[1].get("nome") or kv[0]).lower()))
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("JARVIS · Cadastro de Chaves")
+        dlg.setMinimumWidth(720)
+        raiz = QVBoxLayout(dlg)
+        raiz.setContentsMargins(20, 16, 20, 16)
+        raiz.setSpacing(10)
+
+        topo = QLabel("Cadastro de chaves — multi-key por provedor.")
+        topo.setFont(_fx(10, QFont.Weight.Bold))
+        topo.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+        raiz.addWidget(topo)
+
+        topo2 = QLabel(f"{len(PROVEDORES)} provedores no catálogo. "
+                       "Quantas chaves quiser do mesmo provedor: o roteador escolhe a que tem folga.")
+        topo2.setFont(_fx(8))
+        topo2.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        raiz.addWidget(topo2)
+
+        # ── provedor + chave ──
+        sel_row = QHBoxLayout()
+        sel_row.setSpacing(6)
+        combo = QComboBox()
+        for pid, spec in lista:
+            tipo = str(spec.get("tipo") or "llm").upper()
+            combo.addItem(f"{tipo} · {spec.get('nome', pid)} · {pid}", pid)
+        sel_row.addWidget(combo, 1)
+        campo = QLineEdit()
+        campo.setPlaceholderText("cole a chave aqui (AIza…, sk-…, gsk-…)")
+        campo.setFont(_fx(9))
+        campo.setFixedHeight(30)
+        sel_row.addWidget(campo, 2)
+        raiz.addLayout(sel_row)
+
+        # ── modelo + URL (opcionais quando o catálogo já sabe) ──
+        extra_row = QHBoxLayout()
+        extra_row.setSpacing(6)
+        campo_modelo = QLineEdit()
+        campo_modelo.setFont(_fx(8))
+        campo_modelo.setFixedHeight(28)
+        extra_row.addWidget(campo_modelo, 1)
+        campo_url = QLineEdit()
+        campo_url.setFont(_fx(8))
+        campo_url.setFixedHeight(28)
+        extra_row.addWidget(campo_url, 1)
+        raiz.addLayout(extra_row)
+
+        def _dica_do_provedor():
+            pid = combo.currentData()
+            spec = PROVEDORES.get(pid) or {}
+            modelos = list(spec.get("modelos") or [])
+            campo_modelo.setPlaceholderText(
+                ("modelo (padrão: %s)" % modelos[0]) if modelos
+                else "modelo — obrigatório para este provedor")
+            url = str(spec.get("base_url") or "")
+            campo_url.setPlaceholderText(
+                ("URL (padrão: %s)" % url[:38]) if url else "URL do endpoint — obrigatória aqui")
+
+        combo.currentIndexChanged.connect(lambda _i: _dica_do_provedor())
+        _dica_do_provedor()
+
+        btn_add = QPushButton("ADICIONAR")
+        btn_add.setFixedHeight(30)
+        btn_add.setFont(_fx(8, QFont.Weight.Bold))
+        btn_add.clicked.connect(
+            lambda: self._salvar_nova_chave(combo.currentData(), campo, campo_modelo,
+                                            campo_url, dlg))
+        extra_row.addWidget(btn_add)
+
+        # ── chaves já cadastradas (do banco) ──
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        conteudo = QWidget()
+        lay = QVBoxLayout(conteudo)
+        lay.setSpacing(8)
+        cadastradas = db_chaves.listar_chaves()
+        if not cadastradas:
+            vazio = QLabel("Nenhuma chave cadastrada ainda.")
+            vazio.setFont(_fx(8))
+            vazio.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+            lay.addWidget(vazio)
+        for row in cadastradas:
+            box = QWidget()
+            blay = QHBoxLayout(box)
+            blay.setContentsMargins(0, 0, 0, 0)
+            detalhe = ""
+            if row.get("modelo"):
+                detalhe += f"  ·  {row['modelo']}"
+            if row.get("base_url"):
+                detalhe += f"  ·  {str(row['base_url'])[:28]}"
+            txt = QLabel(f"{nome_do_provedor(row['platform'])}  ·  •••• {str(row['key'])[-4:]}"
+                         f"  ·  {row['status']}{detalhe}")
+            txt.setFont(_fx(8))
+            txt.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+            blay.addWidget(txt, 1)
+            btn_del = QPushButton("REMOVER")
+            btn_del.setFixedHeight(26)
+            btn_del.setFont(_fx(7, QFont.Weight.Bold))
+            btn_del.clicked.connect(lambda _r=row: self._remover_chave(_r["id"], dlg))
+            blay.addWidget(btn_del)
+            lay.addWidget(box)
+        lay.addStretch()
+        scroll.setWidget(conteudo)
+        raiz.addWidget(scroll, 1)
+
+        btn_row = QHBoxLayout()
+        fechar = QPushButton("FECHAR")
+        fechar.setFixedHeight(32)
+        fechar.setFont(_fx(9, QFont.Weight.Bold))
+        fechar.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {C.TEXT_MED};"
+            f" border: 1px solid {C.BORDER}; border-radius: 5px; padding: 0 16px; }}"
+            f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}"
+        )
+        fechar.clicked.connect(dlg.accept)
+        btn_row.addStretch()
+        btn_row.addWidget(fechar)
+        raiz.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _salvar_nova_chave(self, provedor: str, campo, campo_modelo=None, campo_url=None,
+                           dlg=None) -> None:
+        """Grava a chave no banco e reabre o cadastro já atualizado."""
+        from core import db_chaves
+
+        valor = campo.text().strip()
+        if not valor or not provedor:
+            return
+        modelo = campo_modelo.text().strip() if campo_modelo is not None else ""
+        url = campo_url.text().strip() if campo_url is not None else ""
+        novo = db_chaves.adicionar_chave(provedor, valor, modelo=modelo, base_url=url)
+        # A VOZ LE A CHAVE NO MOMENTO EM QUE NASCE (18/11/2026): sem este aviso,
+        # a chave cadastrada so valeria no proximo motor de voz. `recarregar`
+        # refaz o roteador agora, e a proxima fala (ou o proximo botao "testar
+        # voz") ja nasce com ela.
+        try:
+            from core import llm_router
+            llm_router.recarregar()
+        except Exception:
+            pass
+        campo.clear()
+        # A CHAVE E ACEITA DE VERDADE? (18/11/2026)
+        #
+        # Em 18/11 a tela dizia "cadastrada" e a voz nao saia: a chave guardada
+        # era um token de outro tipo e o Google respondia 401. Uma chamada de
+        # leitura no catalogo de modelos (nao gasta cota) resolve a duvida e o
+        # dono descobre AGORA, nao quando o JARVIS fica mudo.
+        recado, recusada, aceita, motivo = "", False, False, ""
+        try:
+            from core import valida_chave
+            ok, texto = valida_chave.validar(provedor, valor, url)
+            recusada = not ok
+            aceita = ok
+            motivo = texto
+            recado = ("CHAVE RECUSADA: " if recusada else "CHAVE: ") + texto
+        except Exception as exc:
+            recado = f"CHAVE: nao deu para verificar agora ({exc})"
+        # RECUSADA ENTRA NO CASTIGO JA' (18/11/2026): sem isto a chave ficava
+        # "ativa" no banco e era a PRIMEIRA da fila — a chamada seguinte pagava
+        # o 401 para so' entao trocar. Marcada agora, a proxima chave (a nova,
+        # que o dono acabou de colar) ja' nasce na frente.
+        if recusada:
+            try:
+                from core import llm_router
+                llm_router.anotar_falha(provedor, motivo or "chave recusada", valor)
+                llm_router.recarregar()
+            except Exception:
+                pass
+        # A MESMA CHAVE, AGORA ACEITA, SAI DO CASTIGO (18/11/2026)
+        #
+        # A chave recusada fica 12 h de castigo. Se o dono cola DE NOVO a mesma
+        # chave (por exemplo, depois de corrigir a copia) e o provedor agora a
+        # aceita, o banco ja a tem — `adicionar_chave` devolve None — mas ela
+        # continuaria muda ate o castigo vencer. Aqui o sucesso e anotado na
+        # hora e o roteador e refeito, para a proxima fala nascer com ela.
+        if aceita and novo is None:
+            try:
+                from core import llm_router
+                llm_router.anotar_sucesso(provedor, valor)
+                llm_router.recarregar()
+            except Exception:
+                pass
+        try:
+            _ui = getattr(self, "_ui", None)
+            if _ui is not None:
+                if novo is None:
+                    _ui.write_log(f"CHAVE: essa chave ja esta cadastrada para {provedor}.")
+                else:
+                    _ui.write_log(f"CHAVE: adicionada para {provedor}.")
+                if recado:
+                    _ui.write_log(recado)
+        except Exception:
+            pass
+        if recusada:
+            # Guardada de proposito: chave nao se perde. Mas o dono precisa
+            # saber que ELA nao vai falar ate ser trocada.
+            try:
+                QMessageBox.warning(
+                    dlg or self, "Chave recusada pelo provedor",
+                    recado.replace("CHAVE RECUSADA: ", "")
+                    + "\n\nA chave ficou guardada, mas o provedor nao a aceita — "
+                      "enquanto isso, a voz e as respostas que dependem dela nao "
+                      "funcionam. Confira se copiou a chave inteira (Gemini: "
+                      "AIza... ou AQ...); se a copia estiver certa, gere uma "
+                      "chave NOVA em https://aistudio.google.com/apikey e cole "
+                      "aqui de novo.")
+            except Exception:
+                pass
+        if dlg is not None:
+            try:
+                dlg.accept()
+                self._abrir_cadastro_chaves()
+            except Exception:
+                pass
+
+    def _remover_chave(self, chave_id: int, dlg) -> None:
+        from core import db_chaves
+        db_chaves.remover_chave(chave_id)
+        try:
+            from core import llm_router
+            llm_router.recarregar()
+        except Exception:
+            pass
+        try:
+            dlg.accept()
+            self._abrir_cadastro_chaves()
+        except Exception:
+            pass
+
 
 class _RootShim:
     def __init__(self, app: QApplication):

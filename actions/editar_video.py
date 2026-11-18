@@ -678,7 +678,8 @@ def _descrever_uma(ff: str, caminho: str, ver, log) -> str:
     try:
         import base64  # noqa: PLC0415
         from core.cerebro_openai import ESFORCO, MODELO, CerebroOpenAI, _postar  # noqa: PLC0415
-        c = CerebroOpenAI()
+        from core.llm_router import carregar_router
+        c = CerebroOpenAI(router=carregar_router())
         corpo = {"model": MODELO, "reasoning": {"effort": ESFORCO}, "max_output_tokens": 160,
                  "input": [{"role": "user", "content": [
                      {"type": "input_text", "text": _PERGUNTA_DA_IMAGEM},

@@ -997,7 +997,35 @@ def _texto_do_erro(exc: BaseException, _fundo: int = 0) -> str:
             partes.append(_texto_do_erro(causa, _fundo + 1))
     return " | ".join(partes)
 
+_roteador_llm = None
+
+
+def _get_roteador_llm():
+    """Router com pool de chaves (FASE 4).
+
+    O roteador e UNICO no processo (`llm_router._global()`), que se refaz quando
+    o banco/config mudam — cadastrar chave na tela nao exige reiniciar.
+    """
+    global _roteador_llm
+    if _roteador_llm is None:
+        try:
+            from core.llm_router import carregar_router
+            _roteador_llm = carregar_router()
+        except Exception:
+            _roteador_llm = None
+    return _roteador_llm
+
+
 def _get_api_key() -> str:
+    # FASE 4: com o Router no ar, prefere a chave ATIVA do POOL; cai no arquivo (legado).
+    roteador = _get_roteador_llm()
+    if roteador is not None:
+        try:
+            chave = roteador.chave_ativa("gemini")
+            if chave:
+                return chave
+        except Exception:
+            pass
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data.get("gemini_api_key") or data.get("GEMINI_API_KEY") or data.get("google_api_key") or ""
@@ -6371,7 +6399,7 @@ class JarvisLive:
             # mesma pedra do `_olhar_e_clicar` (03/09).
             if self._openrouter is None:
                 from core.cerebro_openrouter import CerebroOpenRouter  # noqa: PLC0415
-                self._openrouter = CerebroOpenRouter()
+                self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
             self._openrouter.ponte = getattr(self.ui, "_codex_relay", None)
             self._openrouter.falar = self._falar_local
             argumentos = ({"melhorar": True, "critica": pedido} if melhorar
@@ -6406,7 +6434,7 @@ class JarvisLive:
                 pass
             if self._openrouter is None:
                 from core.cerebro_openrouter import CerebroOpenRouter  # noqa: PLC0415
-                self._openrouter = CerebroOpenRouter()
+                self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
             self._openrouter.ponte = getattr(self.ui, "_codex_relay", None)
             self._openrouter.falar = self._falar_local
             r = digitar_na_tela({"pedido": pedido}, player=self.ui,
@@ -7147,7 +7175,7 @@ class JarvisLive:
                     return
                 from core.cerebro_openrouter import CerebroOpenRouter
                 if self._openrouter is None:
-                    self._openrouter = CerebroOpenRouter()
+                    self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
                     self._openrouter.executor = self._executar_ferramenta_local
                     self._openrouter.ferramentas = CerebroOpenRouter.converter_ferramentas(
                         TOOL_DECLARATIONS)
@@ -7507,7 +7535,7 @@ class JarvisLive:
             self._aquecer_boca()
             from core.cerebro_openrouter import CerebroOpenRouter
             if self._openrouter is None:
-                self._openrouter = CerebroOpenRouter()
+                self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
                 self._openrouter.executor = self._executar_ferramenta_local
                 self._openrouter.ferramentas = CerebroOpenRouter.converter_ferramentas(
                     TOOL_DECLARATIONS)
@@ -7728,12 +7756,23 @@ class JarvisLive:
         except Exception:
             nome_agora = ""
         if (m is None or m.voz != ch.voz or m.jeito != ch.jeito
+                or getattr(m, "chave_morta", False)
                 or getattr(m, "_nome_jarvis", nome_agora) != nome_agora):
             from core.gemini_voice import GeminiConversa  # noqa: PLC0415
             velho = m
             m = GeminiConversa(ch.voz, ch.jeito, self._instrucao_voz)
             m._nome_jarvis = nome_agora
             self._voz_unica = m
+            if getattr(velho, "chave_morta", False):
+                # A chave da conversa estourou (cota/recusada). A conexao nova
+                # nasce chamando `resolver()`, que ja devolve a proxima chave
+                # do pool (18/11/2026). Sem isto, ter duas chaves nao mudava
+                # nada para quem conversa por voz.
+                try:
+                    _voice_diag("voz_unica_trocou_de_chave",
+                                "chave anterior recusada; conexao refeita no pool")
+                except Exception:
+                    pass
             if velho is not None:
                 # Fecha a sessao antiga: a chave gratis tem poucas vagas.
                 try:
@@ -8483,6 +8522,23 @@ class JarvisLive:
                         self.ui.write_log(f"{_nome_falante(self.ui)}: {texto}")
                         self.ui.write_log("SIS: a voz engasgou neste turno; "
                                           "a resposta ficou escrita.")
+                        # CHAVE RECUSADA NAO E ENGASGO (18/11/2026)
+                        #
+                        # Em 18/11 a voz ficou muda e o chat so dizia "engasgou":
+                        # o dono procurou defeito na voz quando o problema era
+                        # uma chave que o Google recusava com 401. A frase
+                        # abaixo aponta o caminho certo, sem juridiquês.
+                        _erro = str(exc).lower()
+                        if any(_m in _erro for _m in (
+                                "api key not valid", "api_key_invalid",
+                                "unauthenticated", "invalid api key",
+                                "permission_denied", "401")):
+                            self.ui.write_log(
+                                "SIS: o Google recusou a chave do Gemini. Abra "
+                                "Configuracoes > Chaves de API, confira a chave "
+                                "do Google (copiada inteira) e, se continuar "
+                                "recusada, gere outra em "
+                                "https://aistudio.google.com/apikey.")
                     except Exception:
                         pass
                     return
@@ -8651,7 +8707,7 @@ class JarvisLive:
         try:
             from core.cerebro_openrouter import CerebroOpenRouter
             if self._openrouter is None:
-                self._openrouter = CerebroOpenRouter()
+                self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
                 self._openrouter.executor = self._executar_ferramenta_local
                 self._openrouter.ferramentas = CerebroOpenRouter.converter_ferramentas(
                     TOOL_DECLARATIONS)
@@ -9408,7 +9464,7 @@ class JarvisLive:
                 t1 = _t.monotonic()
                 from core.cerebro_openrouter import CerebroOpenRouter
                 if self._openrouter is None:
-                    self._openrouter = CerebroOpenRouter()
+                    self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
                     self._openrouter.executor = self._executar_ferramenta_local
                     self._openrouter.ferramentas = CerebroOpenRouter.converter_ferramentas(
                         TOOL_DECLARATIONS)

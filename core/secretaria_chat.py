@@ -607,11 +607,8 @@ class SecretariaChat:
         if teste is not None:
             chave = teste
         else:
-            try:
-                d = json.loads((SEC.RAIZ / "config" / "api_keys.json").read_text(encoding="utf-8"))
-                chave = str(d.get("gemini_api_key") or d.get("GEMINI_API_KEY") or d.get("google_api_key") or "").strip()
-            except (OSError, ValueError):
-                chave = ""
+            from core.llm_router import resolver
+            chave = resolver("gemini") or ""
         if not chave:
             return None, types
         return genai.Client(api_key=chave, http_options=types.HttpOptions(timeout=ESPERA_GEMINI_MS)), types

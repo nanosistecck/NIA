@@ -52,8 +52,8 @@ def load_api_keys() -> dict:
         return {}
 
 def get_gemini_key() -> str | None:
-    data = load_api_keys()
-    return data.get("gemini_api_key") or data.get("GEMINI_API_KEY") or data.get("google_api_key")
+    from core.llm_router import resolver
+    return resolver("gemini")
 
 def is_configured() -> bool:
     key = get_gemini_key()

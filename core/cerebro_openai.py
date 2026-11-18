@@ -36,7 +36,6 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 URL = "https://api.openai.com/v1/responses"
 
@@ -141,19 +140,19 @@ def _achatar(ferramentas_openai: list) -> list:
 class CerebroOpenAI:
     """Mesmo contrato dos outros cerebros do JARVIS."""
 
-    def __init__(self, chave: str | None = None) -> None:
-        self.chave = (chave or self._chave_do_config() or "").strip()
+    def __init__(self, chave: str | None = None, router=None) -> None:
+        # FASE 2: com um Router no ar, a chave vem do POOL (multi-key). Chave
+        # explicita continua vencendo; sem router, o caminho antigo vale.
+        if not chave and router is not None:
+            escolhido = router.escolher("openai")
+            chave = escolhido[1].chave if escolhido else None
+        if not chave:
+            # Sem router: banco primeiro, arquivo depois (mesma porta do resto).
+            from core.llm_router import resolver  # noqa: PLC0415
+            chave = resolver("openai") or ""
+        self.chave = (chave or "").strip()
         if not self.chave:
-            raise RuntimeError("Chave da OpenAI ausente em config/api_keys.json")
-
-    @staticmethod
-    def _chave_do_config() -> str:
-        caminho = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
-        try:
-            return str(json.loads(caminho.read_text(encoding="utf-8"))
-                       .get("openai_api_key") or "")
-        except Exception:
-            return ""
+            raise RuntimeError("Chave da OpenAI ausente: cadastre em Configuracoes > Chaves de API")
 
     @staticmethod
     def _entrada(mensagens: list) -> list:

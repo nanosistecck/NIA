@@ -110,11 +110,8 @@ def _anotar(evento: str, detalhe: str = "") -> None:
 
 
 def _ler_chave() -> str:
-    try:
-        dados = json.loads((_RAIZ / "config" / "api_keys.json").read_text(encoding="utf-8"))
-        return str(dados.get("gemini_api_key") or "").strip()
-    except Exception:
-        return ""
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 def _cliente_gemini():

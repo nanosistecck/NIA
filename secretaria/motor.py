@@ -104,11 +104,8 @@ def _chave_gemini() -> str:
     teste = os.environ.get("JARVIS_SECRETARIA_CHAVE_TESTE")      # so' a bancada (chave errada de proposito)
     if teste is not None:
         return teste
-    try:
-        d = json.loads((RAIZ / "config" / "api_keys.json").read_text(encoding="utf-8"))
-        return str(d.get("gemini_api_key") or d.get("GEMINI_API_KEY") or d.get("google_api_key") or "").strip()
-    except (OSError, ValueError):
-        return ""
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 def _em_ingles() -> bool:

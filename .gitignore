@@ -14,6 +14,9 @@ memory/diario.jsonl
 # Segredos / credenciais (nao vao para o GitHub)
 config/api_keys.json
 config/remote_bridge.json
+# Banco local de chaves (contem as chaves de API em texto)
+config/jarvis.db
+config/jarvis.db-journal
 
 # WhatsApp bridge: artefatos de runtime
 whatsapp_bridge/node_modules/

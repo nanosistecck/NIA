@@ -69,9 +69,8 @@ PREROLL           = 16      # 320 ms guardados antes da primeira silaba
 
 
 def _carregar_chave() -> str:
-    caminho = BASE / "config" / "api_keys.json"
-    with open(caminho, encoding="utf-8") as f:
-        return json.load(f).get("gemini_api_key", "").strip()
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 def _lingua() -> str:
@@ -188,10 +187,11 @@ class Cerebro:
         # e a conversa caia no socorro em todas as frases.
         self.cliente = genai.Client(api_key=chave,
                                     http_options={"timeout": 12000})
-        # Chave do OpenRouter, usada so como socorro (ver _socorro).
+        # Chave do OpenRouter, usada so como socorro (ver _socorro). Vem da
+        # MESMA lista de provedores da tela (banco primeiro, arquivo depois).
         try:
-            with open(BASE / "config" / "api_keys.json", encoding="utf-8") as f:
-                self.chave_or = (json.load(f).get("openrouter_api_key") or "").strip()
+            from core.llm_router import resolver as _resolver
+            self.chave_or = (_resolver("openrouter") or "").strip()
         except Exception:
             self.chave_or = ""
         self.historico: list = []
@@ -374,7 +374,7 @@ def _limpar_para_voz(texto: str) -> str:
 def principal() -> None:
     chave = _carregar_chave()
     if not chave:
-        print("Nenhuma chave Gemini em config/api_keys.json."); return
+        print("Nenhuma chave Gemini cadastrada (Configuracoes > Chaves de API)."); return
 
     ouvido = Ouvido()
     cerebro = Cerebro(chave)

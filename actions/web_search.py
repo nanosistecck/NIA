@@ -11,14 +11,13 @@ def _get_base_dir() -> Path:
 
 
 BASE_DIR        = _get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
 warnings.filterwarnings("ignore", message=r".*duckduckgo_search.*renamed.*ddgs.*", category=RuntimeWarning)
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 # A BUSCA DO GOOGLE PELA GEMINI NAO EXISTE NA COTA GRATIS (01/10/2026).

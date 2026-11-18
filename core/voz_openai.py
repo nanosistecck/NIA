@@ -316,12 +316,38 @@ class VozOpenAI:
 
     @staticmethod
     def _chave_do_config() -> str:
-        caminho = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
+        from core.llm_router import resolver
+        return resolver("openai") or ""
+
+    def _anotar_sucesso(self) -> None:
+        """A fala saiu: limpa o castigo da chave que produziu o audio."""
         try:
-            return str(json.loads(caminho.read_text(encoding="utf-8"))
-                       .get("openai_api_key") or "")
+            from core.llm_router import anotar_sucesso  # noqa: PLC0415
+            anotar_sucesso("openai", self.chave)
         except Exception:
-            return ""
+            pass
+
+    def _trocar_chave(self, exc: Exception) -> bool:
+        """Cota estourada ou chave recusada? Poe no castigo e pega a proxima."""
+        try:
+            from core import llm_router as _lr  # noqa: PLC0415
+        except Exception:
+            return False
+        tipo = _lr.anotar_falha("openai", str(exc), self.chave)
+        if tipo not in (_lr.T_QUOTA, _lr.T_INVALIDA):
+            return False
+        nova = _lr.proxima_chave("openai", self.chave)
+        if not nova:
+            return False
+        self.chave = nova
+        # A conexao reaproveitada nao guarda a chave (ela vai no cabecalho de
+        # cada pedido), mas depois de um 4xx ela ja foi descartada. Fechar aqui
+        # garante que a proxima fala comece limpa.
+        try:
+            Conexao._descartar()
+        except Exception:
+            pass
+        return True
 
     def _corpo_leitura(self, texto: str) -> bytes:
         corpo = json.dumps({
@@ -448,6 +474,15 @@ class VozOpenAI:
             if not segundos:
                 raise RuntimeError("a ponte de voz nao devolveu audio")
             return
+        # Marca se ja saiu audio: e o que impede repetir a frase ao trocar de
+        # chave depois de meia fala entregue.
+        falou = {"sim": False}
+
+        def _conta(raw):
+            if raw:
+                falou["sim"] = True
+            on_chunk(raw)
+
         if self.natural:
             entregar, fechar = self._acelerando(on_chunk)
             try:
@@ -460,9 +495,29 @@ class VozOpenAI:
             finally:
                 fechar()
             if saiu:
+                self._anotar_sucesso()
                 return
-        if not self._fala_leitura(texto, on_chunk, timeout):
-            raise RuntimeError("a API de fala nao devolveu audio")
+            # A reserva de leitura so tenta a chave nova se a natural nao falou
+            # nada; se ja saiu audio, repetir faria o dono ouvir duas vezes.
+            if falou["sim"]:
+                return
+        # A CHAVE DA VEZ PODE ESTAR ESGOTADA (18/11/2026).
+        #
+        # `self.chave` era lida UMA vez, na construcao, e nunca mais: com 429
+        # (ou chave recusada) o JARVIS ficava sem essa voz ate alguem reiniciar,
+        # mesmo tendo outra chave cadastrada. Agora a falha entra no pool e a
+        # frase e repetida UMA vez com a proxima chave — so se ainda nao saiu
+        # audio nenhum.
+        try:
+            if not self._fala_leitura(texto, _conta, timeout):
+                raise RuntimeError("a API de fala nao devolveu audio")
+        except Exception as exc:
+            if falou["sim"] or not self._trocar_chave(exc):
+                raise
+            print(f"[JARVIS] voz OpenAI trocou de chave ({str(exc)[:80]})")
+            if not self._fala_leitura(texto, _conta, timeout):
+                raise RuntimeError("a API de fala nao devolveu audio (chave nova)")
+        self._anotar_sucesso()
 
     async def pcm(self, texto: str) -> bytes:
         """PCM inteiro, para quem precisa do audio de uma vez."""

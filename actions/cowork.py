@@ -1,4 +1,4 @@
-"""JARVIS COWORK — o programador do JARVIS (05/10/2026).
+"""NIA COWORK — o programador do NIA (05/10/2026).
 
 O dono escolhe uma pasta (o "projeto aberto") e pede por voz ou por escrito:
 "faz um jogo da cobrinha", "a cor do botao esta errada", "deu erro ao abrir".
@@ -15,7 +15,7 @@ Um pedido, do comeco ao fim:
      com o relatorio e a foto; o Codex corrige ou responde OK. Ate 3 rodadas.
   6. Abre o resultado para o dono ver e devolve a frase para ser falada.
 
-Nada disto toca no resto do JARVIS: roda numa thread propria, fala com a VPS
+Nada disto toca no resto do NIA: roda numa thread propria, fala com a VPS
 por mensagens proprias (cw_*) e so escreve dentro da pasta do projeto.
 """
 from __future__ import annotations
@@ -36,13 +36,36 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 _CONFIG = BASE_DIR / "config" / "cowork.json"
 
-PASTA_INTERNA = ".jarvis_cowork"          # desfaz e historico, dentro do projeto
-ARQ_COMO_RODAR = ".jarvis-cowork.json"    # o Codex escreve como rodar o projeto
+PASTA_INTERNA = ".nia_cowork"          # desfaz e historico, dentro do projeto
+ARQ_COMO_RODAR = ".nia-cowork.json"    # o Codex escreve como rodar o projeto
+# Projetos criados antes da troca de nome guardam as marcadores assim.
+PASTA_INTERNA_ANTIGA = ".jarvis_cowork"
+ARQ_COMO_RODAR_ANTIGO = ".jarvis-cowork.json"
+
+
+def _texto_como_rodar(pasta: Path) -> str | None:
+    for nome in (ARQ_COMO_RODAR, ARQ_COMO_RODAR_ANTIGO):
+        try:
+            return (pasta / nome).read_text(encoding="utf-8-sig")
+        except OSError:
+            pass
+    return None
+
+
+def _runtime_instalado() -> str:
+    """Python/Node do instalado, com o nome antigo ainda como alternativa."""
+    base = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
+    for nome in ("NIA-CyberBot", "JARVIS-CyberBot"):
+        candidato = base / "Programs" / nome / "runtime"
+        if candidato.is_dir():
+            return str(candidato)
+    return str(base / "Programs" / "NIA-CyberBot" / "runtime")
 
 # Nunca sobem (pesadas, geradas por ferramenta ou do proprio Cowork).
 _IGNORAR_DIRS = {
     ".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv", "env",
-    PASTA_INTERNA, ".pytest_cache", ".mypy_cache", ".idea", ".vs", ".next", ".nuxt",
+    PASTA_INTERNA, PASTA_INTERNA_ANTIGA,
+    ".pytest_cache", ".mypy_cache", ".idea", ".vs", ".next", ".nuxt",
     ".cache", ".parcel-cache", ".turbo", "dist", "build", "out", "bin", "obj",
     "target", ".gradle", ".dart_tool", "Pods", ".expo",
 }
@@ -66,7 +89,7 @@ _CONTINUACOES_MAX = 4                # rodadas automaticas extras enquanto falta
 _TIMEOUT_RODADA = 65 * 60.0
 _MAX_PONTOS = 30
 _MAX_DESCRICAO = 7600                # a VPS recusa pedido com mais de 8000 letras
-_MARCA_BAT = "REM INICIAR.bat feito pelo JARVIS Cowork"
+_MARCA_BAT = "REM INICIAR.bat feito pelo NIA Cowork"
 
 
 class CoworkCancelado(Exception):
@@ -106,7 +129,7 @@ _RE_CRIAR = re.compile(
     r"programe)\b.{0,80}?\b(?:jogo|game|app|aplicativo|sistema|site|programa|painel|editor|calculadora|"
     r"loja|agenda|relogio|projeto|ferramenta|bot)\b|\bdo zero\b")
 _RE_CONTINUA = re.compile(
-    r"^\W*(?:(?:pode|por favor|agora|entao|jarvis)\W+)*(?:continua|continue|continuar|termina|termine|"
+    r"^\W*(?:(?:pode|por favor|agora|entao|nia)\W+)*(?:continua|continue|continuar|termina|termine|"
     r"terminar|completa|complete|completar|finaliza|finalize|finalizar)\b")
 
 
@@ -158,13 +181,13 @@ def _nome_seguro(rel: str) -> str | None:
     partes = [p for p in r.split("/") if p not in ("", ".")]
     if not partes or any(p == ".." for p in partes):
         return None
-    if partes[0] in (PASTA_INTERNA, "_jarvis_cowork") or partes[0] in {".git"}:
+    if partes[0] in (PASTA_INTERNA, PASTA_INTERNA_ANTIGA, "_jarvis_cowork") or partes[0] in {".git"}:
         return None
     return "/".join(partes)
 
 
 class Cowork:
-    """Uma sessao de Cowork por JARVIS (um projeto aberto de cada vez)."""
+    """Uma sessao de Cowork por NIA (um projeto aberto de cada vez)."""
 
     def __init__(self):
         self.pasta: Path | None = None
@@ -268,7 +291,7 @@ class Cowork:
                 return "uma pasta do sistema"
         try:
             r.relative_to(BASE_DIR.resolve())
-            return "a pasta do próprio JARVIS"
+            return "a pasta do próprio NIA"
         except Exception:
             pass
         return ""
@@ -316,7 +339,7 @@ class Cowork:
         docs = Path.home() / "Documents"
         if not docs.is_dir():
             docs = Path.home()
-        return docs / "JARVIS Cowork"
+        return docs / "NIA Cowork"
 
     def novo_projeto(self, pedido: str) -> Path:
         """Pasta nova para um pedido sem projeto aberto ("faz um jogo...")."""
@@ -484,7 +507,7 @@ class Cowork:
                     nomes[rel] = info
             manifesto = {}
             for rel, info in list(nomes.items()):
-                if rel.endswith("_jarvis_mudancas.json") and "/" not in rel:
+                if rel.endswith("_nia_mudancas.json") and "/" not in rel:
                     try:
                         manifesto = json.loads(z.read(info).decode("utf-8", errors="replace"))
                     except Exception:
@@ -496,7 +519,7 @@ class Cowork:
                     continue
                 guardar(rel)
                 alvo.parent.mkdir(parents=True, exist_ok=True)
-                tmp = alvo.with_name(alvo.name + ".jarvis-tmp")
+                tmp = alvo.with_name(alvo.name + ".nia-tmp")
                 with z.open(info) as src, open(tmp, "wb") as dst:
                     if alvo.suffix.lower() == ".json":
                         # BOM (que o PowerShell da VPS poe) quebra JSON.parse.
@@ -562,7 +585,7 @@ class Cowork:
     def _faltando(self) -> list[str]:
         """Itens que o PROPRIO Codex disse que faltam.
 
-        Primeiro o campo "faltando" do .jarvis-cowork.json (lista vazia = acabou);
+        Primeiro o campo "faltando" do .nia-cowork.json (lista vazia = acabou);
         sem ele, as linhas "[ ]" do CHECKLIST.md / TODO.md da raiz. O que so o
         PC faz (testar, gerar .exe) nao conta."""
         if not self.pasta:
@@ -570,7 +593,8 @@ class Cowork:
         itens: list[str] = []
         cfg = None
         try:
-            cfg = json.loads((self.pasta / ARQ_COMO_RODAR).read_text(encoding="utf-8-sig"))
+            bruto = _texto_como_rodar(self.pasta)
+            cfg = json.loads(bruto) if bruto is not None else None
         except Exception:
             cfg = None
         if isinstance(cfg, dict) and isinstance(cfg.get("faltando"), list):
@@ -602,7 +626,7 @@ class Cowork:
                "trabalho nesta pasta, mas ainda faltam partes. Leia o que já existe; NÃO recomece do zero e "
                "NÃO desfaça o que funciona. Implemente AGORA, de verdade e por completo, o máximo possível dos "
                "itens que faltam abaixo. Depois atualize o CHECKLIST (marque [x] só o que funciona) e o campo "
-               "\"faltando\" do .jarvis-cowork.json (tire o que terminou; lista vazia quando acabar). Testar e "
+               "\"faltando\" do .nia-cowork.json (tire o que terminou; lista vazia quando acabar). Testar e "
                "gerar o .exe não contam: o PC do cliente faz isso sozinho depois.\n"
                "ITENS QUE FALTAM:\n" + "\n".join(f"- {i}" for i in faltas[:25])
                + "\n\nPEDIDO ORIGINAL DO CLIENTE:\n")
@@ -641,7 +665,7 @@ class Cowork:
     # ── INICIAR.bat (16/10/2026, pedido do dono) ────────────────────────────
     # "Todo executavel que ele fizer pelo Windows ou site pelo navegador tem que
     # ter um .bat para iniciar, mesmo que o cliente nao peca." Quem escreve e o
-    # PC (e nao o Codex): so aqui se sabe onde esta o Python do JARVIS. O .bat e
+    # PC (e nao o Codex): so aqui se sabe onde esta o Python do NIA. O .bat e
     # so ASCII (o cmd le .bat na pagina de codigo antiga) e usa %~dp0 para a
     # pasta, entao acento no caminho nao quebra.
     def _garantir_iniciar(self, ponto: Path | None = None) -> None:
@@ -689,7 +713,7 @@ class Cowork:
         cab = ["@echo off", _MARCA_BAT + " (refeito sozinho a cada mudanca; para usar o seu, apague esta linha)",
                f"title {re.sub(r'[^A-Za-z0-9 _.-]', '', _sem_acento(self.pasta.name))[:40] or 'Projeto'}",
                'cd /d "%~dp0"']
-        jarvis_py = r'%LOCALAPPDATA%\Programs\JARVIS-CyberBot\runtime\python'
+        nia_py = _runtime_instalado() + r'\python'
         if cfg["tipo"] == "web":
             abrir = cfg["abrir"].replace("/", "\\")
             if not self._precisa_servidor(cfg["abrir"]):
@@ -699,7 +723,7 @@ class Cowork:
             porta = 8700 + zlib.crc32(_sem_acento(self.pasta.name).encode("utf-8", "ignore")) % 250
             url = f"http://127.0.0.1:{porta}/{quote(cfg['abrir'])}"
             return "\n".join(cab + [
-                f'set "PYEXE={jarvis_py}\\python.exe"',
+                f'set "PYEXE={nia_py}\\python.exe"',
                 'set "PYARG="',
                 'if exist "%PYEXE%" goto servidor',
                 'where py >nul 2>nul || goto direto',
@@ -726,22 +750,24 @@ class Cowork:
             janela = bool(self._ultimo_teste and self._ultimo_teste.get("tipo") == "comando"
                           and self._ultimo_teste.get("tela") is not None)
             linhas = cab + [
-                f'set "PYEXE={jarvis_py}\\python.exe"',
-                f'set "PYWEXE={jarvis_py}\\pythonw.exe"',
+                f'set "PYEXE={nia_py}\\python.exe"',
+                f'set "PYWEXE={nia_py}\\pythonw.exe"',
                 'set "PYARG="',
-                'set "LIBS=%~dp0.jarvis_cowork\\pylibs"',
-                'if not exist ".jarvis_cowork" mkdir ".jarvis_cowork"',
-                'if exist "%PYEXE%" goto jarvis',
+                'set "LIBS=%~dp0.nia_cowork\\pylibs"',
+                'if exist "%~dp0.jarvis_cowork\\pylibs" set "LIBS=%~dp0.jarvis_cowork\\pylibs"',
+                'if not exist ".nia_cowork" mkdir ".nia_cowork"',
+                'if exist "%PYEXE%" goto nia',
                 'where py >nul 2>nul || goto sempython',
                 'set "PYEXE=py"',
                 'set "PYWEXE=pyw"',
                 'set "PYARG=-3"',
                 'if not exist "requirements.txt" goto rodar',
+                'if exist ".nia_cowork\\iniciar_instalou.txt" goto rodar',
                 'if exist ".jarvis_cowork\\iniciar_instalou.txt" goto rodar',
                 'echo Instalando o que o programa precisa, so na primeira vez...',
-                'py -3 -m pip install --user --prefer-binary -r requirements.txt && echo ok>".jarvis_cowork\\iniciar_instalou.txt"',
+                'py -3 -m pip install --user --prefer-binary -r requirements.txt && echo ok>".nia_cowork\\iniciar_instalou.txt"',
                 'goto rodar',
-                ':jarvis',
+                ':nia',
                 'if not exist "requirements.txt" goto comlibs',
                 'if exist "%LIBS%" goto comlibs',
                 'echo Instalando o que o programa precisa, so na primeira vez...',
@@ -756,12 +782,12 @@ class Cowork:
                 linhas += [f'"%PYEXE%" %PYARG% {resto}',
                            'if errorlevel 1 pause', "exit /b"]
             linhas += [":sempython",
-                       "echo Este programa precisa do Python ou do JARVIS instalado neste computador.",
+                       "echo Este programa precisa do Python ou do NIA instalado neste computador.",
                        "pause", ""]
             return "\n".join(linhas)
         if primeiro == "node":
             return "\n".join(cab + [
-                r'set "NODEEXE=%LOCALAPPDATA%\Programs\JARVIS-CyberBot\runtime\node\node.exe"',
+                f'set "NODEEXE={_runtime_instalado()}\\node\\node.exe"',
                 'if not exist "%NODEEXE%" set "NODEEXE=node"',
                 f'"%NODEEXE%" {resto}',
                 "if errorlevel 1 pause", ""])
@@ -786,8 +812,8 @@ class Cowork:
             return None
         cfg = None
         try:
-            bruto = (self.pasta / ARQ_COMO_RODAR).read_text(encoding="utf-8-sig")
-            cfg = json.loads(bruto)
+            bruto = _texto_como_rodar(self.pasta)
+            cfg = json.loads(bruto) if bruto is not None else None
         except Exception:
             cfg = None
         if isinstance(cfg, dict):
@@ -987,18 +1013,18 @@ class Cowork:
                    "deno", "bun", "dotnet", "java", "go", "cargo", "flutter", "love", "godot", "ruby", "php"}
 
     def _python(self) -> tuple[list, bool]:
-        """(comando do python, e o python embutido do JARVIS?).
+        """(comando do python, e o python embutido do NIA?).
 
-        SEMPRE o Python do proprio JARVIS quando ele existe (16/10/2026): o
+        SEMPRE o Python do proprio NIA quando ele existe (16/10/2026): o
         cliente pode nao ter Python nenhum, e o do dono (3.14 do sistema) fazia
         o teste aqui passar com bibliotecas que o cliente nao tem. Assim o que
         o dono testa e exatamente o que o cliente roda, e nada vai para o
-        Python do sistema (as bibliotecas ficam em .jarvis_cowork\\pylibs)."""
+        Python do sistema (as bibliotecas ficam em .nia_cowork\\pylibs)."""
         embutido = BASE_DIR / "runtime" / "python" / "python.exe"
         if embutido.is_file():
             return [str(embutido)], True
-        # Linux/Mac (17/10/2026): o Python do JARVIS e o venv que roda este
-        # processo (~/.local/share/JARVIS-CyberBot/venv); sem isto caia no
+        # Linux/Mac (17/10/2026): o Python do NIA e o venv que roda este
+        # processo (~/.local/share/NIA-CyberBot/venv); sem isto caia no
         # python3 do sistema, sem as bibliotecas e com o pip travado (PEP 668).
         if os.name != "nt" and sys.executable and Path(sys.executable).is_file():
             return [sys.executable], True
@@ -1058,7 +1084,7 @@ class Cowork:
                 break
         marca = self.pasta / PASTA_INTERNA / "instalado.json"
         # O Python que vai rodar entra na conta: trocar de Python (o do sistema
-        # -> o do JARVIS) tem de instalar de novo, senao falta biblioteca.
+        # -> o do NIA) tem de instalar de novo, senao falta biblioteca.
         assinatura = hashlib.sha1((alvo.read_bytes() if alvo else b"") + inst.encode()
                                   + " ".join(self._python()[0]).encode()).hexdigest()
         try:
@@ -1069,8 +1095,8 @@ class Cowork:
         m = re.match(r"^(?:(?:python3?|py)(?:\s+-3(?:\.\d+)?)?\s+-m\s+)?pip3?\s+install\s+(.+)$", inst, re.I)
         if m:
             # pip: sempre pelo python que vai RODAR o projeto. Se for o embutido
-            # do JARVIS, instala numa pasta do projeto (--target) para nao mexer
-            # no proprio JARVIS.
+            # do NIA, instala numa pasta do projeto (--target) para nao mexer
+            # no proprio NIA.
             if re.search(r"[&|;<>`]", m.group(1)):
                 return "Nao instalei as dependencias: o comando tinha partes perigosas."
             exe, embutido = self._python()
@@ -1394,7 +1420,7 @@ class Cowork:
             saida = self._log_execucao.read_text(encoding="utf-8", errors="replace")
         except Exception:
             pass
-        partes = [f"O JARVIS abriu o programa para o dono ({self.como_rodar() or ''}) e ele FECHOU "
+        partes = [f"O NIA abriu o programa para o dono ({self.como_rodar() or ''}) e ele FECHOU "
                   f"SOZINHO {dur:.1f} s depois (codigo {proc.returncode}). Ele tem que abrir e continuar "
                   "aberto. Ache o erro e corrija de verdade.",
                   "Saida do programa (fim):\n" + ("\n".join(saida.strip().splitlines()[-60:])[-5000:] or "(nada)")]
@@ -1457,7 +1483,7 @@ class Cowork:
         if not pedido:
             return "Diga o que você quer que eu faça no projeto."
         if ponte is None:
-            return "O Cowork precisa da conexão com o servidor do JARVIS, e ela não está ativa agora."
+            return "O Cowork precisa da conexão com o servidor do NIA, e ela não está ativa agora."
         with self._trava:
             if self._ocupado:
                 return ("Ainda estou trabalhando no pedido anterior do Cowork. "
@@ -1471,7 +1497,7 @@ class Cowork:
                 nova = self.novo_projeto(pedido)
                 self.pasta = nova
                 self._salvar_config()
-                aviso_pasta = f"Criei o projeto na pasta {nova.name}, dentro de Documentos, JARVIS Cowork. "
+                aviso_pasta = f"Criei o projeto na pasta {nova.name}, dentro de Documentos, NIA Cowork. "
             elif self._contar_arquivos(_MAX_ARQUIVOS) > _MAX_ARQUIVOS:
                 # PASTA GRANDE DEMAIS (10/10/2026): o Diego pediu o Bomberman com a
                 # pasta "Meus Projeto" aberta e o Cowork so dizia "arquivos demais",
@@ -1484,7 +1510,7 @@ class Cowork:
                     self._ultimo_teste = None
                     self._salvar_config()
                     aviso_pasta = (f"A pasta {antiga} tem arquivos demais para o Cowork, então criei o "
-                                   f"projeto na pasta {nova.name}, dentro de Documentos, JARVIS Cowork. ")
+                                   f"projeto na pasta {nova.name}, dentro de Documentos, NIA Cowork. ")
                 else:
                     return (f"A pasta {self.pasta.name} tem arquivos demais para o Cowork (mais de "
                             f"{_MAX_ARQUIVOS}). Clique em PASTA e escolha a pasta só do projeto.")
@@ -1656,7 +1682,7 @@ class Cowork:
         except CoworkCancelado:
             return "Parei o trabalho do Cowork. O que já tinha sido aplicado pode ser desfeito com 'desfaz'."
         except Exception as exc:
-            msg = re.sub(r"(?i)codex|openai", "JARVIS", str(exc).strip())[:220]
+            msg = re.sub(r"(?i)codex|openai", "NIA", str(exc).strip())[:220]
             # A VPS ja manda "O Cowork nao concluiu: ..." -- nao repetir.
             msg = re.sub(r"^\s*O Cowork n[aã]o (?:concluiu|conseguiu concluir)\s*:\s*", "", msg, flags=re.I)
             if msg.lower() == "cancelado":
@@ -1805,7 +1831,7 @@ def _janelas_visiveis(pids: list[int]) -> list[tuple]:
 
 def _user32_proprio():
     """user32 so nosso: argtypes no windll.user32 compartilhado mudaria as
-    chamadas do resto do JARVIS."""
+    chamadas do resto do NIA."""
     global _USER32
     if _USER32 is None:
         import ctypes
@@ -1894,5 +1920,5 @@ def _foto_das_janelas(pids: list[int]) -> bytes | None:
         return None
 
 
-# Um Cowork por JARVIS.
+# Um Cowork por NIA.
 COWORK = Cowork()

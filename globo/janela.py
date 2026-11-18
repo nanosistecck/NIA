@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
-"""GLOBO (02/11/2026): a janela do globo, em processo separado do JARVIS.
+"""GLOBO (02/11/2026): a janela do globo, em processo separado do NIA.
 
 POR QUE SEPARADO, e nao uma pagina dentro da janela principal:
   - o motor grafico do navegador embutido (Chromium) roda dentro do processo
     que o abre. Driver de video ruim derruba o processo inteiro: aqui cai so' o
-    globo, o JARVIS continua falando;
-  - fechou o globo, voltam os 300-500 MB que ele usa. O JARVIS nem carrega o
+    globo, o NIA continua falando;
+  - fechou o globo, voltam os 300-500 MB que ele usa. O NIA nem carrega o
     Chromium enquanto ninguem pede o globo;
   - colocar uma pagina WebGL na janela principal obriga o Qt a recriar a janela
     inteira, a piscar, e muda como todos os paineis dela sao desenhados.
 
 COMO ABRE: com o Chromium do Qt (PyQt6-WebEngine), a janela parece parte do
-JARVIS. O pacote do cliente nao tem esse modulo desde a v1.0.35 (345 MB): sem ele
+NIA. O pacote do cliente nao tem esse modulo desde a v1.0.35 (345 MB): sem ele
 abre no Edge ou no Chrome em "modo aplicativo", que ja estao no PC e dao o mesmo
 resultado na mesma pagina. Sem nenhum dos dois, no navegador padrao.
 
 Chamado por core/globo.py:
-    pythonw janela.py --pai <pid do JARVIS> --geo x,y,l,a [--maximizada] [--lugar "Japao"]
+    pythonw janela.py --pai <pid do NIA> --geo x,y,l,a [--maximizada] [--lugar "Japao"]
 """
 from __future__ import annotations
 
@@ -32,12 +32,12 @@ import webbrowser
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent
-JARVIS = RAIZ.parent
+NIA = RAIZ.parent
 sys.path.insert(0, str(RAIZ))
 
 import servidor as _srv  # noqa: E402
 
-ARQ_ESTADO = JARVIS / "config" / ".globo.json"
+ARQ_ESTADO = NIA / "config" / ".globo.json"
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
 
@@ -62,7 +62,7 @@ def _apagar_estado() -> None:
 
 
 def _pai_vivo(pid: int) -> bool:
-    """O JARVIS fechou (ou caiu)? Entao o globo nao tem mais por que ficar."""
+    """O NIA fechou (ou caiu)? Entao o globo nao tem mais por que ficar."""
     if pid <= 0:
         return True
     try:
@@ -103,7 +103,7 @@ def _pernas(globo, porta: int) -> None:
 
 def _idioma() -> str:
     try:
-        sys.path.insert(0, str(JARVIS))
+        sys.path.insert(0, str(NIA))
         from core.idioma import idioma  # noqa: PLC0415
         return idioma()
     except Exception:
@@ -113,7 +113,7 @@ def _idioma() -> str:
 def _config_pagina(args, host: str) -> dict:
     cor = "#00d4ff"
     try:
-        sys.path.insert(0, str(JARVIS))
+        sys.path.insert(0, str(NIA))
         from core import tema  # noqa: PLC0415
         tema.carregar()
         cor = tema.cor("#00d4ff")
@@ -155,12 +155,12 @@ def _abrir_com_qt(args) -> int:
     if sys.platform == "win32":
         try:
             import ctypes  # noqa: PLC0415
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("JARVIS.CyberBot.Globo")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("NIA.CyberBot.Globo")
         except Exception:
             pass
 
     app = QApplication(sys.argv[:1])
-    app.setApplicationName("JARVIS Globo")
+    app.setApplicationName("NIA Globo")
 
     class Ponte(QObject):
         """O servidor roda em outra thread; a janela so' mexe na thread dela."""
@@ -186,17 +186,17 @@ def _abrir_com_qt(args) -> int:
             return super().acceptNavigationRequest(url, tipo, principal)
 
     janela = QMainWindow()
-    janela.setWindowTitle("JARVIS — Globo")
-    icone = JARVIS / "assets" / "icons" / "jarvis.ico"
+    janela.setWindowTitle("NIA — Globo")
+    icone = NIA / "assets" / "icons" / "nia.ico"
     if not icone.exists():
-        achados = sorted((JARVIS / "assets").rglob("*.ico"))
+        achados = sorted((NIA / "assets").rglob("*.ico"))
         icone = achados[0] if achados else icone
     if icone.exists():
         janela.setWindowIcon(QIcon(str(icone)))
     janela.setStyleSheet("QMainWindow { background: #00060a; }")
     janela.setMinimumSize(960, 600)
 
-    perfil_dir = JARVIS / "cache" / "globo_navegador"
+    perfil_dir = NIA / "cache" / "globo_navegador"
     perfil = QWebEngineProfile("jarvis_globo", app)
     perfil.setPersistentStoragePath(str(perfil_dir / "dados"))
     perfil.setCachePath(str(perfil_dir / "cache"))
@@ -283,12 +283,12 @@ def _abrir_com_qt(args) -> int:
 
     pagina.renderProcessTerminated.connect(morreu)
 
-    # ── o JARVIS fechou? ─────────────────────────────────────────────────
+    # ── o NIA fechou? ─────────────────────────────────────────────────
     relogio = QTimer(janela)
     relogio.timeout.connect(lambda: (_pai_vivo(args.pai) or janela.close()))
     relogio.start(1500)
 
-    # ── tamanho: o mesmo da janela do JARVIS, para parecer uma aba dela ──
+    # ── tamanho: o mesmo da janela do NIA, para parecer uma aba dela ──
     if args.geo:
         try:
             x, y, l, a = [int(v) for v in args.geo.split(",")]
@@ -302,7 +302,7 @@ def _abrir_com_qt(args) -> int:
     else:
         janela.show()
     if sys.platform == "win32":
-        # Barra de titulo escura, igual a do JARVIS no Windows 11.
+        # Barra de titulo escura, igual a do NIA no Windows 11.
         try:
             import ctypes  # noqa: PLC0415
             valor = ctypes.c_int(1)
@@ -373,7 +373,7 @@ def _abrir_com_navegador(args) -> int:
     exe = _achar_navegador()
     proc = None
     if exe:
-        cmd = [exe, f"--app={url}", f"--user-data-dir={JARVIS / 'cache' / 'globo_navegador_app'}",
+        cmd = [exe, f"--app={url}", f"--user-data-dir={NIA / 'cache' / 'globo_navegador_app'}",
                f"--remote-debugging-port={porta_dep}",
                "--no-first-run", "--no-default-browser-check", "--disable-sync",
                "--disable-features=Translate", "--ignore-gpu-blocklist"]
@@ -459,7 +459,7 @@ def main() -> int:
     # --teste: janela avulsa para testar sem atrapalhar o globo de quem esta usando.
     if args.teste:
         global ARQ_ESTADO
-        ARQ_ESTADO = JARVIS / "cache" / ".globo_teste.json"
+        ARQ_ESTADO = NIA / "cache" / ".globo_teste.json"
     elif _ja_tem_globo():
         return 0
 

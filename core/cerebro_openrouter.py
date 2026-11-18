@@ -1,4 +1,4 @@
-"""O CEREBRO DO JARVIS — hoje ele pensa pelo Codex da VPS, nao mais pelo OpenRouter.
+"""O CEREBRO DO NIA — hoje ele pensa pelo Codex da VPS, nao mais pelo OpenRouter.
 
 MUDANCA DE 04/09/2026 (decisao do Diego, com os tres caminhos medidos):
 
@@ -8,7 +8,7 @@ MUDANCA DE 04/09/2026 (decisao do Diego, com os tres caminhos medidos):
 
 O OpenRouter saiu INTEIRO daqui — chave, modelos, fila de reserva. A escada
 agora e: Gemini do cliente (quando a cota dela deixa) -> Codex da VPS (sempre).
-O preco combinado sao os ~5 s por resposta; o ganho e que o JARVIS nao fica sem
+O preco combinado sao os ~5 s por resposta; o ganho e que o NIA nao fica sem
 responder no meio do dia de trabalho do cliente.
 
 O NOME DO ARQUIVO E DA CLASSE FICOU. Nao e descuido: o que este arquivo faz
@@ -19,7 +19,7 @@ mexeria em 30 pontos do main.py sem mudar uma linha de comportamento.
 O computer use NAO passa por aqui (ordem do dono, e ele esta aprovado): ele fala
 com o `jarvis-olhar.js` da VPS pelo seu proprio caminho.
 
-Cerebro do JARVIS pelo OpenRouter — rapido e fora da cota da Gemini.
+Cerebro do NIA pelo OpenRouter — rapido e fora da cota da Gemini.
 
 Medido em 30/08/2026 com a chave do Diego:
     openai/gpt-4.1-mini      1,1 s
@@ -91,7 +91,7 @@ _ASSUNTOS_DA_MAQUINA = (
 
 # "Conta" tem dois sentidos e so um e tarefa: "conta quantos arquivos tem na
 # pasta" e consulta ao PC, mas "me conta uma piada" e conversa. Sem esta
-# excecao a trava cobrava ferramenta para contar piada e o JARVIS respondia
+# excecao a trava cobrava ferramenta para contar piada e o NIA respondia
 # que nao consegue.
 _CONVERSA_DISFARCADA = _re_acao.compile(
     r"\b(conta|conte|contar|fala|fale|falar|diz|diga|manda|mande|mandar|"
@@ -103,7 +103,7 @@ _CONVERSA_DISFARCADA = _re_acao.compile(
     r"resenha|zoeira|indireta)\b")
 
 # Pedido de FALA: cumpre-se falando, nao chamando ferramenta. "Manda um salve
-# pra rapaziadinha" nao e tarefa de computador — e o JARVIS abrindo a boca.
+# pra rapaziadinha" nao e tarefa de computador — e o NIA abrindo a boca.
 # Em 30/08/2026 a trava tratou isso como acao, nao achou ferramenta e obrigou a
 # recusa: "nao tenho ferramenta pra mandar audio ou mensagem". O dono odiou, com
 # razao. Quando o alvo do pedido e uma PESSOA ou um PUBLICO, e conversa.
@@ -118,7 +118,7 @@ _PEDIDO_DE_FALA = _re_acao.compile(
 
 # PROMESSA DE FUTURO — a mentira que a trava original nao pegava.
 #
-# Em 31/08/2026 o Diego pediu CPU, RAM e disco. O JARVIS chamou a ferramenta,
+# Em 31/08/2026 o Diego pediu CPU, RAM e disco. O NIA chamou a ferramenta,
 # falou do processador e terminou com "vou abrir a aba de Performance, ja
 # volto". Nao existe "ja volto": o turno acabou ali e ele nunca voltou.
 #
@@ -150,7 +150,7 @@ def _promete_sem_cumprir(texto: str) -> bool:
 _PRECISA_DO_MUNDO = (
     "que horas", "horas sao", "horas e", "que hora", "a hora", "das horas",
     # "que dia" sozinho e generico demais: pegava "nossa, que dia dificil foi
-    # esse" e o JARVIS respondia a data. As formas abaixo so aparecem quando a
+    # esse" e o NIA respondia a data. As formas abaixo so aparecem quando a
     # pessoa quer MESMO saber o dia.
     "dia e hoje", "dia de hoje", "data de hoje", "hoje e dia", "que dia estamos",
     "que dia sera", "que mes", "que ano",
@@ -164,7 +164,7 @@ _PRECISA_DO_MUNDO = (
 
 # CASAR POR PALAVRA INTEIRA, nao por pedaco.
 #
-# Em 01/09/2026 o Diego disse "amanha EU tenho que trabalhar" e o JARVIS
+# Em 01/09/2026 o Diego disse "amanha EU tenho que trabalhar" e o NIA
 # respondeu a hora — tres vezes. O termo "amanha e" da lista casava dentro de
 # "amanha eu": busca por substring nao sabe onde a palavra acaba. Com fronteira
 # de palavra o problema some, e as perguntas de verdade continuam pegando.
@@ -175,7 +175,7 @@ _RE_MUNDO = _re_acao.compile(
 # HORA COM NUMERO NA FRENTE E DURACAO, NAO PERGUNTA (01/09/2026).
 #
 # "tenho que trabalhar daqui a 4 HORAS E nao to a fim de dormir" disparou o
-# gatilho "horas e" e o JARVIS respondeu que horas eram — pela terceira vez na
+# gatilho "horas e" e o NIA respondeu que horas eram — pela terceira vez na
 # mesma conversa. As palavras do gatilho estavam la, mas ninguem tinha
 # perguntado nada.
 #
@@ -298,7 +298,7 @@ _MESES = ("janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho",
 # PEDIDO COM MAIS DE UMA ACAO (05/09/2026).
 #
 # Caso real: "abre o meu bloco de notas E DENTRO DELA DIGITA um script em Python
-# de uma calculadora". O JARVIS chamou `open_app`, recebeu "o Bloco de Notas ja
+# de uma calculadora". O NIA chamou `open_app`, recebeu "o Bloco de Notas ja
 # esta aberto" e PAROU ali — tratou o primeiro passo como se fosse a tarefa
 # inteira. O laco de varias voltas existe no `cerebro_codex`; o que faltava era
 # alguem AVISAR que ainda havia trabalho.
@@ -349,7 +349,7 @@ def _quanto_calar_a_gemini(texto_do_erro: str) -> tuple[float, str]:
     gratuita tem DOIS limites — por MINUTO e por DIA — e os dois chegam com o
     mesmo codigo 429. Fazer tres perguntas seguidas (exatamente o que acontece
     num teste ao vivo, ou quando o dono conversa animado) estoura o de minuto...
-    e o JARVIS passava o resto do DIA no degrau lento, respondendo em 2 a 16 s em
+    e o NIA passava o resto do DIA no degrau lento, respondendo em 2 a 16 s em
     vez de 1 s. Provado aqui: o 429 chegou e, quinze segundos depois, a mesma
     chave respondeu normalmente.
 
@@ -365,7 +365,7 @@ def _quanto_calar_a_gemini(texto_do_erro: str) -> tuple[float, str]:
     # A mensagem real desta conta traz as duas coisas ao mesmo tempo:
     #   "Please retry in 34.8s"  ...  quotaId: GenerateRequestsPerDayPerProject
     # Lendo o ROTULO ("PerDay") eu calaria a Gemini por 24 horas quando ela
-    # volta em 35 segundos — e foi assim que o JARVIS passou a noite inteira no
+    # volta em 35 segundos — e foi assim que o NIA passou a noite inteira no
     # degrau lento do OpenRouter (2 a 16 s por resposta) em vez de responder em
     # 1 s. O prazo e informacao; o rotulo e so nome de contador.
     achado = _re.search(r"retry(?:delay)?['\"]?\s*(?:in|:|=)?\s*['\"]?(\d+)", t)
@@ -398,7 +398,7 @@ class CerebroOpenRouter:
     def __init__(self, modelo: str = MODELO_PADRAO, sistema: str = "", router=None) -> None:
         # NAO LE MAIS CHAVE NENHUMA AQUI (04/09/2026). A do OpenRouter deixou
         # de existir no caminho do cerebro, e a da Gemini quem le e o
-        # `cerebro_gemini`. Sem isto, o JARVIS nem abria quando faltava a chave —
+        # `cerebro_gemini`. Sem isto, o NIA nem abria quando faltava a chave —
         # e agora ele PRECISA abrir mesmo sem chave nenhuma do cliente, porque
         # o Codex da VPS responde de qualquer jeito.
         self.modelo = modelo or MODELO_PADRAO
@@ -475,7 +475,7 @@ class CerebroOpenRouter:
                     # DESCRICAO ENXUTA. As do formato Gemini trazem paragrafos
                     # de explicacao, e somadas dao ~7.819 fichas nas 28 — mais
                     # que o teto de 7.866 fichas por pedido da conta gratis do
-                    # OpenRouter. Resultado: erro 402 e o JARVIS mudo.
+                    # OpenRouter. Resultado: erro 402 e o NIA mudo.
                     #
                     # Cortar na FRASE, nao no caractere: uma descricao truncada
                     # no meio da palavra confunde o modelo mais do que ajuda.
@@ -534,7 +534,7 @@ class CerebroOpenRouter:
             p = PERSONALIDADES.get(self.personalidade)
             if not p:
                 return ""
-            nome = nome_da_ia(getattr(self, "personagem", "")) or "JARVIS"
+            nome = nome_da_ia(getattr(self, "personagem", "")) or "NIA"
             partes = [
                 f"Voce e {nome}, o assistente pessoal do dono deste computador.",
                 str(p.get("jeito") or "").strip(),
@@ -583,14 +583,14 @@ class CerebroOpenRouter:
                 return ""
             # OS SINAIS PRECISAM ESTAR ESCRITOS (05/09/2026).
             #
-            # A voz do JARVIS INTERPRETA o que le: "hmm" vira hesitacao de
+            # A voz do NIA INTERPRETA o que le: "hmm" vira hesitacao de
             # verdade, "ahh" vira suspiro, reticencias viram pausa. Isso ja
             # estava dito no prompt grande (EXPRESSAO_INTERPRETA em
             # personas.py) — mas o cerebro da VPS nao recebe aquele prompt, so
             # este lembrete de 400 caracteres. Resultado: ele escrevia frases
             # limpas e a voz saia correta, porem sem alma.
             #
-            # Sao ~45 fichas por pergunta (US$ 0,00001). O ganho e o JARVIS soar
+            # Sao ~45 fichas por pergunta (US$ 0,00001). O ganho e o NIA soar
             # gente; o custo nao aparece na fatura.
             return ("LEMBRETE DO SEU JEITO (obedeça isto na resposta de agora, "
                     "sem exceção): %s "
@@ -725,7 +725,7 @@ class CerebroOpenRouter:
             except Exception as exc:
                 if _openai_morta(str(exc)):
                     self.usar_openai = False
-                print(f"[JARVIS] nossa API nao escreveu o comando: {str(exc)[:120]}")
+                print(f"[NIA] nossa API nao escreveu o comando: {str(exc)[:120]}")
         if self.usar_gemini and _t.time() >= self._gemini_ate:
             try:
                 from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
@@ -797,7 +797,7 @@ class CerebroOpenRouter:
             except Exception as exc:
                 if _openai_morta(str(exc)):
                     self.usar_openai = False
-                print(f"[JARVIS] nossa API nao escreveu o texto: {str(exc)[:120]}")
+                print(f"[NIA] nossa API nao escreveu o texto: {str(exc)[:120]}")
         if self.usar_gemini and _t.time() >= self._gemini_ate:
             try:
                 from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
@@ -837,7 +837,7 @@ class CerebroOpenRouter:
         """O Codex da VPS, criado na primeira vez que precisar dele.
 
         Devolve None quando nao ha ponte (o programa acabou de abrir, a rede
-        caiu). Quem chama trata: o JARVIS prefere dizer que nao consegue pensar
+        caiu). Quem chama trata: o NIA prefere dizer que nao consegue pensar
         agora a inventar uma resposta.
 
         `a_parte=True` devolve um cerebro com CONVERSA PROPRIA, e existe por um
@@ -853,7 +853,7 @@ class CerebroOpenRouter:
                 if getattr(self, "_codex_aux", None) is None:
                     self._codex_aux = CerebroCodex(ponte=self.ponte)
                 self._codex_aux.ponte = self.ponte
-                self._codex_aux.nome = "JARVIS"
+                self._codex_aux.nome = "NIA"
                 return self._codex_aux if self._codex_aux.disponivel() else None
             if self._codex is None:
                 self._codex = CerebroCodex(ponte=self.ponte)
@@ -866,9 +866,9 @@ class CerebroOpenRouter:
             # Nova); no cliente de nome fixo isto devolve sempre o mesmo.
             try:
                 from core.personas import nome_da_ia  # noqa: PLC0415
-                self._codex.nome = nome_da_ia(getattr(self, "personagem", "")) or "JARVIS"
+                self._codex.nome = nome_da_ia(getattr(self, "personagem", "")) or "NIA"
             except Exception:
-                self._codex.nome = "JARVIS"
+                self._codex.nome = "NIA"
             # 400 -> 800: com o teto antigo a instrucao dos sinais ("hmm",
             # "ahh", reticencias) era cortada fora e nunca chegava ao cerebro —
             # o lembrete inteiro passa de 400 caracteres. Sao ~100 fichas a
@@ -878,7 +878,7 @@ class CerebroOpenRouter:
             self._codex.falar = getattr(self, "falar", None)
             return self._codex if self._codex.disponivel() else None
         except Exception as exc:
-            print(f"[JARVIS] cerebro do Codex fora: {str(exc)[:120]}")
+            print(f"[NIA] cerebro do Codex fora: {str(exc)[:120]}")
             return None
 
     def _pensar_com_codex(self, mensagens: list, forcar: bool = False):
@@ -898,7 +898,7 @@ class CerebroOpenRouter:
                 self.ultimo_cerebro = "codex"
                 return r
         except Exception as exc:
-            print(f"[JARVIS] o Codex da VPS nao respondeu: {str(exc)[:140]}")
+            print(f"[NIA] o Codex da VPS nao respondeu: {str(exc)[:140]}")
             try:
                 from main import _voice_diag  # noqa: PLC0415
                 _voice_diag("codex_falhou", str(exc)[:140])
@@ -947,7 +947,7 @@ class CerebroOpenRouter:
                     self.ultimo_cerebro = provedor
                     return r
             except Exception as exc:
-                print(f"[JARVIS] {provedor} nao respondeu: {str(exc)[:140]}")
+                print(f"[NIA] {provedor} nao respondeu: {str(exc)[:140]}")
         return None
 
     def _escrever_com_generico(self, instrucao: str, pedido: str,
@@ -964,7 +964,7 @@ class CerebroOpenRouter:
                     self.ultimo_cerebro = provedor
                     return texto
             except Exception as exc:
-                print(f"[JARVIS] {provedor} nao escreveu: {str(exc)[:140]}")
+                print(f"[NIA] {provedor} nao escreveu: {str(exc)[:140]}")
         return ""
 
     def _genericos_preferidos(self) -> bool:
@@ -1040,7 +1040,7 @@ class CerebroOpenRouter:
         "esta ai continua ai nada deixa pra la esquece desculpa foi mal "
         # os vocativos: "oi Bob" e conversa, e sem eles aqui a frase
         # inteira caia no caminho completo por causa de uma palavra so
-        "jarvis friday chefe cara mano ai la ei "
+        "nia friday chefe cara mano ai la ei "
         # 03/09/2026: "Obrigado, meu amigo. Ate mais." pagava o caminho das 36
         # ferramentas por causa de TRES palavras — "meu", "amigo", "mais". A
         # regra e severa de proposito (uma palavra fora ja derruba a frase
@@ -1063,7 +1063,7 @@ class CerebroOpenRouter:
         "e o com que pena "
         # 04/09/2026: faltavam palavras de enchimento que o Diego usa em toda
         # frase. "E ai, como e que voce TA?" saia do papo por causa de UMA
-        # palavra ("ta"), e "obrigado JARVIS, voce e demais HEIN cara" por causa de
+        # palavra ("ta"), e "obrigado NIA, voce e demais HEIN cara" por causa de
         # "hein" — as duas iam pelo caminho completo e pagavam 0,8 s de
         # ferramentas que nao seriam usadas. Todas estas, sozinhas, nao pedem
         # nada: sao tratamento, muleta de fala e concordancia.
@@ -1121,7 +1121,7 @@ class CerebroOpenRouter:
             # Desde 01/10/2026 vale tambem para a conta SEM CREDITO.
             if _openai_morta(str(exc)):
                 self.usar_openai = False
-            print(f"[JARVIS] a nossa API tambem falhou: {str(exc)[:140]}")
+            print(f"[NIA] a nossa API tambem falhou: {str(exc)[:140]}")
         return None
 
     def _pensar_com_gemini(self, mensagens: list, forcar: bool = False):
@@ -1157,7 +1157,7 @@ class CerebroOpenRouter:
                 espera, motivo = _quanto_calar_a_gemini(texto)
                 self._gemini_ate = _t.time() + espera
                 # VAI PARA O REGISTRO, nao so para o console: rodando por
-                # `pythonw` nao ha console nenhum, e era por isso que "o JARVIS
+                # `pythonw` nao ha console nenhum, e era por isso que "o NIA
                 # esta lento hoje" nunca tinha explicacao no log — a Gemini
                 # calada e a diferenca entre 1 s e 16 s por resposta.
                 try:
@@ -1165,9 +1165,9 @@ class CerebroOpenRouter:
                     _voice_diag("gemini_calada", f"{espera:.0f}s ({motivo})")
                 except Exception:
                     pass
-                print(f"[JARVIS] Gemini recusou ({motivo}); volto a ela em "
+                print(f"[NIA] Gemini recusou ({motivo}); volto a ela em "
                       f"{espera/60:.0f} min" if espera < 3600 else
-                      f"[JARVIS] Gemini recusou ({motivo}); so amanha")
+                      f"[NIA] Gemini recusou ({motivo}); so amanha")
             elif ("api key not valid" in texto.lower()
                   or "api_key_invalid" in texto.lower()
                   or "invalid_argument" in texto.lower() and "api key" in texto.lower()):
@@ -1187,9 +1187,9 @@ class CerebroOpenRouter:
                                 "desliguei o degrau da Gemini nesta sessao")
                 except Exception:
                     pass
-                print("[JARVIS] a chave do Gemini foi recusada; sigo pelo Codex")
+                print("[NIA] a chave do Gemini foi recusada; sigo pelo Codex")
             else:
-                print(f"[JARVIS] Gemini falhou: {texto[:140]}")
+                print(f"[NIA] Gemini falhou: {texto[:140]}")
         return None
 
     def _voz_interpreta(self) -> bool:
@@ -1271,7 +1271,7 @@ class CerebroOpenRouter:
         """Tira o que o sintetizador SOLETRA em vez de ler.
 
         O prompt ja proibe markdown e risada escrita, e mesmo assim em
-        31/08/2026 o JARVIS respondeu com lista de asterisco e um "rsrs" no
+        31/08/2026 o NIA respondeu com lista de asterisco e um "rsrs" no
         fim — que sai da caixa como "erre esse erre esse". Regra no texto o
         modelo quebra; aqui nao tem como.
         """
@@ -1482,7 +1482,7 @@ class CerebroOpenRouter:
             return ""
         # MONTAR O PROMPT NA HORA, nao usar o guardado.
         #
-        # 01/09/2026: o Diego preencheu os dados dele na engrenagem e o JARVIS
+        # 01/09/2026: o Diego preencheu os dados dele na engrenagem e o NIA
         # continuou dizendo "nao tenho essa informacao". O motivo: o
         # `self.sistema` era montado UMA vez, na criacao do cerebro, e o que ele
         # digitou depois nunca entrava. Remontar custa juntar algumas strings —
@@ -1552,7 +1552,7 @@ class CerebroOpenRouter:
         #   OpenRouter :free ... 10 a 16 s     Gemini flash-lite ... 0,7 a 1,9 s
         # E naquele momento SEIS dos sete modelos gratuitos estavam em 429; a
         # fila inteira era um modelo so. O Diego sentiu isso como 68 s entre
-        # falar e o JARVIS mexer um dedo.
+        # falar e o NIA mexer um dedo.
         #
         # Se a Gemini falhar (chave, rede, cota), `_pensar_com_gemini` devolve
         # None sem levantar excecao e o laco dos gratuitos assume normalmente.

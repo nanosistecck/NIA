@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Banco local de chaves (SQLite) — portado do FreeLLMAPI.
 
-Tudo fica só neste computador, em `config/jarvis.db`:
+Tudo fica só neste computador, em `config/nia.db`:
 
     api_keys: platform, label, key, modelo, base_url, status, enabled,
               falhas, sucessos, uso_tokens, cooldown_ate, created_at
@@ -22,9 +22,29 @@ import sqlite3
 import time
 from pathlib import Path
 
-# Banco local; pode ser trocado por JARVIS_DB_PATH (teste/diagnóstico).
-DB_PATH = Path(os.environ.get("JARVIS_DB_PATH")
-               or (Path(__file__).resolve().parents[1] / "config" / "jarvis.db"))
+# Banco local; pode ser trocado por NIA_DB_PATH (teste/diagnóstico).
+# O nome antigo da variável continua valendo: quem já tinha script apontando
+# para um banco de teste não perde o caminho na troca de nome do produto.
+_RAIZ = Path(__file__).resolve().parents[1]
+DB_PATH = Path(os.environ.get("NIA_DB_PATH")
+               or os.environ.get("JARVIS_DB_PATH")
+               or (_RAIZ / "config" / "nia.db"))
+
+# DADOS DE ANTES DA TROCA DE NOME (18/11/2026). O banco nasceu como
+# `config/jarvis.db` e é lá que estão as chaves de quem já usa o programa.
+# Na primeira abertura com o nome novo copiamos o antigo — sem apagar nada.
+# Um banco de teste apontado por variável de ambiente nunca entra nesta conta.
+_LEGADO = _RAIZ / "config" / "jarvis.db"
+if (DB_PATH.name == "nia.db" and not DB_PATH.exists()
+        and not os.environ.get("NIA_DB_PATH") and not os.environ.get("JARVIS_DB_PATH")
+        and _LEGADO.is_file()):
+    try:
+        import shutil  # noqa: PLC0415
+
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_LEGADO, DB_PATH)
+    except OSError:
+        pass
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS api_keys (

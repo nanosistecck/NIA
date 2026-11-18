@@ -6,15 +6,15 @@ audio que alguem manda e responde com o audio dela tambem, com as vozes que tem 
 configuravel: responder com audio, digitando ou misto (uma hora audio, outra hora digitando)."
 
 Como funciona:
-  * Usa a ponte do WhatsApp do JARVIS (botao CONECTAR WHATSAPP, Baileys, porta 8765):
+  * Usa a ponte do WhatsApp do NIA (botao CONECTAR WHATSAPP, Baileys, porta 8765):
     GET /agent/poll (mensagens recebidas, com o audio ja' baixado), GET /messages/latest
     (a conversa ate' aqui) e POST /send (texto, ou um WAV que a ponte vira mensagem de voz).
     POST /presence mostra "digitando..." / "gravando audio..." (ponte 40; a velha ignora).
-  * A Gemini do cliente le a MESMA base das ligacoes (pasta "JARVIS Secretaria" + extras), a
+  * A Gemini do cliente le a MESMA base das ligacoes (pasta "NIA Secretaria" + extras), a
     conversa e as mensagens novas. O AUDIO vai inteiro para ela: ela ouve, entende e devolve a
     transcricao junto com a resposta (um JSON so').
   * Resposta em audio: voz da Gemini (TTS) com a MESMA voz escolhida para as ligacoes.
-  * Roda numa linha propria dentro do JARVIS. Nao abre navegador nem janela.
+  * Roda numa linha propria dentro do NIA. Nao abre navegador nem janela.
 
 Nada sai sem: chat ligado + conversa PRIVADA (grupo, status e canal nunca) + mensagem que chegou
 DEPOIS de ela comecar a vigiar (no maximo 10 min de idade) + o dono NAO estar conversando com a
@@ -82,12 +82,12 @@ def _t(pt: str, en: str) -> str:
 
 
 def _pasta_dados() -> Path:
-    """Fora da pasta do programa (nunca vai num instalador): %LOCALAPPDATA%\\JARVIS-CyberBot\\secretaria."""
+    """Fora da pasta do programa (nunca vai num instalador): %LOCALAPPDATA%\\NIA-CyberBot\\secretaria."""
     return SEC.pasta_navegador().parent
 
 
 def _arq_estado() -> Path:
-    outro = os.environ.get("JARVIS_SECRETARIA_CHAT_ESTADO")      # so' a bancada de teste
+    outro = os.environ.get("NIA_SECRETARIA_CHAT_ESTADO")      # so' a bancada de teste
     return Path(outro) if outro else _pasta_dados() / "chat_estado.json"
 
 
@@ -131,12 +131,12 @@ def _nome_do_contato(ev: dict) -> str:
 
 class _Ponte:
     """O pedaco da ponte do WhatsApp que a secretaria usa (sem nunca SUBIR a ponte: quem cuida
-    dela e' o JARVIS). A bancada de teste troca o endereco por JARVIS_SECRETARIA_PONTE."""
+    dela e' o NIA). A bancada de teste troca o endereco por NIA_SECRETARIA_PONTE."""
 
     def __init__(self) -> None:
         from actions import whatsapp_bridge as WB  # noqa: PLC0415
         self.WB = WB
-        self.base = os.environ.get("JARVIS_SECRETARIA_PONTE") or WB.BASE_URL
+        self.base = os.environ.get("NIA_SECRETARIA_PONTE") or WB.BASE_URL
         self.http = WB._HTTP  # noqa: SLF001  (sessao sem proxy)
 
     def get(self, caminho: str, params: dict | None = None, espera: float = 4.0) -> dict:
@@ -534,8 +534,8 @@ class SecretariaChat:
                          texto=enviados[0][1], extra=(enviados[1][1] if len(enviados) > 1 else ""),
                          recebido=self._resumo_com_transcricao(itens, r))
         elif r.get("responder") and resposta:
-            self._erro(_t(f"A resposta para {nome} não saiu: o WhatsApp do JARVIS não aceitou o envio agora.",
-                          f"The reply to {nome} did not go out: JARVIS's WhatsApp did not accept it right now."))
+            self._erro(_t(f"A resposta para {nome} não saiu: o WhatsApp do NIA não aceitou o envio agora.",
+                          f"The reply to {nome} did not go out: NIA's WhatsApp did not accept it right now."))
         else:
             self._registrar(f"{nome}: nao precisava responder")
         if recado:
@@ -603,7 +603,7 @@ class SecretariaChat:
         from google import genai  # noqa: PLC0415
         from google.genai import types  # noqa: PLC0415
         chave = ""
-        teste = os.environ.get("JARVIS_SECRETARIA_CHAVE_TESTE")
+        teste = os.environ.get("NIA_SECRETARIA_CHAVE_TESTE")
         if teste is not None:
             chave = teste
         else:
@@ -694,8 +694,8 @@ class SecretariaChat:
     def _gerar(self, cfg: dict, nome: str, historico: list[dict], itens: list[dict], formato: str) -> dict | None:
         cliente, types = self._cliente()
         if cliente is None:
-            self._erro(_t("A secretária do chat precisa da chave da Gemini cadastrada no JARVIS.",
-                          "The chat assistant needs the Gemini key saved in JARVIS."))
+            self._erro(_t("A secretária do chat precisa da chave da Gemini cadastrada no NIA.",
+                          "The chat assistant needs the Gemini key saved in NIA."))
             return None
         dono = SEC._nome_do_dono()  # noqa: SLF001
         rot = {"pessoa": nome, "secretaria": _t("Você (assistente)", "You (assistant)"),

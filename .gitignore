@@ -11,12 +11,16 @@ logs/
 cache/
 memory/diario.jsonl
 
-# Segredos / credenciais (nao vao para o GitHub)
-config/api_keys.json
-config/remote_bridge.json
-# Banco local de chaves (contem as chaves de API em texto)
-config/jarvis.db
-config/jarvis.db-journal
+# Segredos / credenciais (nao vao para o GitHub).
+# Quase tudo em config/ e gerado na maquina do cliente: banco de chaves,
+# certificados TLS, tokens de pareamento, dados pessoais e preferencias.
+# Apenas os modelos/padraoes abaixo ficam versionados.
+config/*
+!config/__init__.py
+!config/api_keys.example.json
+!config/api_keys.json
+!config/llm_routing.json
+!config/nia.ico
 
 # WhatsApp bridge: artefatos de runtime
 whatsapp_bridge/node_modules/

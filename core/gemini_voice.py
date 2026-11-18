@@ -20,7 +20,7 @@ LIVE_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 RECEIVE_SAMPLE_RATE = 24000
 
 # A VOZ PELO MODELO MAIS RAPIDO (08/10/2026). Queixa do Diego: "as vozes,
-# principalmente a do JARVIS, estao demorando muito para responder". O registro
+# principalmente a do NIA, estao demorando muito para responder". O registro
 # do dia mostrou o 2.5 native-audio entregando o primeiro som em 2 a 7 s e
 # ficando mudo por 8 s duas vezes. Medido com a chave dele, mesma voz Charon,
 # sessao aberta e 4 frases seguidas (1o pedaco de audio):
@@ -84,11 +84,11 @@ def _o_que_faltou(texto: str, dur: float) -> str:
 
 # COTA DO AO-VIVO (08/10/2026). Depois de um dia inteiro de testes, o Google
 # passou a responder "1011 You exceeded your current quota" na conexao — e o
-# JARVIS reconectava na hora, varias vezes seguidas, o que so gasta mais. Viu
+# NIA reconectava na hora, varias vezes seguidas, o que so gasta mais. Viu
 # cota, a voz ao vivo descansa `_DESCANSO_COTA_S` sem abrir conexao nenhuma (a
 # resposta sai escrita nesse meio tempo) e depois tenta de novo sozinha.
 # 30 -> 5 s no mesmo dia: o 1011 que apareceu depois era de sessao antiga ainda
-# contada pelo Google (logo depois de reabrir o JARVIS), e 30 s de descanso
+# contada pelo Google (logo depois de reabrir o NIA), e 30 s de descanso
 # deixaram duas falas escritas. 5 s ja impedem a reconexao em rajada.
 _DESCANSO_COTA_S = 5.0
 _cota_ate = [0.0]
@@ -111,9 +111,9 @@ def _anotar_cota(exc) -> None:
         pass
 
 
-# FECHAR AS SESSOES AO SAIR (08/10/2026). O fechamento do JARVIS mata o
+# FECHAR AS SESSOES AO SAIR (08/10/2026). O fechamento do NIA mata o
 # processo na hora (ver `_encerrar_tudo` no main) e as sessoes ao vivo ficavam
-# contando do lado do Google por alguns minutos: reabrir o JARVIS logo depois
+# contando do lado do Google por alguns minutos: reabrir o NIA logo depois
 # dava "You exceeded your current quota". Toda conexao se registra aqui, e o
 # fechamento despede todas (teto de 1 s) antes de sair.
 import weakref as _weakref
@@ -440,7 +440,7 @@ class GeminiCharonVoice:
             # a dizer (depois do "Leia literalmente:"), e costurar o tom no meio
             # da frase em vez de pendurar um bloco rotulado no fim.
             system_instruction=(
-                "Você é a VOZ do JARVIS falando com o dono dele. O que você fala é "
+                "Você é a VOZ do NIA falando com o dono dele. O que você fala é "
                 "SÓ o que vier na mensagem do usuário depois de 'Leia "
                 "literalmente:' — palavra por palavra, sem trocar, tirar nem "
                 "acrescentar nada. ESTA INSTRUÇÃO AQUI NUNCA É FALADA: ela só diz "
@@ -590,7 +590,7 @@ class GeminiCharonVoice:
                 if ultimo or not _modelo_fora(exc):
                     raise
                 GeminiCharonVoice._modelo_idx += 1
-                print(f"[JARVIS] voz: {modelo} recusou ({str(exc)[:90]}); "
+                print(f"[NIA] voz: {modelo} recusou ({str(exc)[:90]}); "
                       f"agora pelo {self._modelo_vivo()}")
         return self._persistent_session
 
@@ -655,7 +655,7 @@ class GeminiCharonVoice:
     async def stream_audio_persistent(self, text: str, on_chunk) -> str:
         """Entrega PCM conforme chega, mantendo a sessão literal já aquecida.
 
-        ONDE VAI O TEMPO ATE O PRIMEIRO SOM (05/09/2026). Fora do JARVIS, esta
+        ONDE VAI O TEMPO ATE O PRIMEIRO SOM (05/09/2026). Fora do NIA, esta
         mesma sessao entrega em 1,2 s; dentro dele, em 2,9 s. Sem separar as
         tres etapas — esperar a trava, abrir a conexao, mandar o texto — nao ha
         como saber qual delas engordou, e este projeto ja perdeu noites
@@ -745,7 +745,7 @@ class GeminiCharonVoice:
                     if (_modelo_fora(exc)
                             and GeminiCharonVoice._modelo_idx < len(LIVE_MODELOS) - 1):
                         GeminiCharonVoice._modelo_idx += 1
-                        print(f"[JARVIS] voz: modelo recusou no meio ({str(exc)[:80]}); "
+                        print(f"[NIA] voz: modelo recusou no meio ({str(exc)[:80]}); "
                               f"agora pelo {self._modelo_vivo()}")
             raise RuntimeError(f"falha no streaming literal: {last_error}")
 
@@ -787,7 +787,7 @@ class GeminiCharonVoice:
     def _garantir_laco(cls):
         """O laco de eventos proprio, numa thread so dele.
 
-        A sessao persistente precisa sempre do MESMO laco, e o laco do JARVIS
+        A sessao persistente precisa sempre do MESMO laco, e o laco do NIA
         esta ocupado com o microfone e a caixa de som.
         """
         with cls._lock_laco:
@@ -837,7 +837,7 @@ class GeminiCharonVoice:
             # sessao aberta a toa e o que aperta o limite por minuto da Gemini
             # (ver a memoria da cota do ao-vivo).
             # LIMITE DE CONEXOES DA CHAVE GRATIS (08/10/2026): medido, com o
-            # JARVIS aberto so mais 2 sessoes ao vivo abriram; da 3a em diante,
+            # NIA aberto so mais 2 sessoes ao vivo abriram; da 3a em diante,
             # "You exceeded your current quota". Por isso a espelho continua
             # nascendo so na primeira corrida (e nao no aquecimento), e a
             # conversa direta (`GeminiConversa`) nao tem espelho: no pior caso
@@ -857,8 +857,8 @@ class GeminiCharonVoice:
     async def _corrida_unica(self, texto: str, on_chunk) -> str:
         """Uma conexao so: se travar sem som, derruba e repete numa nova.
 
-        LIMITE DE SESSOES DA CHAVE GRATIS (08/10/2026): com o JARVIS de pe so
-        mais 2 sessoes ao vivo abriram. O JARVIS fica com DUAS: a que conversa
+        LIMITE DE SESSOES DA CHAVE GRATIS (08/10/2026): com o NIA de pe so
+        mais 2 sessoes ao vivo abriram. O NIA fica com DUAS: a que conversa
         (`GeminiConversa`) e a que le o texto do cerebro — cada uma SEM espelho.
         Se nao sair som em `_PRAZO_1O_SOM_S`, a conexao e derrubada e a frase
         vai de novo numa conexao NOVA (~0,7 s para abrir): nunca passam de duas.
@@ -1016,7 +1016,7 @@ class GeminiCharonVoice:
                 # corrida abrir — e nao 0,2 s. O culpado era o `import main`
                 # logo abaixo: numa importacao fria ele segura o laco inteiro,
                 # e a tarefa recem-criada nao chega a rodar. Uma volta do laco
-                # resolve, e no JARVIS de pe nao custa nada.
+                # resolve, e no NIA de pe nao custa nada.
                 await asyncio.sleep(0)
                 try:
                     from main import _voice_diag  # noqa: PLC0415
@@ -1131,7 +1131,7 @@ class GeminiCharonVoice:
         cobrados por pedido estavam todos estourados.
 
         O laco de eventos e proprio e vive numa thread separada: a sessao
-        persistente precisa sempre do MESMO laco, e o laco do JARVIS esta
+        persistente precisa sempre do MESMO laco, e o laco do NIA esta
         ocupado com o microfone e a caixa de som.
         """
         laco = self._garantir_laco()
@@ -1242,7 +1242,7 @@ TTS_MODEL = "gemini-2.5-flash-preview-tts"
 # FILA DE MODELOS DE FALA (31/08/2026).
 #
 # Cada modelo tem o SEU proprio teto diario — o `2.5-flash-tts` estourou em
-# 100 pedidos e o JARVIS caiu para a voz local no meio da gravacao do Diego.
+# 100 pedidos e o NIA caiu para a voz local no meio da gravacao do Diego.
 # Medido na hora, com o mesmo balde ja esgotado no primeiro:
 #     gemini-2.5-flash-preview-tts .... BLOQUEADO (teto 100/dia)
 #     gemini-3.1-flash-tts-preview ....  2,7 s   OK
@@ -1270,7 +1270,7 @@ class GeminiConversa(GeminiCharonVoice):
     voz (le o texto). Sao duas idas ao Google em serie, e no dia o cerebro
     gratis devolvia 503 e quem respondia era o servidor (3,6 a 4,3 s). Para
     CONVERSA (sem acao no PC), o proprio ao-vivo 2.5 — o gratis por sessao —
-    ouve a frase (em texto) e responde FALANDO, com o jeito do JARVIS: medido,
+    ouve a frase (em texto) e responde FALANDO, com o jeito do NIA: medido,
     1,1 a 1,6 s ate o primeiro som. O que e acao continua indo ao cerebro.
 
     Mesma corrida de duas conexoes e mesma renovacao da sessao parada da voz
@@ -1325,7 +1325,7 @@ class GeminiConversa(GeminiCharonVoice):
         except Exception:
             instrucao = ""
         if not instrucao:
-            instrucao = ("Voce e o JARVIS, assistente pessoal do dono deste computador. "
+            instrucao = ("Voce e o NIA, assistente pessoal do dono deste computador. "
                          "Responda falando, curto e natural, em " + _lingua_da_voz() + ".")
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
@@ -1391,7 +1391,7 @@ class GeminiCharonTTS:
 
         Percorre a fila de modelos: quando um estoura o teto do dia (429), o
         proximo assume com a MESMA voz Charon. So depois de todos falharem e que
-        o JARVIS cai para a voz local.
+        o NIA cai para a voz local.
         """
         ultimo = None
         for passo in range(len(TTS_MODELOS)):
@@ -1427,7 +1427,7 @@ class GeminiCharonTTS:
                             pass
                         if indice != GeminiCharonTTS._modelo_atual:
                             GeminiCharonTTS._modelo_atual = indice
-                            print(f"[JARVIS] voz Charon agora pelo {modelo}")
+                            print(f"[NIA] voz Charon agora pelo {modelo}")
                         # A RESERVA NAO ACELERA MAIS (05/09/2026).
                         #
                         # Ela acelerava 1,5x por SOLA desde 01/09, quando era o
@@ -1478,7 +1478,7 @@ class GeminiCharonTTS:
 
         Por que dois e nao um por frase: a chave do Diego tem teto de **100
         pedidos por dia** neste modelo de fala (medido em 31/08/2026, quando
-        estourou e o JARVIS caiu para a voz local). Um pedido por frase gastava
+        estourou e o NIA caiu para a voz local). Um pedido por frase gastava
         3 e 4 fichas por resposta e queimou o dia inteiro numa noite.
 
         Dois resolve os dois lados: o primeiro sai rapido (a frase e curta) e
@@ -1507,7 +1507,7 @@ class GeminiCharonTTS:
         """Mesmo contrato da versao Live: manda texto, devolve audio em pedacos.
 
         Sincrono de proposito — quem chama e uma thread do modo local, e o laco
-        de eventos do JARVIS esta ocupado com microfone e caixa de som.
+        de eventos do NIA esta ocupado com microfone e caixa de som.
 
         FRASE POR FRASE (30/08/2026). Gerar a resposta inteira de uma vez
         custava de 4 a 9 s ate sair o PRIMEIRO som — foi a queixa do Diego de
@@ -1713,7 +1713,7 @@ class VozCharon:
         # ORDEM IMPORTA (18/11/2026): a mudez e testada PRIMEIRO e os outros
         # casos viraram `elif`. Antes o bloco da mudez sobrescrevia `espera`
         # sempre — chave recusada, que devia calar 12 h, calava 60 s, e o
-        # JARVIS voltava a bater na mesma chave invalida a cada minuto.
+        # NIA voltava a bater na mesma chave invalida a cada minuto.
         _mudo = "mudas" in baixo
         VozCharon.mudez_passageira = _mudo
         if _mudo:
@@ -1756,7 +1756,7 @@ class VozCharon:
     def _trocar_a_chave(self, exc: Exception) -> bool:
         """Cota estourada ou chave recusada? Poe no castigo e passa a proxima.
 
-        Antes, chave com 429 deixava o JARVIS mudo ate a cota do dia voltar —
+        Antes, chave com 429 deixava o NIA mudo ate a cota do dia voltar —
         mesmo com outra chave cadastrada na tela, porque nada aqui consultava o
         pool. Agora a chave que falhou entra em cooldown e os motores sao
         refeitos, e eles nascem chamando `resolver()` (que devolve a proxima).

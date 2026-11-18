@@ -20,7 +20,7 @@ de reabrir resolver (14 reaberturas seguidas, uma a cada 8 s).
 
 4. **PortAudio trava.** Um `sd.rec()` simples ficou pendurado para sempre e teve
    de ser morto. Por isso todo teste roda em thread com prazo: nada aqui pode
-   pendurar o JARVIS.
+   pendurar o NIA.
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ PROIBIDOS = (
 # Entradas que devolvem o SOM DO PROPRIO PC, nao a voz de ninguem. Ficam na lista da
 # engrenagem (quem quiser escolhe a mao), mas o AUTOMATICO nunca fica com elas.
 # DESKTOP-BBCPCI2, 02/11/2026: com a saudacao tocando, o Stereo Mix ganhou do microfone
-# (nivel 1895 x 404) e o JARVIS passou a ouvir a si mesmo, surdo para o dono.
+# (nivel 1895 x 404) e o NIA passou a ouvir a si mesmo, surdo para o dono.
 SOM_DO_PROPRIO_PC = (
     "stereo mix", "mixagem", "mix est", "estereo mix", "est\u00e9reo mix",
     "what u hear", "what you hear", "wave out", "waveout", "loopback",
@@ -109,7 +109,7 @@ def testar(indice: int | None, segundos: float = 1.2, prazo: float = 6.0) -> dic
     """Abre o aparelho e conta os blocos que REALMENTE chegaram.
 
     Devolve {ok, blocos, nivel, erro}. Roda em thread com prazo porque o
-    PortAudio trava de vez em quando e nao pode levar o JARVIS junto.
+    PortAudio trava de vez em quando e nao pode levar o NIA junto.
     """
     resultado: queue.Queue = queue.Queue()
 
@@ -222,9 +222,9 @@ def escolher_automatico() -> tuple[int | None, str]:
 def listar_saidas() -> list[dict]:
     """Alto-falantes reais, um por aparelho, preferindo a via moderna.
 
-    Existe porque o JARVIS escolhia sozinho para onde falar e escolhia errado no
+    Existe porque o NIA escolhia sozinho para onde falar e escolhia errado no
     caso do Diego: ele ouve o PC pelo notebook, atraves do AudioRelay, e o
-    JARVIS mandava a voz para os alto-falantes USB. Falava certo, no lugar
+    NIA mandava a voz para os alto-falantes USB. Falava certo, no lugar
     errado — e parecia mudo.
     """
     sd = _sd()

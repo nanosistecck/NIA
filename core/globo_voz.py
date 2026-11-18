@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """O GLOBO POR VOZ (02/11/2026): entende a frase sem passar pelo cerebro.
 
-Pedido do Diego: "ir falando em tempo real com o Jarvis e dar comando, tipo Jarvis vai
+Pedido do Diego: "ir falando em tempo real com o Nia e dar comando, tipo Nia vai
 na capital tal, pais tal, bairro tal, cidade tal, e ele ir fazendo em tempo real".
 
 Por que aqui e nao no modelo: pelo cerebro cada frase custa de 1 a 5 s de rede, e o
@@ -11,7 +11,7 @@ devolve None e segue para o cerebro, que tambem tem a ferramenta `globo` (e reso
 que precisa de raciocinio: "me leva para o maior pais da Africa").
 
 `interpretar` recebe a frase JA NORMALIZADA: minuscula, sem acento, sem pontuacao e
-sem o "Jarvis" (ver `_rede_do_globo` no main.py).
+sem o "Nia" (ver `_rede_do_globo` no main.py).
 """
 from __future__ import annotations
 
@@ -439,7 +439,7 @@ def _quilometros(km: int, idioma: str) -> str:
 
 
 def frase(pedido: dict, r: dict | None, idioma: str = "pt") -> str:
-    """O que o JARVIS fala de volta. Curto: quem esta falando e' o globo andando."""
+    """O que o NIA fala de volta. Curto: quem esta falando e' o globo andando."""
     en = idioma == "en"
     acao = pedido.get("acao")
     r = r or {}

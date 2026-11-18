@@ -2,12 +2,12 @@
 """O OUVIDO QUE SE ADAPTA A CADA MICROFONE (01/10/2026).
 
 Pedido do Diego: "tem coisas que ela nao me entende, assim como outros clientes
-que usam outros PCs, outros microfones... nao teria como o JARVIS reconhecer cada
+que usam outros PCs, outros microfones... nao teria como o NIA reconhecer cada
 PC, cada microfone, e se adaptar para escutar certo em cada um?"
 
 O defeito, visto no registro do proprio PC dele
 ------------------------------------------------
-Depois de gravar, o JARVIS decide pelo PICO do audio o que e fala e o que e
+Depois de gravar, o NIA decide pelo PICO do audio o que e fala e o que e
 barulho, com dois numeros FIXOS medidos no microfone do Diego em setembro:
 
     abaixo de 0,045 ......... descarta sem ouvir ("som_de_longe")
@@ -16,7 +16,7 @@ barulho, com dois numeros FIXOS medidos no microfone do Diego em setembro:
 
 Os dois erram para os dois lados, dependendo do aparelho:
   * microfone fraco (cliente com headset longe da boca): a voz inteira mora entre
-    0,03 e 0,08 — vira "resgate" ou descarte, e o JARVIS "nao entende";
+    0,03 e 0,08 — vira "resgate" ou descarte, e o NIA "nao entende";
   * sala barulhenta (o Diego em 01/10, video tocando): o barulho bate 0,05 a 0,11,
     passa por fala, e o ouvido inventa "E assim ficou pronto", "Obrigado",
     "Caze TV" — que os filtros jogam fora, mas o ouvido fica ocupado com isso.

@@ -4,7 +4,7 @@
 Pedido do Diego: "edicao completa, o que o cliente pedir" — formato do TikTok
 (9:16), espelhar, cortar trecho, cortar TODO silencio ("parou de falar, corta e
 ja vai para a outra"), colocar imagem dentro do video, texto, efeito, musica,
-legenda. E com uma exigencia: *"toma cuidado pra nao quebrar o JARVIS"*.
+legenda. E com uma exigencia: *"toma cuidado pra nao quebrar o NIA"*.
 
 O DESENHO, EM TRES PECAS
 ------------------------
@@ -21,7 +21,7 @@ O DESENHO, EM TRES PECAS
    "nome (editado).mp4", e abre sozinho no fim.
 
 O TRABALHO RODA EM SEGUNDO PLANO. A ferramenta devolve em segundos ("comecei,
-vou fazer isto, leva uns N minutos") e o JARVIS continua conversando enquanto o
+vou fazer isto, leva uns N minutos") e o NIA continua conversando enquanto o
 ffmpeg trabalha, com prioridade BAIXA para a voz nao engasgar. Quando termina,
 ele avisa falando. Um trabalho por vez; da para perguntar o andamento e mandar
 parar (`acao=status` / `acao=cancelar`).
@@ -52,7 +52,7 @@ from pathlib import Path
 _RAIZ = Path(__file__).resolve().parents[1]
 
 # Janela preta do console escondida, e o ffmpeg com prioridade ABAIXO do
-# normal: renderizar come todos os nucleos, e sem isso a voz do JARVIS engasga
+# normal: renderizar come todos os nucleos, e sem isso a voz do NIA engasga
 # enquanto o video sai.
 _SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _PRIORIDADE_BAIXA = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
@@ -88,7 +88,7 @@ def _versao_do(ff: str) -> int:
 
 
 def achar_ffmpeg() -> str | None:
-    """O ffmpeg que vem com o JARVIS; o do sistema so se aquele faltar.
+    """O ffmpeg que vem com o NIA; o do sistema so se aquele faltar.
 
     O do instalador vem PRIMEIRO de proposito: e o unico cujas pecas eu
     conheco (libass para legenda, x264, NVENC). Um ffmpeg qualquer do PATH do
@@ -122,7 +122,7 @@ def achar_ffmpeg() -> str | None:
 
 
 def garantir_ffmpeg_no_path() -> bool:
-    """Poe o ffmpeg do JARVIS no PATH deste processo, se o PATH nao tiver um.
+    """Poe o ffmpeg do NIA no PATH deste processo, se o PATH nao tiver um.
 
     Existe pelo `file_processor`: ele chama "ffmpeg" pelo nome, e no PC do
     cliente nao ha ffmpeg no PATH — o "cortar/comprimir video" que ja existia
@@ -428,7 +428,7 @@ def _video_selecionado_no_explorer() -> str:
 
 def _video_do_pedido(p: dict, player) -> str:
     """De onde vem o video: nome/caminho dito, o arrastado para a janela do
-    JARVIS, ou o selecionado no Explorer. Nunca "o ultimo da pasta": editar o
+    NIA, ou o selecionado no Explorer. Nunca "o ultimo da pasta": editar o
     video errado faria o dono esperar minutos por nada."""
     atual = ""
     try:
@@ -465,7 +465,7 @@ def _video_do_pedido(p: dict, player) -> str:
 #  O PLANO: pedido falado -> lista de passos do cardapio
 # ═════════════════════════════════════════════════════════════════════════════
 
-_INSTRUCAO_PLANO = """Voce e o editor de video do JARVIS. O cliente pediu uma edicao e voce devolve SO um JSON, sem nenhum texto antes ou depois, neste formato:
+_INSTRUCAO_PLANO = """Voce e o editor de video do NIA. O cliente pediu uma edicao e voce devolve SO um JSON, sem nenhum texto antes ou depois, neste formato:
 {"passos": [ ... ], "nao_da": "..."}
 
 nao_da: o que ele pediu e NAO existe no cardapio abaixo, em poucas palavras (vazio se tudo couber).
@@ -549,7 +549,7 @@ def _tem(t: str, padrao: str) -> bool:
 def _plano_por_palavras(pedido: str) -> list:
     """O basico sem cerebro nenhum: palavra-chave -> passo.
 
-    Serve de rede em dois momentos: quando o cerebro esta fora (o JARVIS nunca
+    Serve de rede em dois momentos: quando o cerebro esta fora (o NIA nunca
     fica mudo por isso) e para conferir o que o cerebro devolveu nos pedidos
     mais comuns (formato, silencio, legenda), que nao podem sumir.
     """
@@ -1305,7 +1305,7 @@ def _transcrever(ff: str, video: str, ouvido, idioma: str, ini: float, fim: floa
                  cancelado, log) -> list:
     """[(inicio, fim, palavra)] no tempo do video ORIGINAL.
 
-    O whisper e o do proprio ouvido do JARVIS (emprestado — carregar outro
+    O whisper e o do proprio ouvido do NIA (emprestado — carregar outro
     custaria mais 0,5 a 3 GB). Aqui ele serve SO para o texto da legenda; o
     corte de silencio nunca olha para ele.
     """
@@ -1898,7 +1898,7 @@ _ULTIMA: dict = {}
 
 
 def _anotar(evento: str, detalhe: str = "") -> None:
-    """Uma linha em logs/voice_session.log — o JARVIS roda no pythonw e o
+    """Uma linha em logs/voice_session.log — o NIA roda no pythonw e o
     `print` nao aparece em lugar nenhum."""
     try:
         from datetime import datetime as _dt  # noqa: PLC0415
@@ -1990,7 +1990,7 @@ def _nome_de_saida(video: str, onde: str = "") -> Path:
         pastas.append(Path.home() / "Videos")
     for pasta in pastas:
         try:
-            teste = pasta / ".jarvis_teste_escrita"
+            teste = pasta / ".nia_teste_escrita"
             teste.write_bytes(b"")
             teste.unlink()
         except Exception:
@@ -2150,7 +2150,7 @@ def _script_de_grafo(nome: str) -> list:
 
 def _trabalho(job: dict, falar, player, ouvido, log) -> None:
     ff = achar_ffmpeg()
-    tmp = Path(tempfile.mkdtemp(prefix="jarvis_video_"))
+    tmp = Path(tempfile.mkdtemp(prefix="nia_video_"))
     passos = job["passos"]
     video = job["video"]
     ficha = job["ficha"]
@@ -2390,7 +2390,7 @@ def editar_video(parameters: dict | None = None, player=None, gerar=None, falar=
 
     `pedido`  o que fazer, com as palavras do dono
     `video`   caminho ou nome do video (vazio = o arrastado para a janela do
-              JARVIS, ou o selecionado no Explorer)
+              NIA, ou o selecionado no Explorer)
     `acao`    editar (padrao) | status | cancelar
     """
     p = parameters or {}

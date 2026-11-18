@@ -1,4 +1,4 @@
-// Liga tudo: abertura, mouse, teclado, botoes, escolha de lugar e comandos do JARVIS.
+// Liga tudo: abertura, mouse, teclado, botoes, escolha de lugar e comandos do NIA.
 
 import {
   alternarInclinacao, altura, cena, criar, definirCobertura, definirGiro, definirModo, definirNoite, definirNomes,
@@ -662,7 +662,7 @@ function pintarRelogio() {
   el("relogio-fuso").textContent = `UTC${sinal}${hh}:${mm}`;
 }
 
-// ── comandos do JARVIS (voz) ─────────────────────────────────────────────
+// ── comandos do NIA (voz) ─────────────────────────────────────────────
 const NOMES_CONTINENTE = {
   "america do sul": "South America", "south america": "South America",
   "america do norte": "North America", "north america": "North America",
@@ -821,7 +821,7 @@ async function executar(acao, d) {
   }
 }
 
-function ouvirJarvis() {
+function ouvirNia() {
   if (!TOKEN) return;
   const fonte = new EventSource(`/api/eventos?t=${encodeURIComponent(TOKEN)}`);
   fonte.onmessage = async (ev) => {
@@ -885,7 +885,7 @@ async function abrirTudo() {
   } catch { /* fica o padrao */ }
   definirIdioma(config.idioma);
   document.documentElement.style.setProperty("--pri", config.cor || "#00d4ff");
-  document.title = idioma === "en" ? "JARVIS — Globe" : "JARVIS — Globo";
+  document.title = idioma === "en" ? "NIA — Globe" : "NIA — Globo";
   progresso(6, "carregandoMotor");
 
   if (!temWebgl()) {
@@ -989,7 +989,7 @@ async function abrirTudo() {
   pintarLeitura(null);
   definirModo("satelite");
   pintarModos();
-  ouvirJarvis();
+  ouvirNia();
 
   await esperarImagem();
   progresso(100);

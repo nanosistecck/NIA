@@ -10,7 +10,7 @@ quiser do mesmo provedor ou de varios. Cada entrada traz:
     tipo     -> "llm" | "busca" | "voz" | "imagem"
     modelos  -> modelos conhecidos do provedor
 
-O motor do JARVIS (core/llm_router.py) so chama os adaptadores que existem
+O motor do NIA (core/llm_router.py) so chama os adaptadores que existem
 hoje: Gemini, OpenAI, OpenRouter e Codex. Os demais ficam catalogados para o
 cadastro e para os adaptadores genericos OpenAI-compat.
 """

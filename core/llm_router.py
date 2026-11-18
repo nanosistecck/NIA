@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Pool de chaves por provedor + roteador com failover automatico (FASE 1).
 
-A ideia central do FreeLLMAPI, portada para o motor Python do JARVIS:
+A ideia central do FreeLLMAPI, portada para o motor Python do NIA:
 
   - multi-key por provedor  -> ``KeyPool``: lista de chaves por provedor, cada uma
                                com estado proprio (cooldown, erro, falhas, uso).
@@ -18,7 +18,7 @@ CHAVE UNICA PARA TODO MUNDO (18/11/2026)
 `resolver()` e o ponto por onde TODO modulo pede a chave — cerebro, busca,
 visao e, o que motivou esta revisao, a VOZ. Antes ele criava um `Router()`
 vazio e so caia no `config/api_keys.json`: as chaves cadastradas no banco
-(`config/jarvis.db`, tela de chaves do `ui.py`) NUNCA chegavam na fala, e as
+(`config/nia.db`, tela de chaves do `ui.py`) NUNCA chegavam na fala, e as
 vozes ficavam mudas mesmo com chave cadastrada.
 
 Agora existe UM roteador de processo (`_global()`), montado a partir do banco +
@@ -64,7 +64,7 @@ _SEGUNDOS = {
     T_DESCONHECIDA: 30.0,
 }
 
-# CAMINHOS SEMPRE ABSOLUTOS (18/11/2026). O JARVIS roda de pastas diferentes
+# CAMINHOS SEMPRE ABSOLUTOS (18/11/2026). O NIA roda de pastas diferentes
 # (atalho do Windows, teste, dashboard) e um caminho relativo errado devolvia
 # "config vazio" em silencio — o roteador ficava sem chave e ninguem via o erro.
 _RAIZ = Path(__file__).resolve().parents[1]
@@ -75,7 +75,7 @@ CONFIG_PADRAO = _RAIZ / "config" / "llm_routing.json"
 # O catalogo (`core/provedores.py`) chama a Gemini de **"google"**, mas a cadeia
 # do roteador e TODO o codigo de voz falam **"gemini"**. Resultado medido nesta
 # maquina: uma chave da Gemini cadastrada na tela ficava no pool como "google",
-# `resolver("gemini")` nao a encontrava e o JARVIS continuava mudo — com a chave
+# `resolver("gemini")` nao a encontrava e o NIA continuava mudo — com a chave
 # certa, valida, guardada no banco.
 _APELIDOS = {
     "google": "gemini",
@@ -106,7 +106,7 @@ class Chave:
     falhas: int = 0
     sucessos: int = 0
     uso_tokens: int = 0
-    # Vindos do banco (`config/jarvis.db`): id para gravar estado de volta e os
+    # Vindos do banco (`config/nia.db`): id para gravar estado de volta e os
     # dois campos que o provedor genérico precisa (modelo e endpoint).
     id: int = 0
     modelo: str = ""
@@ -172,7 +172,7 @@ class KeyPool:
         else:
             chave.status = CHAVE_COOLDOWN
         chave.cooldown_ate = time.time() + segs
-        # Estado gravado no banco: o cooldown sobrevive a fechar e abrir o JARVIS.
+        # Estado gravado no banco: o cooldown sobrevive a fechar e abrir o NIA.
         try:
             if chave.id > 0:
                 from core.db_chaves import registrar_falha as _gravar  # noqa: PLC0415
@@ -249,7 +249,7 @@ class Router:
         return self.pool.adicionar(provedor_canonico(provedor), chave, rotulo)
 
     def carregar_do_banco(self) -> int:
-        """Carrega as chaves do banco local (`config/jarvis.db`).
+        """Carrega as chaves do banco local (`config/nia.db`).
 
         O estado de cada chave (status, cooldown, falhas, sucessos, uso) vem do
         banco. Devolve quantas chaves foram carregadas.
@@ -426,14 +426,16 @@ def _caminho_do_banco() -> Path:
         from core.db_chaves import DB_PATH  # noqa: PLC0415
         return Path(DB_PATH)
     except Exception:
-        return _RAIZ / "config" / "jarvis.db"
+        novo = _RAIZ / "config" / "nia.db"
+        antigo = _RAIZ / "config" / "jarvis.db"   # banco de antes da troca de nome
+        return novo if novo.exists() or not antigo.exists() else antigo
 
 
 def _assinatura() -> tuple:
     """Impressao digital barata das fontes do roteador (config + banco).
 
     Cadastrar/remover chave mexe no banco; editar a cadeia mexe no config. Com
-    isto o roteador se refaz sozinho na proxima pergunta, sem reiniciar o JARVIS
+    isto o roteador se refaz sozinho na proxima pergunta, sem reiniciar o NIA
     e sem ler o banco a cada chamada.
     """
     marcas = []
@@ -589,11 +591,11 @@ def _chave_do_usuario(provedor: str) -> str | None:
 
 
 def resolver(provedor: str = "gemini") -> str | None:
-    """Chave ativa para o provedor — banco (`jarvis.db`) primeiro, JSON depois.
+    """Chave ativa para o provedor — banco (`nia.db`) primeiro, JSON depois.
 
     E A PORTA DA VOZ: `GeminiCharonVoice`, `GeminiConversa`, `GeminiCharonTTS` e
     `VozOpenAI` nascem chamando isto. Enquanto esta funcao criava um `Router()`
-    vazio, chave cadastrada na tela nao chegava na fala e o JARVIS emudecia.
+    vazio, chave cadastrada na tela nao chegava na fala e o NIA emudecia.
     """
     try:
         return _global().chave_ativa(provedor)

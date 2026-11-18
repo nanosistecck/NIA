@@ -4,17 +4,17 @@
 Por que existe (30/08/2026, medido no proprio uso do Diego)
 ------------------------------------------------------------
 A conta do OpenRouter e gratuita: ~50 pedidos por dia. Nesta noite ela acabou no
-meio da conversa e o JARVIS **emudeceu** — o microfone ouvia certinho
+meio da conversa e o NIA **emudeceu** — o microfone ouvia certinho
 (`local_ouviu 'Minha voz nao esta saindo la...'`) e logo em seguida vinha
 `openrouter_falhou ... free-models-per-day`. Sem cerebro, nao ha resposta.
 
 O Diego pediu a Gemini **so para a voz**. Isto aqui nao muda esse desenho: a
 Gemini continua so falando no dia a dia. Ela so pensa quando o OpenRouter ja
-morreu e a alternativa e o JARVIS ficar mudo.
+morreu e a alternativa e o NIA ficar mudo.
 
 Modelo: `gemini-2.5-flash-lite`, o mais barato da lista da chave dele.
 
-As ferramentas do JARVIS ja nascem no formato da Gemini (`TOOL_DECLARATIONS` no
+As ferramentas do NIA ja nascem no formato da Gemini (`TOOL_DECLARATIONS` no
 main.py) — o `CerebroOpenRouter` e que as traduz para o formato OpenAI. Aqui a
 traducao volta atras.
 """

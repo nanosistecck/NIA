@@ -4,7 +4,7 @@
 mexer no mouse pelo X11 (pyautogui e xdotool nao movem nada), e o cliente nao
 quis ficar no Plasma X11 ("e muito antigo"). Mas o usuario dele ja tem
 permissao de escrita no /dev/uinput (regra do KDE Connect/Steam, ACL `uaccess`),
-entao o JARVIS cria dois aparelhos de verdade para o sistema: um MOUSE
+entao o NIA cria dois aparelhos de verdade para o sistema: um MOUSE
 ABSOLUTO (como o de maquina virtual: vai direto para o ponto, sem aceleracao) e
 um TECLADO. Para o Wayland eles sao iguais a um mouse e um teclado ligados na USB.
 
@@ -92,10 +92,10 @@ class Entrada:
 
     def __init__(self):
         self._trava = threading.Lock()
-        self.mouse = _Aparelho("JARVIS virtual mouse", (EV_KEY, EV_ABS, EV_REL, EV_SYN),
+        self.mouse = _Aparelho("NIA virtual mouse", (EV_KEY, EV_ABS, EV_REL, EV_SYN),
                                teclas=BTN.values(), rels=(REL_WHEEL, REL_HWHEEL),
                                abss=(ABS_X, ABS_Y))
-        self.teclado = _Aparelho("JARVIS virtual keyboard", (EV_KEY, EV_SYN),
+        self.teclado = _Aparelho("NIA virtual keyboard", (EV_KEY, EV_SYN),
                                  teclas=sorted(set(KEYS.values())))
         self.x, self.y = 0, 0
         self._area = None
@@ -218,7 +218,7 @@ def instalar_no_pyautogui() -> bool:
     if not disponivel():
         return False
     import pyautogui  # noqa: PLC0415
-    if getattr(pyautogui, "_jarvis_uinput", False):
+    if getattr(pyautogui, "_nia_uinput", False):
         return True
     e = entrada()
 
@@ -318,5 +318,5 @@ def instalar_no_pyautogui() -> bool:
                     "typewrite": typewrite, "write": typewrite,
                     "position": lambda *a, **k: pyautogui.Point(e.x, e.y)}.items():
         setattr(pyautogui, nome, f)
-    pyautogui._jarvis_uinput = True
+    pyautogui._nia_uinput = True
     return True

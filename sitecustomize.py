@@ -1,9 +1,9 @@
 """
-JARVIS terminal quiet mode.
+NIA terminal quiet mode.
 
 Loaded automatically by Python and imported explicitly by main.py. It blocks
 third-party warning spam (mainly sounddevice/NumPy/DDG) while preserving real
-exceptions and JARVIS logs.
+exceptions and NIA logs.
 """
 from __future__ import annotations
 

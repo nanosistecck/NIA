@@ -1,6 +1,6 @@
 """Fechar programas pelo nome.
 
-Criado em 30/08/2026. O JARVIS tinha `open_app` para ABRIR e **nada** para
+Criado em 30/08/2026. O NIA tinha `open_app` para ABRIR e **nada** para
 fechar. O Diego pedia "fecha o bloco de notas", nenhuma ferramenta era chamada,
 e o modelo respondia "Fechado" — mentira, porque sem ferramenta ele inventa que
 fez em vez de dizer que nao consegue.
@@ -13,12 +13,13 @@ from __future__ import annotations
 import time
 
 # Nunca encostar nestes: derrubar qualquer um deixa o Windows quebrado ou o
-# proprio JARVIS mudo. A lista e por prefixo do nome do processo, minusculo.
+# proprio NIA mudo. A lista e por prefixo do nome do processo, minusculo.
 PROTEGIDOS = (
     "system", "idle", "csrss", "wininit", "winlogon", "services", "lsass",
     "smss", "svchost", "dwm", "explorer", "fontdrvhost", "sihost", "ctfmon",
     "registry", "memory compression", "audiodg", "runtimebroker",
-    "jarvis-cyberbot", "pythonw", "python",
+    "nia-cyberbot", "jarvis-cyberbot",   # nome antigo tambem e este processo
+    "pythonw", "python",
     # O MESMO CUIDADO NO MAC (05/09/2026). Sem estes, um "fecha o localizador"
     # derrubaria o Finder, a barra ou a propria sessao do cliente — o
     # equivalente exato de matar o `explorer.exe` no Windows.
@@ -27,7 +28,7 @@ PROTEGIDOS = (
 )
 
 # Nomes falados x processo de verdade. Sem isto, "bloco de notas" nao casa com
-# `notepad.exe` e o JARVIS diz que nao achou o que esta bem na frente dele.
+# `notepad.exe` e o NIA diz que nao achou o que esta bem na frente dele.
 APELIDOS = {
     "bloco de notas": ["notepad", "notepad++"],
     "notepad": ["notepad", "notepad++"],
@@ -310,7 +311,7 @@ def fechar_app(parameters: dict | None = None, player=None, **_) -> str:
         # ficar inventando"*.)
         #
         # Janela de pasta nao tem processo proprio — ela pertence ao
-        # `explorer.exe`, que esta nos PROTEGIDOS para o JARVIS nunca derrubar a
+        # `explorer.exe`, que esta nos PROTEGIDOS para o NIA nunca derrubar a
         # area de trabalho. Procurar processo ali era procurar o que nao existe.
         try:
             from actions import janelas_windows as _jw  # noqa: PLC0415

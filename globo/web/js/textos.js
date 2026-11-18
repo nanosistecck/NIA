@@ -1,4 +1,4 @@
-// Textos e numeros da tela. Tudo em dois idiomas porque o JARVIS tem cliente em
+// Textos e numeros da tela. Tudo em dois idiomas porque o NIA tem cliente em
 // ingles (config/idioma.json): o idioma vem de /api/config, o mesmo do programa.
 
 const TEXTOS = {

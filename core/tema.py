@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Cores do JARVIS escolhidas pelo cliente (aba CORES da engrenagem).
+"""Cores do NIA escolhidas pelo cliente (aba CORES da engrenagem).
 
 Por que existe (08/10/2026)
 ---------------------------
@@ -75,7 +75,7 @@ GRUPOS = [
         ("vermelho",  "Vermelho",       "Mudo, interromper e erros"),
     ]),
     ("NÚCLEO", [
-        ("nucleo",          "Núcleo",            "Parado e quando o JARVIS fala"),
+        ("nucleo",          "Núcleo",            "Parado e quando o NIA fala"),
         ("nucleo_dono",     "Quando você fala",  "O núcleo enquanto ouve a sua voz"),
         ("nucleo_pensando", "Pensando",          "Enquanto ele pensa ou trabalha"),
         ("nucleo_mudo",     "Mudo",              "Com o microfone desligado"),
@@ -207,7 +207,7 @@ def atual(chave: str) -> str:
 def _familia(h: float, l: float, s: float) -> str | None:
     if s < 0.12 or l > 0.97 or l < 0.004:
         return None
-    if 165.0 <= h <= 225.0:                 # o ciano do JARVIS e seus tons
+    if 165.0 <= h <= 225.0:                 # o ciano do NIA e seus tons
         if l < 0.085:
             return "fundo"
         if l >= 0.62 or (l >= 0.40 and s < 0.60):
@@ -311,11 +311,11 @@ def cor_botao(nome: str, hexa_atual: str | None) -> str | None:
 
 
 def nucleo(modo: str) -> str:
-    """Cor do nucleo em cada estado ('ocioso', 'jarvis', 'dono', 'pensando', 'mudo').
+    """Cor do nucleo em cada estado ('ocioso', 'nia', 'dono', 'pensando', 'mudo').
 
     Sem escolha propria, o nucleo acompanha a familia (trocar a cor principal
     troca o nucleo junto — e o que a pessoa espera)."""
-    chave = {"ocioso": "nucleo", "jarvis": "nucleo", "dono": "nucleo_dono",
+    chave = {"ocioso": "nucleo", "nia": "nucleo", "dono": "nucleo_dono",
              "pensando": "nucleo_pensando", "mudo": "nucleo_mudo"}.get(modo, "nucleo")
     if chave in _escolhas:
         return _escolhas[chave]

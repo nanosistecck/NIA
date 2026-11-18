@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""O JARVIS usando o computador sozinho — olhar, decidir, clicar, conferir.
+"""O NIA usando o computador sozinho — olhar, decidir, clicar, conferir.
 
 Como funciona
 -------------
@@ -35,7 +35,7 @@ O QUE MUDOU NA v2 (03/09/2026) E POR QUE
 - SENHA NUNCA VAI PARA A VPS: o Codex pede `credencial`, e quem digita e aqui,
   lendo do cofre local (`acessos.py`, protegido pelo Windows).
 
-O QUE ENTROU NO JARVIS (04/09/2026) — a revisao pedida pelo Diego
+O QUE ENTROU NO NIA (04/09/2026) — a revisao pedida pelo Diego
 --------------------------------------------------------------
 O motor veio do Bob, aprovado pelo cliente da TJ. Aqui ele foi revisado inteiro
 e ganhou o que faltava para MEXER EM ARQUIVO, que e o dia a dia da AJ (pasta,
@@ -63,7 +63,7 @@ E os cinco defeitos que a revisao achou no motor do Bob (todos consertados
 aqui; nenhum deles chegou a derrubar o teste da TJ, mas todos podem):
 
   1. A FAIXA NA TELA NUNCA APARECIA. O laco procura `mostrar_aviso_pc` no objeto
-     que recebe (`JarvisUI`), e o metodo existia so na `MainWindow` la dentro —
+     que recebe (`NiaUI`), e o metodo existia so na `MainWindow` la dentro —
      `getattr` devolvia None e o aviso sumia em silencio. Consertado no ui.py.
   2. Toda acao pagava uma varredura de tela a toa: `_alvo` rodava ANTES de saber
      o tipo do movimento, e para `clicar_nome`/`expandir`/`acionar`/`rolar_ate`
@@ -215,7 +215,7 @@ _PERIGOSO = re.compile(
     # As formas de MANDAR entram junto com o infinitivo (04/09/2026): o dono
     # fala "apagUE", "excluA", "remova", nao "apagar". Sem elas, o pedido dele
     # nao era reconhecido como pedido de risco — e a autorizacao que ja vinha
-    # na propria frase se perdia, fazendo o JARVIS perguntar o que ele acabara de
+    # na propria frase se perdia, fazendo o NIA perguntar o que ele acabara de
     # mandar fazer.
     r"\b(pagar|pague|paga|pagamento|comprar|compre|compra|finalizar (a )?compra|checkout|"
     r"excluir|exclui|exclua|apagar|apaga|apague|deletar|delete|deleta|"
@@ -242,7 +242,7 @@ class FreioEsc:
     depende de gancho de teclado, que exigiria laco de mensagens numa thread de
     trabalho (o mesmo problema que o UI Automation tem em STA).
 
-    A ARMADILHA: o proprio JARVIS aperta ESC durante as tarefas (fechar menu,
+    A ARMADILHA: o proprio NIA aperta ESC durante as tarefas (fechar menu,
     cancelar caixa de dialogo). O `GetAsyncKeyState` nao distingue tecla de
     gente de tecla de programa, entao ele se pararia sozinho. Por isso o laco
     avisa `ignorar_por()` antes de cada ESC que ele mesmo manda.
@@ -285,7 +285,7 @@ class FreioEsc:
         self._thread = None
 
     def ignorar_por(self, segundos: float = 0.8) -> None:
-        """O ESC que sair nos proximos `segundos` e do proprio JARVIS, nao do dono."""
+        """O ESC que sair nos proximos `segundos` e do proprio NIA, nao do dono."""
         self._ignorar_ate = time.monotonic() + float(segundos)
 
     @property
@@ -296,7 +296,7 @@ class FreioEsc:
         """ESC lido direto do teclado (/dev/input) — vale no Wayland e no X11.
 
         26/09/2026: no Wayland o XQueryKeymap so enxerga janela do XWayland.
-        O dono do Big Linux esta no grupo `input`, entao o JARVIS le os eventos
+        O dono do Big Linux esta no grupo `input`, entao o NIA le os eventos
         do teclado de verdade. Devolve False se nao houver teclado legivel
         (ai quem chama tenta pelo X11)."""
         import select  # noqa: PLC0415
@@ -311,7 +311,7 @@ class FreioEsc:
             nome = _re.search(r'N: Name="([^"]*)"', b)
             hand = _re.search(r"H: Handlers=([^\n]*)", b)
             chaves = _re.search(r"B: KEY=([0-9a-f ]+)", b)
-            if not (nome and hand and chaves) or "JARVIS" in nome.group(1):
+            if not (nome and hand and chaves) or "NIA" in nome.group(1):
                 continue
             ev = _re.search(r"event\d+", hand.group(1))
             if "kbd" not in hand.group(1) or not ev:
@@ -353,7 +353,7 @@ class FreioEsc:
 
         O `ctypes.windll` nao existe no Linux e o laco de baixo morria no
         primeiro `except` — calado: o cliente do Big Linux apertava ESC e o
-        JARVIS seguia mexendo. `XQueryKeymap` devolve o teclado INTEIRO agora,
+        NIA seguia mexendo. `XQueryKeymap` devolve o teclado INTEIRO agora,
         em qualquer janela, que e o que o `GetAsyncKeyState` faz no Windows."""
         try:
             import ctypes  # noqa: PLC0415
@@ -410,7 +410,7 @@ class FreioEsc:
 
 # A RESPOSTA DELE PODE SER UMA PERGUNTA (04/09/2026, pedido do Diego).
 #
-# Aconteceu no teste: o JARVIS perguntou "posso apagar?" e o dono respondeu
+# Aconteceu no teste: o NIA perguntou "posso apagar?" e o dono respondeu
 # querendo saber se apagar aquilo estragava alguma coisa no computador. Isso
 # NAO e um "nao" — e uma duvida, e quem tem de responder e ele. Antes, qualquer
 # resposta que nao tivesse "sim" cancelava o passo e a tarefa morria ali.
@@ -472,7 +472,7 @@ def _fala_de_permissao(texto: str) -> bool:
 #
 # Pedir autorizacao e certo; pedir a MESMA autorizacao tres vezes na mesma
 # tarefa e o que fez o Diego desistir no meio (04/09/2026): ele mandou apagar os
-# arquivos temporarios, o JARVIS perguntou "posso?", ele respondeu que sim, o JARVIS
+# arquivos temporarios, o NIA perguntou "posso?", ele respondeu que sim, o NIA
 # perguntou DE NOVO no passo seguinte (a caixa do Windows pedindo confirmacao da
 # exclusao — o mesmo apagar, so que na tela), e como ele nao respondeu a segunda,
 # a tarefa morreu com "Certo, nao fiz".
@@ -875,7 +875,7 @@ def _trazer_para_frente(hwnd: int) -> bool:
     Por que (23/09/2026, teste real): com o YouTube em tela cheia na frente, o
     Windows abria a Calculadora ATRAS dele e o `SetForegroundWindow` simples
     era recusado (o Windows nao deixa programa de fundo roubar a frente). O
-    JARVIS ficou quatro passos tentando alt+tab e abrindo a calculadora de
+    NIA ficou quatro passos tentando alt+tab e abrindo a calculadora de
     novo. Aqui vao, em ordem, os jeitos que o proprio Windows aceita — sem o
     truque do Alt+Esc, que tira o video da tela cheia e dispara o freio do ESC.
     """
@@ -1125,7 +1125,7 @@ def _garantir_janela_da_foto(ctx: dict) -> str:
 
 
 def _janela_e_do_ted() -> bool:
-    """A janela em primeiro plano e a do proprio JARVIS?"""
+    """A janela em primeiro plano e a do proprio NIA?"""
     try:
         import os  # noqa: PLC0415
         import win32gui  # noqa: PLC0415
@@ -1219,7 +1219,7 @@ def _executar(acao: dict, ctx: dict) -> str:
     # O FAIL-SAFE DO CANTO SAIU (04/09/2026), e o ESC entrou no lugar.
     #
     # O pyautogui aborta tudo se o mouse estiver num canto da tela quando um
-    # movimento comeca. No primeiro teste ao vivo do JARVIS isso derrubou a tarefa
+    # movimento comeca. No primeiro teste ao vivo do NIA isso derrubou a tarefa
     # do meio para o fim: o dono tinha deixado o mouse parado no canto, e cada
     # passo virava erro — ate o Codex desistir e PEDIR que ele mexesse no
     # mouse (passo 11 do registro). Mouse parado no canto e posicao comum;
@@ -1298,7 +1298,7 @@ def _executar(acao: dict, ctx: dict) -> str:
             # Bob ("Voce: ORP8F38"). Digitar as cegas na janela errada nao e so
             # inutil: com `credencial` seria a senha do cliente indo parar num
             # lugar qualquer. Se a frente e o assistente, nao digita.
-            return falhou("a janela do JARVIS estava na frente — nao digitei nada")
+            return falhou("a janela do NIA estava na frente — nao digitei nada")
         # PEDIU UM ALVO QUE NAO EXISTE = FALHA, nao "digita onde estiver".
         # (04/09/2026) O alvo era a prova de que o Codex sabia ONDE escrever.
         # Sem ele o texto ia para o foco atual, que numa tela que mudou pode ser
@@ -1352,13 +1352,13 @@ def _executar(acao: dict, ctx: dict) -> str:
         # A senha NUNCA sai deste computador: o Codex so pede pelo apelido.
         from actions.acessos import ler_credencial  # noqa: PLC0415
         if _janela_e_do_ted():
-            return falhou("a janela do JARVIS estava na frente — nao preenchi nada")
+            return falhou("a janela do NIA estava na frente — nao preenchi nada")
         apelido = str(acao.get("apelido") or acao.get("site") or "").strip()
         campo = str(acao.get("campo") or "senha").strip().lower()
         valor = ler_credencial(apelido, campo)
         if not valor:
             return falhou(f"NAO TENHO a {campo} de '{apelido}' guardada — "
-                          f"pergunte ao dono ou peca para ele salvar no JARVIS")
+                          f"pergunte ao dono ou peca para ele salvar no NIA")
         # Senha com alvo errado e pior que texto com alvo errado: ela iria para
         # a tela inteira em texto claro. Mesma regra do `digitar`, sem excecao.
         if sx is None and _pediu_alvo(acao):
@@ -1699,7 +1699,7 @@ def _executar(acao: dict, ctx: dict) -> str:
 
     # ── LER, CHEGAR PERTO E ARRUMAR A JANELA (23/09/2026, v1.0.29) ─────────
     #
-    # Tres coisas que um operador de verdade faz o tempo todo e o JARVIS nao
+    # Tres coisas que um operador de verdade faz o tempo todo e o NIA nao
     # tinha como fazer:
     #   ler_tela  selecionar o texto em vez de ler a foto reduzida (o log da
     #             VPS tem "leia a pagina e me de o resumo" levando 18 passos);
@@ -1756,7 +1756,7 @@ def _executar(acao: dict, ctx: dict) -> str:
         if not h:
             return falhou("nao ha janela na frente")
         if _janela_e_do_ted() and modo in ("fechar", "minimizar"):
-            return falhou("a janela da frente e o proprio JARVIS — nao mexi nela")
+            return falhou("a janela da frente e o proprio NIA — nao mexi nela")
         try:
             import win32con  # noqa: PLC0415
             import win32gui  # noqa: PLC0415
@@ -1970,7 +1970,7 @@ def _rodar_comando(texto: str, limite_s: float, como_admin: bool) -> tuple:
             # e lida depois — senao o Codex ficaria sem o resultado, que e a
             # parte que interessa.
             import tempfile  # noqa: PLC0415
-            alvo = os.path.join(tempfile.gettempdir(), f"jarvis_cmd_{secrets.token_hex(6)}.txt")
+            alvo = os.path.join(tempfile.gettempdir(), f"nia_cmd_{secrets.token_hex(6)}.txt")
             script = (f"$ErrorActionPreference='Continue'; "
                       f"& {{ {texto} }} *>&1 | Tee-Object -FilePath '{alvo}'")
             b64 = __import__("base64").b64encode(script.encode("utf-16-le")).decode()
@@ -2782,7 +2782,7 @@ _TAREFA_DE_CONSERTO = re.compile(
 #    desativou que nao seja parte daquilo que pediu... tem que ter uma
 #    autocorrecao tambem"
 #
-# Na tela dele o JARVIS desligou as notificacoes (certo) e de quebra LIGOU o
+# Na tela dele o NIA desligou as notificacoes (certo) e de quebra LIGOU o
 # "Nao incomodar", que ninguem pediu. Ele nunca soube disso porque nada compara
 # a tela de antes com a de depois.
 #
@@ -3075,16 +3075,16 @@ def _sair_da_frente(log) -> None:
             return
         win32gui.ShowWindow(h, win32con.SW_MINIMIZE)
         time.sleep(0.35)
-        log("[usar_computador] minimizei a janela do JARVIS para liberar a tela")
+        log("[usar_computador] minimizei a janela do NIA para liberar a tela")
     except Exception:
         pass
 
 
 def _manter_fora_da_frente(log, avisado: dict) -> None:
-    """A janela do JARVIS voltou a aparecer no meio da tarefa? Minimiza de novo.
+    """A janela do NIA voltou a aparecer no meio da tarefa? Minimiza de novo.
 
     Pedido do Diego em 07/09/2026: *"quando eu falo pra ele ativar o
-    computador, ele minimiza o JARVIS, porem depois volta ele pra tela; o certo
+    computador, ele minimiza o NIA, porem depois volta ele pra tela; o certo
     e minimizar e so voltar depois que finalizar"*.
 
     O `_sair_da_frente` so age UMA vez, no comeco, e so se a janela estiver em
@@ -3093,7 +3093,7 @@ def _manter_fora_da_frente(log, avisado: dict) -> None:
     ela entra na foto — e o Codex passa a ver o HUD em vez do servico.
 
     CUIDADO QUE JA CUSTOU UM ERRO: eu tinha filtrado "so janela COM titulo",
-    achando que isso deixava a faixa "JARVIS ESTA USANDO O COMPUTADOR" de fora.
+    achando que isso deixava a faixa "NIA ESTA USANDO O COMPUTADOR" de fora.
     Nao deixava — e o Diego viu na hora: *"o nome la de cima, que ta la aperte
     ESC para parar, ele some e vai la pra baixo, no canto esquerdo"*. Era a
     faixa MINIMIZADA, que o Windows encolhe naquele tocinho do canto quando a
@@ -3133,7 +3133,7 @@ def _manter_fora_da_frente(log, avisado: dict) -> None:
             user32.ShowWindow(h, 6)        # SW_MINIMIZE
         if alvos and not avisado.get("v"):
             avisado["v"] = True
-            log("[usar_computador] a janela do JARVIS reapareceu; minimizei de novo")
+            log("[usar_computador] a janela do NIA reapareceu; minimizei de novo")
     except Exception:
         pass
 
@@ -3177,7 +3177,7 @@ _TETO_ESPERA_DA_VOZ_S = 30.0
 
 
 def _esperar_a_voz(falando, parar=None, teto_s: float = _TETO_ESPERA_DA_VOZ_S) -> float:
-    """Segura o laco enquanto o JARVIS fala. Devolve quantos segundos esperou."""
+    """Segura o laco enquanto o NIA fala. Devolve quantos segundos esperou."""
     if not falando:
         return 0.0
     t0 = time.monotonic()
@@ -3416,7 +3416,7 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
         # "aperte ESC para parar" saiu porque na tela lia-se "para para"
         # (04/09/2026, o Diego viu na faixa). "ESC interrompe" e mais curto e
         # nao repete palavra.
-        aviso(True, "JARVIS ESTA USANDO O COMPUTADOR  ·  ESC interrompe  ·  "
+        aviso(True, "NIA ESTA USANDO O COMPUTADOR  ·  ESC interrompe  ·  "
                     "nao mexa no mouse nem no teclado")
         _sair_da_frente(log)          # a janela do Bob nao pode tapar o servico
         tela_visao.aquecer()          # acorda a acessibilidade do navegador
@@ -3472,7 +3472,7 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
         # ── A TAREFA SO ACABA DEPOIS DE CONFERIDA (07/09/2026) ────────
         #
         # Pedido do Diego, com o caso na mao: ele mandou desabilitar as
-        # notificacoes do Windows Defender; o JARVIS desligou o PRIMEIRO
+        # notificacoes do Windows Defender; o NIA desligou o PRIMEIRO
         # interruptor da pagina, disse "as notificacoes foram desabilitadas" e
         # saiu. Na tela ficaram ligados os de protecao de conta e os do
         # firewall. A regra que ele deu:
@@ -3688,7 +3688,7 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
             # meio de uma tarefa que estava indo bem.
             impressao = tela_visao.impressao_dos_elementos(olhada["elementos"])
             # TERCEIRA PROVA: O FOCO (04/09/2026). Na arvore do Visualizador de
-            # Eventos o JARVIS andava de ramo em ramo e as duas provas de cima nao
+            # Eventos o NIA andava de ramo em ramo e as duas provas de cima nao
             # viam nada — o desenho mal muda (uma linha fica azul) e a lista de
             # elementos e identica. Ele desistiu dizendo "a tela parou de
             # reagir" numa tela que estava reagindo, com o dono sem tocar em
@@ -4150,7 +4150,7 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
 
                     # JA AUTORIZOU: NAO PERGUNTA DE NOVO (04/09/2026).
                     # "O cliente autorizou uma vez, ele pode continuar" — pedido
-                    # do Diego depois de o JARVIS perguntar quatro vezes na mesma
+                    # do Diego depois de o NIA perguntar quatro vezes na mesma
                     # tarefa se podia seguir.
                     familia_perg = _familia_do_risco(pergunta, {})
                     if _pede_permissao(pergunta) and (
@@ -4286,7 +4286,7 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
                 # "NAO CONSIGO CONFIRMAR" NA CONFERENCIA NAO E FALHA (23/09/2026).
                 #
                 # Caso do Diego: ele pediu para ATIVAR todas as notificacoes do
-                # Defender, o JARVIS ligou tudo certo e disse "pronto". Na
+                # Defender, o NIA ligou tudo certo e disse "pronto". Na
                 # conferencia a tela ja nao era a das notificacoes, ele nao
                 # achou a lista e respondeu "falhou: nao consigo confirmar" — e
                 # isso virou a ULTIMA frase da tarefa, por cima de um trabalho

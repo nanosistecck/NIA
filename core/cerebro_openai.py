@@ -4,7 +4,7 @@
 Por que existe (31/08/2026)
 ---------------------------
 A chave da Gemini do cliente e do nivel gratuito e acaba no meio do dia. Quando
-ela morre, o JARVIS passa a pensar por AQUI, na conta do Diego, e o cliente nem
+ela morre, o NIA passa a pensar por AQUI, na conta do Diego, e o cliente nem
 percebe. Passadas as 24 horas do Google, ele volta sozinho para a chave dele.
 
 REGRA FECHADA PELO DONO, NAO MUDAR SEM ELE PEDIR:
@@ -138,7 +138,7 @@ def _achatar(ferramentas_openai: list) -> list:
 
 
 class CerebroOpenAI:
-    """Mesmo contrato dos outros cerebros do JARVIS."""
+    """Mesmo contrato dos outros cerebros do NIA."""
 
     def __init__(self, chave: str | None = None, router=None) -> None:
         # FASE 2: com um Router no ar, a chave vem do POOL (multi-key). Chave
@@ -156,7 +156,7 @@ class CerebroOpenAI:
 
     @staticmethod
     def _entrada(mensagens: list) -> list:
-        """Mensagens no formato do JARVIS -> itens de entrada do /v1/responses.
+        """Mensagens no formato do NIA -> itens de entrada do /v1/responses.
 
         As respostas de ferramenta de turnos ANTIGOS viram texto simples: elas
         so servem para o modelo saber o que ja aconteceu, e remontar o par

@@ -12,7 +12,7 @@ Quase todos esses provedores falam o MESMO dialeto: `POST {base_url}/chat/
 completions` com o corpo da OpenAI. Então não é preciso um adaptador por
 provedor: é um só, apontado para o `base_url` de cada um.
 
-Contrato (igual aos outros cérebros do JARVIS)
+Contrato (igual aos outros cérebros do NIA)
 ----------------------------------------------
     responder(mensagens, ferramentas_openai, executor, forcar_ferramenta, timeout)
         -> {"texto": str, "chamou_ferramenta": bool}
@@ -192,7 +192,7 @@ class CerebroGenerico:
     # ── conversão de mensagens ────────────────────────────────────────────
     @staticmethod
     def _mensagens(mensagens: list) -> list:
-        """Mensagens do JARVIS -> formato chat/completions.
+        """Mensagens do NIA -> formato chat/completions.
 
         O caminho da Gemini usa `system` uma vez só; aqui a lista já vem no
         formato certo, então só filtramos o que não é texto.

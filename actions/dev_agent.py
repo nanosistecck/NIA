@@ -13,7 +13,14 @@ def get_base_dir():
 
 
 BASE_DIR         = get_base_dir()
-PROJECTS_DIR     = Path.home() / "Desktop" / "JarvisProjects"
+def _pasta_projetos() -> Path:
+    """Projetos ja criados na pasta antiga continuam aparecendo."""
+    novo = Path.home() / "Desktop" / "NiaProjects"
+    antigo = Path.home() / "Desktop" / "JarvisProjects"
+    return antigo if antigo.is_dir() and not novo.exists() else novo
+
+
+PROJECTS_DIR     = _pasta_projetos()
 MAX_FIX_ATTEMPTS = 5
 MODEL_PLANNER    = "gemini-3.6-flash"
 MODEL_WRITER     = "gemini-3.6-flash"
@@ -459,7 +466,7 @@ def _build_project(
         if speak: speak(msg)
         return msg
 
-    proj_name    = project_name or plan.get("project_name", "jarvis_project")
+    proj_name    = project_name or plan.get("project_name", "nia_project")
     proj_name    = re.sub(r"[^\w\-]", "_", proj_name)
     project_dir  = PROJECTS_DIR / proj_name
     project_dir.mkdir(parents=True, exist_ok=True)

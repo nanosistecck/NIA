@@ -1,5 +1,5 @@
 // Busca: paises e 70 mil cidades na hora (sem internet); endereco e ponto turistico
-// pela internet. A mesma funcao atende quem digita e quem fala com o JARVIS.
+// pela internet. A mesma funcao atende quem digita e quem fala com o NIA.
 
 import { D, nomeCidade, nomeEstado, paisDaCidade } from "./dados.js";
 import { cena } from "./cena.js";

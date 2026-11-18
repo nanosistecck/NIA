@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""A fala do JARVIS pela API da OpenAI — as vozes do ChatGPT.
+"""A fala do NIA pela API da OpenAI — as vozes do ChatGPT.
 
 Por que existe (31/08/2026)
 ---------------------------
@@ -14,7 +14,7 @@ MEDIDO nesta maquina, mesma frase:
 
 O ganho vem de LER A RESPOSTA ENQUANTO ELA CHEGA. O endpoint devolve o audio em
 fluxo; pedindo `response_format: pcm` sai PCM 16 bits, mono, 24 kHz — exatamente
-o formato que a fila de audio do JARVIS ja espera, sem conversao nenhuma. O
+o formato que a fila de audio do NIA ja espera, sem conversao nenhuma. O
 primeiro pedaco toca enquanto o resto ainda esta sendo gerado.
 
 Modelo: `gpt-4o-mini-tts`, o mais barato da familia de fala.
@@ -49,10 +49,10 @@ class Conexao:
         conexao viva ............... 0,65 s   (0,57  0,68  0,66  0,71  0,64)
 
     Quase metade — e, o que importa tanto quanto, sem os picos de 1,5 e 2,1 s.
-    O pico era o que fazia o JARVIS parecer travado de vez em quando; a media
+    O pico era o que fazia o NIA parecer travado de vez em quando; a media
     escondia isso.
 
-    Uma so, com trava: o JARVIS fala uma frase por vez, e duas threads usando o
+    Uma so, com trava: o NIA fala uma frase por vez, e duas threads usando o
     mesmo cano ao mesmo tempo embaralhariam as respostas. A trava e segurada
     ate o audio TERMINAR de ser lido, porque a conexao so serve de novo depois
     que o corpo anterior saiu inteiro.
@@ -100,7 +100,7 @@ class Conexao:
                 cls._con = cls._abrir()
                 return True
             except Exception as exc:
-                print(f"[JARVIS] nao aqueci a conexao da voz: {str(exc)[:90]}")
+                print(f"[NIA] nao aqueci a conexao da voz: {str(exc)[:90]}")
                 cls._con = None
                 return False
 
@@ -168,7 +168,7 @@ MODELO_NATURAL = "gpt-audio-mini"
 # As vozes do ChatGPT, conferidas uma a uma nesta chave em 31/08/2026 — as treze
 # responderam. A descricao e para o cliente escolher de ouvido, na engrenagem.
 VOZES = {
-    "onyx":    "Masculina, grave e firme. A mais parecida com o JARVIS.",
+    "onyx":    "Masculina, grave e firme. A mais parecida com o NIA.",
     "ash":     "Masculina, seca e direta.",
     "echo":    "Masculina, clara e neutra.",
     "verse":   "Masculina, expressiva, com mais emocao.",
@@ -241,7 +241,7 @@ ESTILO_POR_JEITO = {
 
 
 class VozOpenAI:
-    """Fala pela API da OpenAI. Mesmo contrato das outras vozes do JARVIS."""
+    """Fala pela API da OpenAI. Mesmo contrato das outras vozes do NIA."""
 
     def __init__(self, voz: str = "onyx", chave: str | None = None,
                  jeito: str = "", natural: bool = False, ponte=None) -> None:
@@ -256,7 +256,7 @@ class VozOpenAI:
         #   "sua CPU esta em doze por cento"  -> essa saiu certa
         #   "pronto, chefe. Bloco de notas aberto"  -> certa
         # Ou seja: em texto curto ela le, em texto de conversa ela RESPONDE no
-        # lugar do JARVIS. O dono ouve uma coisa e o chat mostra outra — e o
+        # lugar do NIA. O dono ouve uma coisa e o chat mostra outra — e o
         # que ele ouve nem e a resposta certa.
         #
         # Isso nao e questao de estilo, e ERRO DE CONTEUDO. Entre soar um pouco
@@ -275,7 +275,7 @@ class VozOpenAI:
         # No PC do dono existe chave local e a fala vai direto. No PC do cliente
         # nao existe chave nenhuma — de proposito — e a fala vai pela VPS, que
         # tem a chave. Os dois caminhos entregam o mesmo PCM 24 kHz, entao o
-        # resto do JARVIS nao percebe diferenca.
+        # resto do NIA nao percebe diferenca.
         self.ponte = ponte
         self.chave = (chave or self._chave_do_config() or "").strip()
         if not self.chave and self.ponte is None:
@@ -453,7 +453,7 @@ class VozOpenAI:
         """Manda o texto e devolve o audio em pedacos, conforme ele chega.
 
         Sincrono de proposito: quem chama e uma thread do modo local, e o laco
-        de eventos do JARVIS esta ocupado com microfone e alto-falante.
+        de eventos do NIA esta ocupado com microfone e alto-falante.
         """
         texto = str(texto or "").strip()
         if not texto:
@@ -491,7 +491,7 @@ class VozOpenAI:
                 # Nunca deixar o dono no silencio por causa disto: cai na
                 # leitura, que e mais barata e sempre funcionou.
                 saiu = False
-                print(f"[JARVIS] voz natural falhou ({str(exc)[:90]}); indo na leitura")
+                print(f"[NIA] voz natural falhou ({str(exc)[:90]}); indo na leitura")
             finally:
                 fechar()
             if saiu:
@@ -504,7 +504,7 @@ class VozOpenAI:
         # A CHAVE DA VEZ PODE ESTAR ESGOTADA (18/11/2026).
         #
         # `self.chave` era lida UMA vez, na construcao, e nunca mais: com 429
-        # (ou chave recusada) o JARVIS ficava sem essa voz ate alguem reiniciar,
+        # (ou chave recusada) o NIA ficava sem essa voz ate alguem reiniciar,
         # mesmo tendo outra chave cadastrada. Agora a falha entra no pool e a
         # frase e repetida UMA vez com a proxima chave — so se ainda nao saiu
         # audio nenhum.
@@ -514,7 +514,7 @@ class VozOpenAI:
         except Exception as exc:
             if falou["sim"] or not self._trocar_chave(exc):
                 raise
-            print(f"[JARVIS] voz OpenAI trocou de chave ({str(exc)[:80]})")
+            print(f"[NIA] voz OpenAI trocou de chave ({str(exc)[:80]})")
             if not self._fala_leitura(texto, _conta, timeout):
                 raise RuntimeError("a API de fala nao devolveu audio (chave nova)")
         self._anotar_sucesso()

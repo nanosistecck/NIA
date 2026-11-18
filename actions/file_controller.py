@@ -145,7 +145,7 @@ _BROAD_SEARCH_SKIP_DIRS = {
     "program files", "program files x86", "programdata", "appdata",
     "node modules", "pycache", "git", "venv", "env",
     "mypy cache", "pytest cache", "ruff cache",
-    "gradle", "nuget", "rustup", "jarvis profiles",
+    "gradle", "nuget", "rustup", "nia profiles",
     "autofillaimodelcache", "temporary internet files",
 }
 
@@ -637,7 +637,7 @@ def _resolve_path(raw: str) -> Path:
     # SO EM CAMINHO RELATIVO (26/09/2026). No Linux todo caminho absoluto
     # comeca com "/home/<dono>/...", e o "home" casava com o atalho acima:
     # "/home/johndr/Downloads" virava "/home/johndr/johndr/Downloads" e o
-    # JARVIS respondia que a pasta nao existia.
+    # NIA respondia que a pasta nao existia.
     absoluto = raw_text.startswith(("/", "\\", "~")) or (
         len(raw_text) >= 2 and raw_text[1] == ":")
     path_parts = [part for part in raw_text.replace("\\", "/").split("/") if part]
@@ -1033,7 +1033,7 @@ def create_file(path: str, name: str = "", content: str = "") -> str:
         if not _is_safe_path(target):
             return f"Nao tenho acesso a esse lugar: {target}"
         # "SALVA ESSE BLOCO DE NOTAS" (05/09/2026). Nesse pedido o conteudo nao
-        # esta na conversa: esta na TELA, escrito pelo proprio JARVIS minutos
+        # esta na conversa: esta na TELA, escrito pelo proprio NIA minutos
         # antes. O modelo manda so o caminho, e sem esta ponte o arquivo nascia
         # VAZIO — o que e pior do que falhar, porque parece que deu certo.
         if not str(content or "").strip() and target.suffix.lower() in (
@@ -1064,7 +1064,7 @@ def create_folder(path: str, name: str = "") -> str:
         #
         # Antes, com `name` vazio o alvo virava a PROPRIA pasta base — que ja
         # existe — e o `mkdir(exist_ok=True)` passava limpo, devolvendo
-        # "Folder created". O JARVIS entao dizia ao cliente que tinha criado a
+        # "Folder created". O NIA entao dizia ao cliente que tinha criado a
         # pasta, e nao havia pasta nenhuma. Mentira com cara de sucesso.
         nome = str(name or "").strip().strip('"').strip("'")
         if not nome:
@@ -1073,7 +1073,7 @@ def create_folder(path: str, name: str = "") -> str:
             # `name` vazio. Ali em cima a pasta JA EXISTIA e o "criei" era
             # mentira; aqui ela NAO existe, entao a ponta do caminho E o nome
             # que o cliente falou. Recusar isso derrubou a tarefa inteira com o
-            # nome da pasta escrito na frente do JARVIS.
+            # nome da pasta escrito na frente do NIA.
             if base.parent != base and not base.exists():
                 base, nome = base.parent, base.name
             else:
@@ -1424,7 +1424,7 @@ def find_files(name: str = "", extension: str = "",
         max_results = max(1, min(int(max_results or 20), 100))
         requested_seconds = int(max_seconds or (20 if broad else 30))
         if broad:
-            # Busca ampla precisa ser útil, não infinita. O Jarvis responde em até
+            # Busca ampla precisa ser útil, não infinita. O Nia responde em até
             # ~45s, em vez de ficar vários minutos varrendo cache/node_modules.
             max_seconds = max(8, min(requested_seconds, 30))
         else:

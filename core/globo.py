@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""GLOBO (02/11/2026): a ponte entre o JARVIS e a janela do globo (globo/janela.py).
+"""GLOBO (02/11/2026): a ponte entre o NIA e a janela do globo (globo/janela.py).
 
 A janela roda em processo separado (o porque esta no janela.py). Daqui so' sai:
 abrir, mandar comando e fechar. Nada aqui importa Qt nem carrega nada pesado: o
@@ -116,7 +116,7 @@ def abrir(geo: tuple | None = None, maximizada: bool = False, lugar: str = "", d
                         "cwd": str(JANELA.parent)}
         if sys.platform == "win32":
             opcoes["creationflags"] = 0x08000000      # CREATE_NO_WINDOW
-        # O filho nao herda as bibliotecas do JARVIS: abre limpo.
+        # O filho nao herda as bibliotecas do NIA: abre limpo.
         subprocess.Popen(cmd, **opcoes)
     return True
 

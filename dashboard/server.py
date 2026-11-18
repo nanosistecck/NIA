@@ -1,5 +1,5 @@
 """
-dashboard/server.py — JARVIS Local HTTP Dashboard
+dashboard/server.py — NIA Local HTTP Dashboard
 
 Plain HTTP on port 8000 (no SSL warnings, no firewall issues).
 Security at the application layer: AES-256-CBC with session-key-derived key.
@@ -46,11 +46,32 @@ MAX_UPLOAD_MB = 500
 REMOTE_SESSIONS_FILE = BASE_DIR / "config" / "remote_devices.json"
 
 
+def _certificados() -> tuple[Path, Path]:
+    """Certificado do painel: o antigo continua valendo ate ser substituido.
+
+    Trocar de certificado obriga a aceitar o aviso de novo no celular pareado.
+    """
+    certs = BASE_DIR / "config" / "certs"
+    novo = (certs / "nia.key", certs / "nia.crt")
+    if all(p.exists() for p in novo):
+        return novo
+    antigo = (certs / "jarvis.key", certs / "jarvis.crt")
+    if all(p.exists() for p in antigo):
+        return antigo
+    return novo
+
+
 def _make_uploads_dir() -> Path:
     """Return (and create) the cross-platform uploads folder."""
+    # Se o cliente ja usava a pasta com o nome antigo, continua nela — os
+    # arquivos enviados antes nao podem sumir da interface.
+    for antiga in (Path.home() / "Downloads" / "JARVIS Uploads",
+                   Path.home() / "Documents" / "JARVIS Uploads"):
+        if antiga.is_dir():
+            return antiga
     for candidate in [
-        Path.home() / "Downloads" / "JARVIS Uploads",
-        Path.home() / "Documents" / "JARVIS Uploads",
+        Path.home() / "Downloads" / "NIA Uploads",
+        Path.home() / "Documents" / "NIA Uploads",
         BASE_DIR / "uploads",
     ]:
         try:
@@ -64,7 +85,7 @@ def _make_uploads_dir() -> Path:
 UPLOADS_DIR = _make_uploads_dir()
 
 
-# SEGUNDO PLANO (01/11/2026, v1.0.37): com o JARVIS escondido perto do relogio,
+# SEGUNDO PLANO (01/11/2026, v1.0.37): com o NIA escondido perto do relogio,
 # o Controle Remoto nao executa nada — explica em vez de ficar mudo. A marca e
 # o texto moram em core/segundo_plano.py.
 def _em_segundo_plano() -> bool:
@@ -80,7 +101,7 @@ def _aviso_segundo_plano() -> str:
         from core.segundo_plano import aviso_remoto  # noqa: PLC0415
         return aviso_remoto()
     except Exception:
-        return "O JARVIS esta em segundo plano no computador."
+        return "O NIA esta em segundo plano no computador."
 
 
 def _get_gemini_key() -> str | None:
@@ -133,8 +154,8 @@ def _ensure_network_access(port: int) -> None:
     if sys.platform == "win32":
         import ctypes, time
 
-        port_rule = f"JARVIS Dashboard Port {port}"
-        prog_rule  = "JARVIS Dashboard Python"
+        port_rule = f"NIA Dashboard Port {port}"
+        prog_rule  = "NIA Dashboard Python"
         py_exe     = sys.executable
 
         def _netsh_rule_exists(name: str) -> bool:
@@ -190,7 +211,7 @@ def _ensure_network_access(port: int) -> None:
             )
 
         bat_body = "\r\n".join(bat_lines) + "\r\n"
-        fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="jarvis_fw_")
+        fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="nia_fw_")
         try:
             os.write(fd, bat_body.encode("mbcs"))   # Windows cmd.exe expects ANSI
             os.close(fd)
@@ -238,7 +259,7 @@ def _ensure_network_access(port: int) -> None:
                 print("[Dashboard] Refresh your phone browser to connect.")
             else:
                 print("[Dashboard] Setup was not allowed.")
-                print("[Dashboard] Phone connections may fail until JARVIS is run as Administrator.")
+                print("[Dashboard] Phone connections may fail until NIA is run as Administrator.")
         except Exception as e:
             print(f"[Dashboard] Firewall setup error: {e}")
         finally:
@@ -416,7 +437,7 @@ class DashboardServer:
             from dashboard.relay_client import RelayClient
             self._relay = RelayClient(self, BASE_DIR)
         except Exception as exc:
-            print(f"[JARVIS Relay] disabled: {exc}")
+            print(f"[NIA Relay] disabled: {exc}")
             self._relay = None
         self.app                          = self._build_app()
 
@@ -425,7 +446,7 @@ class DashboardServer:
         return hashlib.sha256(device_token.encode("utf-8")).hexdigest()
 
     def _load_device_sessions(self) -> None:
-        """Restore paired phones after JARVIS restarts without storing raw device tokens."""
+        """Restore paired phones after NIA restarts without storing raw device tokens."""
         try:
             payload = json.loads(REMOTE_SESSIONS_FILE.read_text(encoding="utf-8"))
             devices = payload.get("devices", {}) if isinstance(payload, dict) else {}
@@ -470,8 +491,7 @@ class DashboardServer:
 
     @staticmethod
     def _ssl_enabled() -> bool:
-        certs = BASE_DIR / "config" / "certs"
-        return (certs / "jarvis.key").exists() and (certs / "jarvis.crt").exists()
+        return all(p.exists() for p in _certificados())
 
     def get_url(self) -> str:
         if self._relay:
@@ -571,16 +591,16 @@ class DashboardServer:
 
     async def remote_media_action(self, action: str, announce: bool = True) -> str:
         action = str(action or "").lower().strip().replace("-", "_")
-        # SEGUNDO PLANO (01/11/2026, v1.0.37): o JARVIS escondido perto do
+        # SEGUNDO PLANO (01/11/2026, v1.0.37): o NIA escondido perto do
         # relogio nao abre webcam, nao tira foto nem transmite a tela. Fechar o
-        # que ja estava aberto continua valendo (e o proprio JARVIS que fecha
+        # que ja estava aberto continua valendo (e o proprio NIA que fecha
         # tudo ao entrar no segundo plano).
         if action not in {"webcam_stop", "camera_stop", "stop_webcam", "close_webcam",
                           "webcam_close", "screen_live_stop", "live_screen_stop",
                           "screen_stream_stop"} and _em_segundo_plano():
             message = _aviso_segundo_plano()
             if announce:
-                await self.broadcast({"type": "log", "speaker": "jarvis", "text": message})
+                await self.broadcast({"type": "log", "speaker": "nia", "text": message})
             return message
         if action in {"screenshot", "screen", "screen_capture", "print"}:
             try:
@@ -589,13 +609,13 @@ class DashboardServer:
             except Exception as exc:
                 message = f"Não consegui capturar a tela: {exc}"
                 if announce:
-                    await self.broadcast({"type": "log", "speaker": "jarvis", "text": message})
+                    await self.broadcast({"type": "log", "speaker": "nia", "text": message})
                 return message
             version = int(self._screen_captured_at * 1000)
             await self.broadcast({"type": "screen_capture", "version": version})
             message = "Prontinho, chefe. Enviei a captura atual da tela para o Controle Remoto."
             if announce:
-                await self.broadcast({"type": "log", "speaker": "jarvis", "text": message})
+                await self.broadcast({"type": "log", "speaker": "nia", "text": message})
             return message
         if action in {"webcam_start", "camera_start", "webcam", "camera", "start_webcam"}:
             self._webcam_active = True
@@ -603,7 +623,7 @@ class DashboardServer:
             await self.broadcast({"type": "webcam_started", "generation": self._webcam_generation})
             message = "Webcam ao vivo aberta no Controle Remoto. Ela ficará ativa até você pedir para fechar."
             if announce:
-                await self.broadcast({"type": "log", "speaker": "jarvis", "text": message})
+                await self.broadcast({"type": "log", "speaker": "nia", "text": message})
             return message
         if action in {"webcam_stop", "camera_stop", "stop_webcam", "close_webcam", "webcam_close"}:
             self._webcam_active = False
@@ -611,7 +631,7 @@ class DashboardServer:
             await self.broadcast({"type": "webcam_stopped", "generation": self._webcam_generation})
             message = "Webcam remota fechada."
             if announce:
-                await self.broadcast({"type": "log", "speaker": "jarvis", "text": message})
+                await self.broadcast({"type": "log", "speaker": "nia", "text": message})
             return message
         if action in {"screen_live_start", "live_screen_start", "screen_stream_start"}:
             self._screen_live_active = True
@@ -619,7 +639,7 @@ class DashboardServer:
             await self.broadcast({"type": "screen_live_started", "generation": self._screen_live_generation})
             message = "Tela do computador aberta ao vivo no Controle Remoto."
             if announce:
-                await self.broadcast({"type": "log", "speaker": "jarvis", "text": message})
+                await self.broadcast({"type": "log", "speaker": "nia", "text": message})
             return message
         if action in {"screen_live_stop", "live_screen_stop", "screen_stream_stop"}:
             self._screen_live_active = False
@@ -627,7 +647,7 @@ class DashboardServer:
             await self.broadcast({"type": "screen_live_stopped", "generation": self._screen_live_generation})
             message = "Transmissão ao vivo da tela fechada."
             if announce:
-                await self.broadcast({"type": "log", "speaker": "jarvis", "text": message})
+                await self.broadcast({"type": "log", "speaker": "nia", "text": message})
             return message
         return "Ação remota inválida."
 
@@ -656,12 +676,12 @@ class DashboardServer:
         if not action:
             return False
         if action != "cancel_shutdown" and _em_segundo_plano():
-            await self.broadcast({"type": "log", "speaker": "jarvis",
+            await self.broadcast({"type": "log", "speaker": "nia",
                                   "text": _aviso_segundo_plano()})
             return True
         if action == "cancel_shutdown":
             result = await self.remote_system_action(action)
-            await self.broadcast({"type": "log", "speaker": "jarvis", "text": result})
+            await self.broadcast({"type": "log", "speaker": "nia", "text": result})
         else:
             await self.broadcast({"type": "confirmation_required", "action": action})
         return True
@@ -741,7 +761,7 @@ class DashboardServer:
         if action == "shutdown":
             if os.name != "nt":
                 return "Desligamento remoto disponível apenas no Windows."
-            await asyncio.to_thread(subprocess.run, ["shutdown.exe", "/s", "/t", "60", "/c", "Desligamento solicitado pelo Controle Remoto do JARVIS"], capture_output=True, timeout=10)
+            await asyncio.to_thread(subprocess.run, ["shutdown.exe", "/s", "/t", "60", "/c", "Desligamento solicitado pelo Controle Remoto do NIA"], capture_output=True, timeout=10)
             return "Desligamento agendado para 60 segundos. Use CANCELAR se mudou de ideia."
         if action == "cancel_shutdown":
             if os.name != "nt":
@@ -838,7 +858,7 @@ class DashboardServer:
   h2{color:#f87171;margin-bottom:12px}p{color:#5e6a7e;font-size:14px}
 </style></head>
 <body><div><h2>Link Expired</h2>
-<p>Press <strong style="color:#dde3ed">Remote Control</strong> in JARVIS to get a new QR code.</p>
+<p>Press <strong style="color:#dde3ed">Remote Control</strong> in NIA to get a new QR code.</p>
 </div></body></html>""")
 
             del self._pending_keys[key]
@@ -868,12 +888,12 @@ class DashboardServer:
 </style></head>
 <body>
 <script>
-  sessionStorage.setItem('jarvis_token','{tok}');
-  sessionStorage.setItem('jarvis_key','{key}');
-  localStorage.setItem('jarvis_device_token','{dev_tok}');
+  sessionStorage.setItem('nia_token','{tok}');
+  sessionStorage.setItem('nia_key','{key}');
+  localStorage.setItem('nia_device_token','{dev_tok}');
   setTimeout(function(){{location.replace('/')}},400);
 </script>
-<p>Connecting to JARVIS…</p>
+<p>Connecting to NIA…</p>
 </body></html>""")
 
         @app.post("/api/device-login")
@@ -989,7 +1009,7 @@ class DashboardServer:
             if action in {"lock", "shutdown"} and body.get("confirmed") is not True:
                 return JSONResponse({"ok": False, "confirmation_required": True, "action": action}, status_code=409)
             result = await self.remote_system_action(action)
-            await self.broadcast({"type": "log", "speaker": "jarvis", "text": result})
+            await self.broadcast({"type": "log", "speaker": "nia", "text": result})
             return JSONResponse({"ok": True, "result": result})
 
         @app.post("/api/command")
@@ -1179,8 +1199,7 @@ class DashboardServer:
         """Second HTTPS server on PORT+1 sharing the same app and in-memory state.
         Chrome HTTPS-upgrades any bare IP:PORT the user types, so this port also needs TLS.
         User types IP:8001 → Chrome tries https → self-signed cert warning → accept once → done."""
-        ssl_key  = BASE_DIR / "config" / "certs" / "jarvis.key"
-        ssl_cert = BASE_DIR / "config" / "certs" / "jarvis.crt"
+        ssl_key, ssl_cert = _certificados()
         asyncio.get_event_loop().run_in_executor(None, _ensure_network_access, PORT + 1)
         cfg = uvicorn.Config(
             self.app, host="0.0.0.0", port=PORT + 1, log_level="warning",
@@ -1203,8 +1222,7 @@ class DashboardServer:
         asyncio.get_event_loop().run_in_executor(None, _ensure_network_access, PORT)
 
         use_ssl  = self._ssl_enabled()
-        ssl_key  = BASE_DIR / "config" / "certs" / "jarvis.key"
-        ssl_cert = BASE_DIR / "config" / "certs" / "jarvis.crt"
+        ssl_key, ssl_cert = _certificados()
 
         if use_ssl:
             asyncio.create_task(self._serve_alias())
@@ -1216,20 +1234,20 @@ class DashboardServer:
 
         proto = "https" if use_ssl else "http"
         print(f"[Dashboard] {proto}://{self._ip}:{PORT}")
-        print("[Dashboard] Press 'Remote Control' in JARVIS UI to get the QR code.")
+        print("[Dashboard] Press 'Remote Control' in NIA UI to get the QR code.")
         # O PAINEL NAO PODE DERRUBAR O ASSISTENTE (01/09/2026).
         #
         # Porta 8000 ocupada -> o uvicorn faz `sys.exit(3)`. Isso e SystemExit,
         # o vigia do motor entende como queda e reinicia; o painel tenta a mesma
-        # porta e morre de novo. O Diego pegou o JARVIS nesse laco, reiniciando
-        # a cada 3, 6, 9 segundos, so porque tinha outro JARVIS aberto.
+        # porta e morre de novo. O Diego pegou o NIA nesse laco, reiniciando
+        # a cada 3, 6, 9 segundos, so porque tinha outro NIA aberto.
         #
         # Painel e acessorio. Voz e o produto. Se um cai, o outro segue.
         try:
             await uvicorn.Server(cfg).serve()
         except SystemExit:
             print(f"[Dashboard] a porta {PORT} esta ocupada; o Controle Remoto "
-                  f"ficou de fora, mas o JARVIS continua funcionando.")
+                  f"ficou de fora, mas o NIA continua funcionando.")
         except Exception as exc:
             print(f"[Dashboard] nao subiu ({type(exc).__name__}: {exc}); "
-                  f"o JARVIS continua funcionando.")
+                  f"o NIA continua funcionando.")

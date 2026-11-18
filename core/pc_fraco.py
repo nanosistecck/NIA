@@ -2,7 +2,7 @@
 """PC FRACO (02/11/2026): quem decide o que este computador aguenta.
 
 Medido nos clientes: no i5 650 do Wil o whisper levava 26 a 59 s por fala, com o
-JARVIS em 70% do PC; pelo ouvido da nuvem caiu para 4 a 7 s, com 2% parado. No i7-5500U
+NIA em 70% do PC; pelo ouvido da nuvem caiu para 4 a 7 s, com 2% parado. No i7-5500U
 do CSNOTE, 14 a 110 s contra 1,4 a 3,9 s. Quatro nucleos ou menos ja sofrem.
 
 Uma placa NVIDIA resolve o ouvido por si so: essa conta fica no `_preparar_cuda` do

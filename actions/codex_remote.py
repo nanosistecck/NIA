@@ -18,7 +18,7 @@ _IMAGENS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 def _achar_imagem(params: dict, player) -> Path | None:
     """A foto a editar: a que o cliente indicou, ou a que esta na janela.
 
-    O cliente pode arrastar o arquivo para o JARVIS, escolher pelo botao de
+    O cliente pode arrastar o arquivo para o NIA, escolher pelo botao de
     procurar, ou simplesmente dizer o caminho. Os tres caem aqui.
     """
     candidatos = [
@@ -31,7 +31,7 @@ def _achar_imagem(params: dict, player) -> Path | None:
         caminho = Path(str(bruto).strip().strip('"').strip("'")).expanduser()
         if caminho.is_file() and caminho.suffix.lower() in _IMAGENS:
             return caminho
-    # Nada indicado: usa o arquivo que esta carregado na janela do JARVIS.
+    # Nada indicado: usa o arquivo que esta carregado na janela do NIA.
     atual = getattr(player, "current_file", None) if player is not None else None
     if atual:
         caminho = Path(str(atual))
@@ -43,7 +43,7 @@ def _achar_imagem(params: dict, player) -> Path | None:
 def _preparar_imagem(caminho: Path) -> bytes:
     """Deixa a foto em pe, reduz e devolve pronta para enviar.
 
-    Este trecho e deliberadamente leve. O JARVIS esta falando enquanto isso, e
+    Este trecho e deliberadamente leve. O NIA esta falando enquanto isso, e
     trabalho pesado aqui rouba processamento da voz e faz o audio picotar. Por
     isso: nada de PNG com "optimize" (custa segundos de CPU), o JPEG entra no
     lugar sempre que a imagem nao tem transparencia, e o proprio decodificador
@@ -167,7 +167,7 @@ def _entregar_copias(origem: Path, destinos, log=None) -> list:
             entregues.append(alvo)
         except Exception as exc:
             if log:
-                log(f"[JARVIS] Nao consegui salvar em {pasta}: {str(exc)[:120]}")
+                log(f"[NIA] Nao consegui salvar em {pasta}: {str(exc)[:120]}")
     return entregues
 
 
@@ -175,7 +175,7 @@ def _abrir_site(path: Path, log=None) -> tuple[Path | None, bool]:
     """O site chega como .zip: descompacta ao lado e abre o index.html.
 
     22/09/2026: pedido "cria um site" terminava com um .zip largado em
-    JarvisResultados e a frase "o arquivo foi criado". Quem pediu um site quer
+    NiaResultados e a frase "o arquivo foi criado". Quem pediu um site quer
     VER o site. Devolve (pasta do site, abriu?).
     """
     import zipfile  # noqa: PLC0415
@@ -203,7 +203,7 @@ def _abrir_site(path: Path, log=None) -> tuple[Path | None, bool]:
         return pasta, _abrir_arquivo(indices[0], log=log)
     except Exception as exc:
         if log:
-            log(f"[JARVIS] Nao consegui abrir o site: {str(exc)[:120]}")
+            log(f"[NIA] Nao consegui abrir o site: {str(exc)[:120]}")
         return None, False
 
 
@@ -219,7 +219,7 @@ def _abrir_arquivo(path: Path, log=None) -> bool:
         return True
     except Exception as exc:
         if log:
-            log(f"[JARVIS] Nao consegui abrir o arquivo: {str(exc)[:120]}")
+            log(f"[NIA] Nao consegui abrir o arquivo: {str(exc)[:120]}")
         return False
 
 
@@ -227,7 +227,7 @@ def remote_codex_job(parameters: dict, player=None, speak=None, prazo: float = 0
     params = parameters or {}
     kind = str(params.get("kind") or "site").strip().lower()
     if kind not in {"site", "image", "leads", "image_edit", "chat"}:
-        return "JARVIS só pode gerar um site, uma imagem ou uma lista de leads nesta ponte."
+        return "NIA só pode gerar um site, uma imagem ou uma lista de leads nesta ponte."
     description = str(params.get("description") or "").strip()
     if not description:
         if kind == "leads":
@@ -241,7 +241,7 @@ def remote_codex_job(parameters: dict, player=None, speak=None, prazo: float = 0
     if kind == "image_edit":
         origem = _achar_imagem(params, player)
         if origem is None:
-            return ("Não encontrei a imagem. Arraste a foto para a janela do JARVIS, "
+            return ("Não encontrei a imagem. Arraste a foto para a janela do NIA, "
                     "ou clique no quadro de arquivo para escolher, e peça de novo.")
         try:
             imagem_bytes = _preparar_imagem(origem)
@@ -250,7 +250,7 @@ def remote_codex_job(parameters: dict, player=None, speak=None, prazo: float = 0
     relay = _relay(player)
     if relay is None:
         return "Ainda não consigo iniciar essa criação agora. Tente novamente em alguns segundos."
-    project_name = str(params.get("project_name") or "JarvisProjeto").strip() or "JarvisProjeto"
+    project_name = str(params.get("project_name") or "NiaProjeto").strip() or "NiaProjeto"
 
     def log(msg):
         if player is not None and hasattr(player, "write_log"):
@@ -277,11 +277,11 @@ def remote_codex_job(parameters: dict, player=None, speak=None, prazo: float = 0
 
     try:
         if kind == "leads":
-            log("[JARVIS] Procurando as empresas no mapa...")
+            log("[NIA] Procurando as empresas no mapa...")
         elif kind == "image_edit":
-            log("[JARVIS] Trabalhando na sua imagem...")
+            log("[NIA] Trabalhando na sua imagem...")
         else:
-            log("[JARVIS] Preparando sua criação...")
+            log("[NIA] Preparando sua criação...")
         estado(estados.get(kind, "PROCESSING"))
         # Conversa nao espera 16 minutos: se o Codex nao respondeu em 3, a
         # resposta ja perdeu a utilidade numa conversa falada.
@@ -302,7 +302,7 @@ def remote_codex_job(parameters: dict, player=None, speak=None, prazo: float = 0
         if kind == "chat":
             # Conversa: o que interessa e o TEXTO, nao o arquivo. O agente grava
             # em artifact/resposta.txt e a ponte devolve esse txt; aqui ele vira
-            # a propria resposta do JARVIS.
+            # a propria resposta do NIA.
             try:
                 resposta = path.read_text(encoding="utf-8", errors="replace").strip()
             except Exception:
@@ -358,7 +358,7 @@ def remote_codex_job(parameters: dict, player=None, speak=None, prazo: float = 0
         message = str(exc).strip()[:400]
         # Do not expose implementation/provider names in customer-facing
         # speech or activity logs.
-        message = re.sub(r"(?i)codex|openai", "JARVIS", message)
+        message = re.sub(r"(?i)codex|openai", "NIA", message)
         return f"Não consegui concluir a criação: {message}"
     finally:
         # Termine como for, o painel volta a escutar o cliente.

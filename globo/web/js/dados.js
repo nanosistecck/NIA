@@ -1,4 +1,4 @@
-// Paises e cidades: tudo vem da propria pasta do JARVIS, entao o globo responde
+// Paises e cidades: tudo vem da propria pasta do NIA, entao o globo responde
 // na hora e continua funcionando sem internet.
 
 import { nomeDoPais, semAcento } from "./textos.js";

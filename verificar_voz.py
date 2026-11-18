@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""A VOZ DO JARVIS TEM CHAVE VALIDA? — diagnostico de um comando (18/11/2026)
+"""A VOZ DO NIA TEM CHAVE VALIDA? — diagnostico de um comando (18/11/2026)
 
     python verificar_voz.py
 
 Faz so LEITURA: consulta o catalogo de modelos dos provedores (nao gasta cota de
 geracao) e diz, sem rodeios:
 
-  1. qual chave o motor da voz esta recebendo (do banco `config/jarvis.db`);
+  1. qual chave o motor da voz esta recebendo (do banco `config/nia.db`);
   2. se o provedor ACEITA essa chave;
-  3. quais dos modelos de fala que o JARVIS usa existem para ela.
+  3. quais dos modelos de fala que o NIA usa existem para ela.
 
 Nunca imprime a chave inteira. Nao altera nada.
 """
@@ -47,7 +47,7 @@ def _ver_provedor(nome: str, rotulo: str) -> bool:
 
 
 def main() -> int:
-    print("JARVIS · diagnostico da voz")
+    print("NIA · diagnostico da voz")
     print(f"banco de chaves: {db_chaves.DB_PATH}")
     todas = db_chaves.listar_chaves()
     print(f"chaves cadastradas: {len(todas)}")
@@ -78,12 +78,12 @@ def main() -> int:
         print("  o problema nao e a chave: abra o log e procure 'voz_' ")
         print("  (voz_de_fora_falhou / voz_chave_fora / charon_trocou_de_chave).")
         return 0
-    print("  NENHUMA voz tem chave valida. Enquanto isso o JARVIS fica mudo")
+    print("  NENHUMA voz tem chave valida. Enquanto isso o NIA fica mudo")
     print("  (a resposta continua escrita no chat).")
     print("  Gemini: pegue a chave em https://aistudio.google.com/apikey.")
     print("  Copie a chave INTEIRA. Se ela comecar com AQ. e o Google a recusar")
     print("  (401 API key not valid), gere uma chave NOVA no mesmo site e cole")
-    print("  aqui de novo — nao ha o que configurar no JARVIS.")
+    print("  aqui de novo — nao ha o que configurar no NIA.")
     return 1
 
 

@@ -3,7 +3,7 @@
 
 POR QUE EXISTE
 --------------
-Em 18/11/2026 a voz do JARVIS estava muda com uma chave "cadastrada" no banco.
+Em 18/11/2026 a voz do NIA estava muda com uma chave "cadastrada" no banco.
 O roteador tinha um defeito (corrigido: `resolver()` nao lia o banco), mas
 havia um SEGUNDO problema, este aqui: a chave guardada era um token de outro
 tipo (`AQ.Ab8...`, de OAuth/CLI) e o Google respondia **401 API key not valid**
@@ -33,7 +33,7 @@ _GEMINI = "https://generativelanguage.googleapis.com/v1beta/models"
 # O Google passou a emitir no AI Studio, desde 28/05/2026, chaves que comecam
 # com `AQ.` (autorizacao) em vez das antigas `AIza`. Em algumas contas/versoes
 # do endpoint essas chaves voltam **401 API key not valid / ACCESS_TOKEN_TYPE
-# _UNSUPPORTED** mesmo estando boas no site. Nao ha o que configurar no JARVIS:
+# _UNSUPPORTED** mesmo estando boas no site. Nao ha o que configurar no NIA:
 # quem precisa emitir outra chave e o dono. O recado abaixo diz exatamente isso.
 _AJUDA_GEMINI = ("confira em https://aistudio.google.com/apikey se a chave esta "
                  "inteira (copiar de novo) e, se continuar recusada, gere uma "

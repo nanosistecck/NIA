@@ -3,7 +3,7 @@
 
 Por que existe (01/09/2026)
 ---------------------------
-"JARVIS, organiza minha pasta Downloads" e o pedido; "pode desfazer" e o que
+"NIA, organiza minha pasta Downloads" e o pedido; "pode desfazer" e o que
 vem dez segundos depois, quando ele abre a pasta e nao acha o arquivo que
 estava na cara. Organizar sem poder voltar e armadilha, entao aqui cada
 movimento fica anotado num diario, e desfazer e ler o diario de tras para
@@ -65,7 +65,7 @@ def _falado(n: int, singular: str, plural: str) -> str:
 # O dono aponta com a boca: "organiza essa pasta que esta aberta". Ate 02/09
 # isso simplesmente nao existia — o `_resolver_pasta` recebia "essa pasta" e
 # devolvia `C:\Users\...\Desktop\essa pasta`, um caminho inventado que nao
-# existe, e o JARVIS respondia "nao achei a pasta". Parecia que a ferramenta
+# existe, e o NIA respondia "nao achei a pasta". Parecia que a ferramenta
 # estava quebrada; ela so estava obedecendo ao pe da letra.
 #
 # Duas maneiras de descobrir, nesta ordem:
@@ -394,7 +394,7 @@ def organizar_pasta(parameters: dict | None = None, player=None, **_ignorado) ->
         # SEM NOME, OU APONTANDO PARA A TELA: e a pasta que esta aberta.
         #
         # Antes, nome vazio caia direto em Downloads. O dono dizia "organiza
-        # essa pasta" olhando para outra coisa e o JARVIS mexia na Downloads
+        # essa pasta" olhando para outra coisa e o NIA mexia na Downloads
         # dele, calado. Errar de pasta ao MOVER arquivo e pior do que nao
         # fazer nada.
         pasta = None

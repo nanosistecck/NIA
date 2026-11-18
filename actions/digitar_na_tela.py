@@ -3,9 +3,9 @@
 
 Por que existe (01/09/2026)
 ---------------------------
-O Diego pediu "digita um codigo de calculadora nesse Bloco de Notas" e o JARVIS
+O Diego pediu "digita um codigo de calculadora nesse Bloco de Notas" e o NIA
 CRIOU um arquivo na Area de Trabalho (code_helper). Nao era isso: ele queria
-ver o JARVIS codando na frente dele, letra por letra, dentro do Bloco de Notas.
+ver o NIA codando na frente dele, letra por letra, dentro do Bloco de Notas.
 A regra que ele deu: "digita/escreve AI" = digitar ao vivo onde esta aberto;
 "cria um codigo" = gerar o arquivo e por onde ele pediu.
 
@@ -47,7 +47,7 @@ class _INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("u", _INPUTUNION)]
 
 
-# O ultimo texto que o JARVIS escreveu na tela. E o que o `file_controller`
+# O ultimo texto que o NIA escreveu na tela. E o que o `file_controller`
 # salva quando o dono manda "salva esse bloco de notas" — nesse pedido o
 # conteudo esta na TELA, nao na conversa, entao o modelo manda so o caminho.
 # Ver `create_file` em actions/file_controller.py.
@@ -100,7 +100,7 @@ def _colar_linux(texto: str) -> None:
     else:
         return
     # quem guarda a area de transferencia fica vivo em segundo plano: sem o
-    # DEVNULL ele herdava a saida do JARVIS e segurava quem estivesse lendo
+    # DEVNULL ele herdava a saida do NIA e segurava quem estivesse lendo
     p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     p.communicate(texto.encode("utf-8"), timeout=5)
@@ -169,7 +169,7 @@ def _preparar_janela_linux(nome: str, log) -> str:
             pasta = _P(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else _P.home()
         except Exception:
             pasta = _P.home()
-        doc = pasta / time.strftime("JARVIS-%Y-%m-%d-%H%M%S.txt")
+        doc = pasta / time.strftime("NIA-%Y-%m-%d-%H%M%S.txt")
         try:
             from actions.open_app import _iniciar_linux  # noqa: PLC0415
             _iniciar_linux([editor, str(doc)])
@@ -331,7 +331,7 @@ def digitar_na_tela(parameters: dict | None = None, player=None, gerar=None,
     """Entrada da ferramenta.
 
     `conteudo`  texto pronto para digitar (o modelo ja escreveu), ou
-    `pedido`    o que escrever ("codigo Python de uma calculadora") — o JARVIS
+    `pedido`    o que escrever ("codigo Python de uma calculadora") — o NIA
                 gera pelo cerebro (`gerar(pedido, linguagem) -> str`).
     `janela`    onde digitar: bloco de notas (padrao quando o pedido cita),
                 word, vscode... Sem janela: digita onde o cursor estiver.

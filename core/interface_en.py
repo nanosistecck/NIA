@@ -1,6 +1,6 @@
-"""Janela e chat do JARVIS em INGLES (26/09/2026).
+"""Janela e chat do NIA em INGLES (26/09/2026).
 
-Pedido do Diego para o cliente do Canada: o JARVIS ja FALAVA ingles (ver
+Pedido do Diego para o cliente do Canada: o NIA ja FALAVA ingles (ver
 core/idioma.py), mas o que ele ESCREVIA no chat continuava em portugues —
 "[usar_computador] 3 min, passo 16, ainda trabalhando", "Voce: ...", "LOCAL:
 ouvir 0.7s | pensar 1.3s" — e a janela inteira tambem ("COMANDOS RAPIDOS",
@@ -56,13 +56,13 @@ _CHAT = [
      "MICROPHONE: changed — {} blocks received, working."),
     ("MICROFONE: esse nao respondeu ({}). Escolha outro ou feche programas que usam o microfone.",
      "MICROPHONE: this one didn't respond ({}). Pick another one or close programs using the mic."),
-    ("AVISO: microfone indisponível; tentando novamente sem interromper o JARVIS.",
-     "WARNING: microphone unavailable; trying again without stopping JARVIS."),
-    ("AVISO: saída de áudio indisponível; tentando novamente sem interromper o JARVIS.",
-     "WARNING: audio output unavailable; trying again without stopping JARVIS."),
-    ("ATENÇÃO: o limite de uso da sua chave de IA acabou. O JARVIS volta a falar assim que o "
+    ("AVISO: microfone indisponível; tentando novamente sem interromper o NIA.",
+     "WARNING: microphone unavailable; trying again without stopping NIA."),
+    ("AVISO: saída de áudio indisponível; tentando novamente sem interromper o NIA.",
+     "WARNING: audio output unavailable; trying again without stopping NIA."),
+    ("ATENÇÃO: o limite de uso da sua chave de IA acabou. O NIA volta a falar assim que o "
      "limite for renovado ou o plano da chave for ajustado.",
-     "ATTENTION: your AI key's usage limit ran out. JARVIS will talk again as soon as the limit "
+     "ATTENTION: your AI key's usage limit ran out. NIA will talk again as soon as the limit "
      "renews or the key's plan is adjusted."),
     ("REDE: Sem conexão — tentando de novo em {}s.", "NETWORK: No connection — trying again in {}s."),
     ("ERR: nao consegui trocar — {}: {}", "ERR: couldn't change — {}: {}"),
@@ -89,8 +89,8 @@ _CHAT = [
     ("SIS: Ainda me reconectando — repita em instantes.",
      "SYS: Still reconnecting — please repeat in a moment."),
     ("SIS: Controle remoto indisponivel: {}", "SYS: Remote control unavailable: {}"),
-    ("SIS: Reiniciando o JARVIS sozinho em {}s...", "SYS: Restarting JARVIS by itself in {}s..."),
-    ("SIS: JARVIS reiniciado.", "SYS: JARVIS restarted."),
+    ("SIS: Reiniciando o NIA sozinho em {}s...", "SYS: Restarting NIA by itself in {}s..."),
+    ("SIS: NIA reiniciado.", "SYS: NIA restarted."),
     ("SIS: voz indisponivel; falando com a voz local.", "SYS: voice unavailable; speaking with the local voice."),
     ("SIS: a voz engasgou neste turno; a resposta ficou escrita.",
      "SYS: the voice stalled this turn; the answer is written here."),
@@ -105,7 +105,7 @@ _CHAT = [
      "SYS: shutdown request without a clear order — I asked first."),
     ("SIS: Abrindo conexão do WhatsApp...", "SYS: Opening the WhatsApp connection..."),
     ("SIS: Atalho na área de trabalho criado.", "SYS: Desktop shortcut created."),
-    ("SIS: Inicializado. SO={}. JARVIS online.", "SYS: Started. OS={}. JARVIS online."),
+    ("SIS: Inicializado. SO={}. NIA online.", "SYS: Started. OS={}. NIA online."),
     ("SIS: Microfone ativo.", "SYS: Microphone on."),
     ("SIS: Microfone silenciado.", "SYS: Microphone muted."),
     ("SIS: Módulo WhatsApp indisponível.", "SYS: WhatsApp module unavailable."),
@@ -115,10 +115,10 @@ _CHAT = [
     ("SIS: WhatsApp já está iniciando. Aguarde o QR Code.",
      "SYS: WhatsApp is already starting. Wait for the QR code."),
     ("SIS: agora ele te chama de {}.", "SYS: now he calls you {}."),
-    ("SIS: o JARVIS vai abrir sozinho quando o {} ligar.",
-     "SYS: JARVIS will open by itself when the computer starts."),
-    ("SIS: o JARVIS nao abre mais sozinho com o {}.",
-     "SYS: JARVIS no longer opens by itself with the computer."),
+    ("SIS: o NIA vai abrir sozinho quando o {} ligar.",
+     "SYS: NIA will open by itself when the computer starts."),
+    ("SIS: o NIA nao abre mais sozinho com o {}.",
+     "SYS: NIA no longer opens by itself with the computer."),
     ("SIS: agora eu so respondo se voce me chamar de {}. {}",
      "SYS: now I only answer if you call me {}. {}"),
     ("SIS: escolha registrada, mas o motor nao respondeu.",
@@ -126,7 +126,7 @@ _CHAT = [
     ("SIS: voltei a responder sem precisar do nome.", "SYS: I answer again without needing the name."),
     ("SIS: O Windows trocou o aparelho de som — reabrindo.{}", "SYS: The sound device changed — reopening.{}"),
     ("SIS: Interrompido — ouvindo...", "SYS: Interrupted — listening..."),
-    ("SIS: JARVIS ativo.", "SYS: JARVIS online."),
+    ("SIS: NIA ativo.", "SYS: NIA online."),
     ("SYS: fala duplicada suprimida.", "SYS: duplicated speech suppressed."),
     ("ERRO: Falha ao abrir painel WhatsApp — {}", "ERR: Failed to open the WhatsApp panel — {}"),
     ("ERRO: Falha ao criar atalho — {}", "ERR: Failed to create the shortcut — {}"),
@@ -278,8 +278,8 @@ def traduzir_linha(texto: str) -> str:
     """Uma linha do chat, em ingles. O que nao reconhece passa como veio."""
     if not isinstance(texto, str) or not texto:
         return texto
-    # O que o JARVIS disse ja sai em ingles; e o que o dono disse fica como ele disse.
-    if texto.startswith(("JARVIS:", "You:")):
+    # O que o NIA disse ja sai em ingles; e o que o dono disse fica como ele disse.
+    if texto.startswith(("NIA:", "You:")):
         return texto
     for rx, en in _MOLDES:
         m = rx.match(texto)
@@ -326,9 +326,9 @@ _UI = {
         "[F4] Mute · [F11] Full screen · [F2] AI key",
     "CAMERA": "CAMERA", "◈ CAMERA": "◈ CAMERA", "VISAO DESL.": "VISION OFF",
     "NUCLEO ATIVO": "CORE ONLINE", "SEGURANCA OK": "SECURITY OK",
-    "PROTOCOLO JARVIS": "JARVIS PROTOCOL", "REDE": "NET", "LIG": "UP", "SO": "OS",
+    "PROTOCOLO NIA": "NIA PROTOCOL", "REDE": "NET", "LIG": "UP", "SO": "OS",
     "SO LINUX": "OS LINUX", "SISTEMA OPERACIONAL": "OPERATING SYSTEM",
-    "JARVIS INDUSTRIES · CONFIDENCIAL": "JARVIS Industries · CONFIDENTIAL",
+    "NIA INDUSTRIES · CONFIDENCIAL": "NIA Industries · CONFIDENTIAL",
     "PONTE WHATSAPP INICIANDO": "WHATSAPP BRIDGE STARTING",
     "QR CODE AINDA NAO GERADO": "QR CODE NOT MADE YET",
     "GERANDO QR CODE NOVO": "MAKING NEW QR CODE", "GERAR QR NOVO": "NEW QR CODE",
@@ -336,7 +336,7 @@ _UI = {
     "ABRA O WHATSAPP NO CELULAR → APARELHOS CONECTADOS → CONECTAR APARELHO.":
         "Open WhatsApp on your phone → Linked devices → Link a device.",
     "APONTE A CAMERA DO CELULAR PARA CONECTAR": "Point your phone camera to connect",
-    "CELULAR CONECTADO — JARVIS PRONTO": "Phone connected — JARVIS ready",
+    "CELULAR CONECTADO — NIA PRONTO": "Phone connected — NIA ready",
     "ABRINDO WEBCAM": "OPENING WEBCAM", "AGUARDANDO CAMERA…": "WAITING FOR CAMERA…",
     "AO VIVO": "LIVE", "FECHAR": "CLOSE", "FECHAR ✕": "CLOSE ✕", "✕ FECHAR": "✕ CLOSE",
     "ATUALIZAR": "REFRESH", "TESTAR TODOS": "TEST ALL",
@@ -349,11 +349,11 @@ _UI = {
     "◉ CONECTAR WHATSAPP": "◉ CONNECT WHATSAPP", "CONECTAR WHATSAPP (MINUSCULO)": "",
     "CHAVE": "KEY", "CHAVE API GEMINI": "GEMINI API KEY", "NOVA CHAVE": "NEW KEY",
     "ABRIR O CADASTRO DE CHAVES": "OPEN THE KEYS PAGE",
-    "A CHAVE DO GEMINI E OPCIONAL: DEIXA O JARVIS MAIS RAPIDO.":
-        "The Gemini key is optional: it makes JARVIS faster.",
+    "A CHAVE DO GEMINI E OPCIONAL: DEIXA O NIA MAIS RAPIDO.":
+        "The Gemini key is optional: it makes NIA faster.",
     "VOCE PODE COMECAR SEM CHAVE NENHUMA.": "You can start without any key.",
     "OU DIGITE MANUALMENTE:": "Or type it manually:",
-    "VOZ E JEITO": "VOICE AND STYLE", "JARVIS · VOZ E JEITO DE SER": "JARVIS · Voice and Personality",
+    "VOZ E JEITO": "VOICE AND STYLE", "NIA · VOZ E JEITO DE SER": "NIA · Voice and Personality",
     "VOZ · COMO ELE SOA": "VOICE · how he sounds", "JEITO · COMO ELE AGE": "STYLE · how he acts",
     "MICROFONE · POR ONDE ELE OUVE": "MICROPHONE · where he listens",
     "SOM · POR ONDE ELE FALA": "SOUND · where he speaks", "MICROFONE E SOM": "MICROPHONE AND SOUND",
@@ -367,13 +367,13 @@ _UI = {
     "RESUMO": "SUMMARY",
     "CONFIGURAR: CHAVE, VOZ, JEITO, MICROFONE, SOM E SEUS DADOS":
         "Settings: key, voice, style, microphone, sound and your details",
-    "SELECIONAR ARQUIVO PARA O JARVIS": "Select a file for JARVIS",
+    "SELECIONAR ARQUIVO PARA O NIA": "Select a file for NIA",
     "ARRASTE O ARQUIVO AQUI OU CLIQUE PARA PROCURAR": "Drag the file here or click to browse",
     "SOLTE PARA CARREGAR": "Drop to load",
     "IMAGENS · VIDEO · AUDIO · PDF · DOCS · CODIGO · DADOS":
         "Images · Video · Audio · PDF · Docs · Code · Data",
-    "JARVIS ESTA USANDO O COMPUTADOR · ESC INTERROMPE · NAO MEXA NO MOUSE":
-        "JARVIS IS USING THE COMPUTER · ESC stops · don't touch the mouse",
+    "NIA ESTA USANDO O COMPUTADOR · ESC INTERROMPE · NAO MEXA NO MOUSE":
+        "NIA IS USING THE COMPUTER · ESC stops · don't touch the mouse",
     "STATUS: ESCANEIE O QR CODE PARA CONECTAR.": "Status: scan the QR code to connect.",
     "STATUS: INICIANDO PONTE WHATSAPP...": "Status: starting the WhatsApp bridge...",
     # SEGUNDO PLANO (01/11/2026, v1.0.37): o botao do dock, a linha das teclas
@@ -384,9 +384,9 @@ _UI = {
         "[F4] Mute · [F6] Globe · [F11] Full screen · [F2] AI key · [F9] Background",
     "[F4] Mudo · [F11] Tela cheia · [F2] Chave de IA · [F9] Segundo plano":
         "[F4] Mute · [F11] Full screen · [F2] AI key · [F9] Background",
-    "Segundo plano [F9]: o JARVIS sai da tela e fica só no ícone perto do relógio, "
+    "Segundo plano [F9]: o NIA sai da tela e fica só no ícone perto do relógio, "
     "sem ouvir, falar ou fazer nada. Clique no ícone para ele voltar.":
-        "Background [F9]: JARVIS leaves the screen and stays only as the icon near the "
+        "Background [F9]: NIA leaves the screen and stays only as the icon near the "
         "clock, without listening, speaking or doing anything. Click the icon to bring him back.",
     # SECRETARIA DO WHATSAPP (v1.0.39): a aba da engrenagem e a janela do CONECTAR WHATSAPP.
     "SECRETÁRIA": "ASSISTANT",
@@ -559,9 +559,9 @@ def traduzir_arvore(raiz) -> None:
     widgets = [raiz] + raiz.findChildren(QtWidgets.QWidget)
     for w in widgets:
         try:
-            if w.property("_jarvis_en"):
+            if w.property("_nia_en"):
                 continue
-            w.setProperty("_jarvis_en", True)
+            w.setProperty("_nia_en", True)
             if isinstance(w, (QtWidgets.QLabel, QtWidgets.QAbstractButton)):
                 t = w.text()
                 if t:

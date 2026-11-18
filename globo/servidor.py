@@ -8,7 +8,7 @@ So' escuta em 127.0.0.1, numa porta escolhida na hora. Arquivo e' publico (so' t
 mapa e bandeira); tudo que MUDA alguma coisa pede o TOKEN, gerado a cada abertura,
 e nao tem CORS: outro site aberto no PC nao consegue mandar comando para ca.
 
-    pagina  <--- /api/eventos (SSE) ---  JARVIS: "mostra o Japao"
+    pagina  <--- /api/eventos (SSE) ---  NIA: "mostra o Japao"
     pagina  ---> /api/resposta --------> quem pediu o comando recebe o resultado
     pagina  ---> /api/host ------------> a janela (fechar, tela cheia, navegador)
     pagina  ---> /api/log -------------> logs/globo.log (erro de cliente)
@@ -117,7 +117,7 @@ class Globo:
         for ev in pendentes:
             self._entregar(ev)
 
-    # ── comandos do JARVIS ────────────────────────────────────────────────
+    # ── comandos do NIA ────────────────────────────────────────────────
     def comando(self, acao: str, dados: dict | None = None, espera: float = 8.0) -> dict:
         ident = uuid.uuid4().hex
         evento = {"id": ident, "acao": acao, "dados": dados or {}}
@@ -149,7 +149,7 @@ class Globo:
 
 def _criar_handler(globo: Globo):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "JarvisGlobo"
+        server_version = "NiaGlobo"
         sys_version = ""
         protocol_version = "HTTP/1.1"
 

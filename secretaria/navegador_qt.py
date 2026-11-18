@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """SECRETARIA DO WHATSAPP — o navegador INTERNO (05/11/2026, pedido do Diego:
-"ao inves de abrir toda vez o navegador, coloca um interno dentro do proprio JARVIS").
+"ao inves de abrir toda vez o navegador, coloca um interno dentro do proprio NIA").
 
 E' o Chromium do Qt (PyQt6-WebEngine), o mesmo do globo. O WhatsApp Web roda numa
-janela do proprio JARVIS que fica FORA DA TELA e fora da barra de tarefas: o dono
+janela do proprio NIA que fica FORA DA TELA e fora da barra de tarefas: o dono
 nao ve navegador nenhum. A pagina continua "visivel" para o Chromium (ligacao,
-som e tela funcionam igual). O QR Code vai para o cartao do JARVIS; a janela so'
+som e tela funcionam igual). O QR Code vai para o cartao do NIA; a janela so'
 aparece quando o dono pede ("abrir o WhatsApp dela") e o X so' a esconde de novo.
 
 Linhas: tudo do Qt roda na linha principal do processo do motor; a conversa
@@ -107,8 +107,8 @@ def _criar_classes():
             super().__init__(None, Qt.WindowType.Tool)
             self._nav = nav
             self._principal = principal
-            self.setWindowTitle("JARVIS — WhatsApp da secretária")
-            icone = Path(__file__).resolve().parents[1] / "assets" / "icons" / "jarvis.ico"
+            self.setWindowTitle("NIA — WhatsApp da secretária")
+            icone = Path(__file__).resolve().parents[1] / "assets" / "icons" / "nia.ico"
             if icone.exists():
                 self.setWindowIcon(QIcon(str(icone)))
             self.setStyleSheet("QWidget { background: #00060a; }")
@@ -222,7 +222,7 @@ def _criar_classes():
             for nome, codigo in (("qwebchannel", qwc), ("preludio", PRELUDIO),
                                  ("secretaria", pagina_js.read_text(encoding="utf-8"))):
                 s = QWebEngineScript()
-                s.setName(f"jarvis_{nome}")
+                s.setName(f"nia_{nome}")
                 s.setSourceCode(codigo)
                 s.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
                 s.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)

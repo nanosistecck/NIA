@@ -131,7 +131,7 @@ class Andarilho:
         if not fid:
             return None
         if fid != self._frame_id or not self._ctx:
-            r = self._pagina.pede("Page.createIsolatedWorld", frameId=fid, worldName="jarvis")
+            r = self._pagina.pede("Page.createIsolatedWorld", frameId=fid, worldName="nia")
             self._frame_id = fid
             self._ctx = r.get("executionContextId", 0)
         r = self._pagina.pede("Runtime.evaluate", expression=js, contextId=self._ctx, returnByValue=True)

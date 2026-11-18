@@ -1,7 +1,7 @@
-"""Voz local do JARVIS — Kokoro em ONNX, sem chave e sem cota.
+"""Voz local do NIA — Kokoro em ONNX, sem chave e sem cota.
 
 Por que existe (30/08/2026): a cota gratis da Gemini e por dia e por modelo
-(10 pedidos/dia no modelo de fala, medido). Quando ela acaba, o JARVIS emudece.
+(10 pedidos/dia no modelo de fala, medido). Quando ela acaba, o NIA emudece.
 O `edge-tts` resolvia o limite mas os clientes do Diego recusaram a voz — em
 pt-BR ele so tem um homem, o `pt-BR-AntonioNeural`, e soa de maquina.
 
@@ -46,10 +46,10 @@ TAXA = 24_000
 # Quanto mais peso na voz britanica, mais o sotaque aparece — e mais as vogais
 # do portugues sofrem. 70/30 e o meio-termo seguro.
 MISTURAS = {
-    "jarvis":        [("pm_santa", 0.7), ("bm_george", 0.3)],
-    "jarvis_forte":  [("pm_santa", 0.5), ("bm_george", 0.5)],
-    "jarvis_alex":   [("pm_alex",  0.6), ("bm_george", 0.4)],
-    "jarvis_daniel": [("pm_santa", 0.5), ("bm_daniel", 0.5)],
+    "nia":        [("pm_santa", 0.7), ("bm_george", 0.3)],
+    "nia_forte":  [("pm_santa", 0.5), ("bm_george", 0.5)],
+    "nia_alex":   [("pm_alex",  0.6), ("bm_george", 0.4)],
+    "nia_daniel": [("pm_santa", 0.5), ("bm_daniel", 0.5)],
 }
 
 # Vozes puras que valem a pena para um assistente masculino.
@@ -124,7 +124,7 @@ class VozLocal:
         with cls._lock:
             if cls._kokoro is None:
                 if not cls.tem_modelo():
-                    raise RuntimeError("a voz local (Kokoro) nao faz mais parte do JARVIS")
+                    raise RuntimeError("a voz local (Kokoro) nao faz mais parte do NIA")
                 from kokoro_onnx import Kokoro  # noqa: PLC0415
                 cls._kokoro = Kokoro(str(MODELO), str(VOZES))
             return cls._kokoro
@@ -170,7 +170,7 @@ class VozLocal:
         # PERSONAGEM DE NUVEM NAO TEM VOZ AQUI (05/09/2026). Desde que a lista
         # da engrenagem virou so Gemini, `base` vale "__gemini__" — e isso nao e
         # nome de voz do Kokoro. Sem esta saida o socorro mudo (quando a chave
-        # do cliente falha) quebrava com "voz desconhecida" e o JARVIS ficava
+        # do cliente falha) quebrava com "voz desconhecida" e o NIA ficava
         # SEM voz nenhuma, que e o unico jeito de piorar um dia ruim.
         if personagem is not None and str(personagem.get("base", "")).startswith("__"):
             # O socorro segue o SEXO da voz escolhida: `pf_dora` para as

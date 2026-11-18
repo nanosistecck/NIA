@@ -94,7 +94,7 @@ export function clicar(p) {
   return true;
 }
 
-/** Mostra direto o arco de A ate B (o JARVIS pedindo por voz). */
+/** Mostra direto o arco de A ate B (o NIA pedindo por voz). */
 export function medirEntre(a, b) {
   limpar(false);
   medida.a = a;

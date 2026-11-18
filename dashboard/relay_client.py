@@ -1,4 +1,4 @@
-"""Outbound, multi-tenant JARVIS Remote Control bridge client."""
+"""Outbound, multi-tenant NIA Remote Control bridge client."""
 
 import asyncio
 import base64
@@ -83,7 +83,7 @@ class RelayClient:
         self.device_id = self.config["device_id"]
         self.device_secret = self.config["device_secret"]
         self.last_pairing = None
-        print(f"[JARVIS Relay] nova identidade remota gerada{': ' + reason if reason else ''}")
+        print(f"[NIA Relay] nova identidade remota gerada{': ' + reason if reason else ''}")
 
     @property
     def public_url(self):
@@ -108,7 +108,7 @@ class RelayClient:
     def _set_error(self, message: str):
         self.last_error = str(message or "").strip()
         if self.last_error:
-            print(f"[JARVIS Relay] {self.last_error}")
+            print(f"[NIA Relay] {self.last_error}")
 
     def _connect(self, url: str):
         headers = {"Authorization": f"Bearer {self.device_secret}"}
@@ -291,7 +291,7 @@ class RelayClient:
         `cancelar()` (08/10/2026): o dono apertou ESC. A espera pela VPS (5 a
         7 s por passo, ate 95 s no pior caso) olha esse sinal 10 vezes por
         segundo e desiste na hora com `PassoCancelado` — antes o ESC so era
-        visto DEPOIS de a VPS responder, e o JARVIS demorava para parar.
+        visto DEPOIS de a VPS responder, e o NIA demorava para parar.
 
         Sincrona: quem chama e a thread da ferramenta `usar_computador`. A
         resposta chega em `cu_result` e cai na fila deste job (a mesma tabela
@@ -373,7 +373,7 @@ class RelayClient:
         acao = m.get("acao")
         return acao if isinstance(acao, dict) else {}
 
-    # ── COWORK (05/10/2026): o programador do JARVIS ───────────────────────
+    # ── COWORK (05/10/2026): o programador do NIA ───────────────────────
     #
     # Manda a COPIA do projeto (zip) e o pedido para o jarvis-cowork.js da VPS
     # e recebe de volta so o que mudou (outro zip). Mensagens proprias (cw_*):
@@ -454,9 +454,9 @@ class RelayClient:
                 if agora > limite:
                     raise RuntimeError("o trabalho passou do tempo limite")
                 # Servidor antigo (sem o jarvis-cowork.js) ignora as mensagens
-                # cw_* em silencio: sem isto o JARVIS esperaria meia hora.
+                # cw_* em silencio: sem isto o NIA esperaria meia hora.
                 if not confirmado and agora - enviado_em > 25.0:
-                    raise RuntimeError("o servidor do JARVIS ainda não foi atualizado com o Cowork")
+                    raise RuntimeError("o servidor do NIA ainda não foi atualizado com o Cowork")
                 if not self.connected:
                     sem_conexao_desde = sem_conexao_desde or agora
                     if agora - sem_conexao_desde > 90.0:
@@ -547,7 +547,7 @@ class RelayClient:
                           modo: str = "", imagem: bytes | None = None) -> dict:
         """Manda a fala do dono e devolve a DECISAO do Codex na VPS.
 
-        Desde 04/09/2026 e por aqui que o JARVIS pensa. Antes ele dependia das
+        Desde 04/09/2026 e por aqui que o NIA pensa. Antes ele dependia das
         chaves gratuitas do cliente (Gemini com 429 a cada poucas perguntas,
         OpenRouter com 50 pedidos por dia); agora o cerebro roda no plano do
         Diego, sem cota e sem cobranca por uso.
@@ -584,7 +584,7 @@ class RelayClient:
             # `modo="texto"` avisa que o pedido e de CONTEUDO, nao de acao: a
             # VPS troca o prompt inteiro (sem JSON, sem ferramenta) e devolve o
             # texto puro. Sem isso, o modelo vestido de assistente respondia
-            # "nao tenho ferramenta para digitar" — e o JARVIS digitava ISSO.
+            # "nao tenho ferramenta para digitar" — e o NIA digitava ISSO.
             "modo": str(modo or ""),
             # A FOTO, quando o pedido e de VISAO (`modo="imagem"`). Mesmo
             # caminho que o computer use ja usa para a tela: base64 numa
@@ -613,7 +613,7 @@ class RelayClient:
             asyncio.run_coroutine_threadsafe(
                 self.send({"type": "cu_end", "job_id": str(job_id)}), self.loop)
 
-    def submit_codex_job(self, kind: str, description: str, project_name: str = "JarvisProjeto", timeout: float = 960.0,
+    def submit_codex_job(self, kind: str, description: str, project_name: str = "NiaProjeto", timeout: float = 960.0,
                          imagem: bytes | None = None):
         """Submit a site/image job to the authenticated VPS bridge and wait for the file.
 
@@ -627,7 +627,7 @@ class RelayClient:
             raise RuntimeError(f"A ponte de geração está offline: {detail}")
 
         # A foto é fatiada e codificada AQUI, que roda fora do loop do áudio.
-        # Fazer isto no loop deixava a voz do JARVIS picotada.
+        # Fazer isto no loop deixava a voz do NIA picotada.
         pacote = None
         if imagem:
             if len(imagem) > 12 * 1024 * 1024:
@@ -667,7 +667,7 @@ class RelayClient:
 
         # Editar uma foto exige mandar a foto ANTES do pedido, em blocos.
         # Os blocos chegam aqui JA codificados: este laço roda no mesmo loop que
-        # cuida do áudio do JARVIS, e converter megabytes para base64 aqui dentro
+        # cuida do áudio do NIA, e converter megabytes para base64 aqui dentro
         # fazia a voz picotar. Aqui só resta enviar.
         if imagem:
             if not await self.send({**imagem["inicio"], "job_id": job_id}):
@@ -689,7 +689,7 @@ class RelayClient:
             "job_id": job_id,
             "kind": str(kind or "").strip().lower(),
             "description": str(description or "").strip()[:6000],
-            "project_name": str(project_name or "JarvisProjeto").strip()[:80],
+            "project_name": str(project_name or "NiaProjeto").strip()[:80],
         }
         if not await self.send(payload):
             self._job_waiters.pop(job_id, None)
@@ -720,7 +720,10 @@ class RelayClient:
             safe = "resultado.bin"
         # Keep the customer-visible output path neutral. Internal worker names
         # never need to appear in the files delivered to the customer.
-        root = Path.home() / "Desktop" / "JarvisResultados"
+        root = Path.home() / "Desktop" / "NiaResultados"
+        antiga = Path.home() / "Desktop" / "JarvisResultados"
+        if antiga.is_dir() and not root.exists():
+            root = antiga
         root.mkdir(parents=True, exist_ok=True)
         candidate = root / safe
         if not candidate.exists():
@@ -777,7 +780,7 @@ class RelayClient:
                     raise ValueError("O tamanho recebido não corresponde ao informado.")
                 state["file"].write(chunk)
                 state["next_index"] += 1
-                # Este laço divide o loop com o áudio do JARVIS. Devolver a vez
+                # Este laço divide o loop com o áudio do NIA. Devolver a vez
                 # entre um pedaço e outro evita que a voz picote enquanto o
                 # arquivo pronto está descendo.
                 await asyncio.sleep(0)
@@ -952,14 +955,14 @@ class RelayClient:
             return
         if kind == "system" and payload.get("confirmed") is True:
             result = await self.dashboard.remote_system_action(str(payload.get("action") or ""))
-            await self.dashboard.broadcast({"type": "log", "speaker": "jarvis", "text": result})
+            await self.dashboard.broadcast({"type": "log", "speaker": "nia", "text": result})
             return
         if kind != "action":
             return
         action = str(payload.get("action") or "")
         if action == "screenshot":
             result = await self.dashboard.remote_media_action("screenshot", announce=False)
-            await self.dashboard.broadcast({"type": "log", "speaker": "jarvis", "text": result})
+            await self.dashboard.broadcast({"type": "log", "speaker": "nia", "text": result})
         elif action in {"screen_live_start", "webcam_start"}:
             await self.dashboard.remote_media_action(action, announce=False)
         elif action in {"screen_live_stop", "webcam_stop"}:

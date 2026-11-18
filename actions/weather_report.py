@@ -62,7 +62,7 @@ def _sem_acento(t: str) -> str:
 
 
 def _baixar(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": "JARVIS-CyberBot"})
+    req = urllib.request.Request(url, headers={"User-Agent": "NIA-CyberBot"})
     with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
         return json.loads(r.read().decode("utf-8"))
 
@@ -228,6 +228,6 @@ def _log(message: str, player=None) -> None:
     print(f"[Weather] {message}")
     if player:
         try:
-            player.write_log(f"JARVIS: {message}")
+            player.write_log(f"NIA: {message}")
         except Exception:
             pass

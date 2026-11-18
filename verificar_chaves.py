@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""AS CHAVES DO JARVIS ESTAO CHEGANDO EM TODO LUGAR? — diagnostico (18/11/2026)
+"""AS CHAVES DO NIA ESTAO CHEGANDO EM TODO LUGAR? — diagnostico (18/11/2026)
 
     python verificar_chaves.py
 
 Faz so LEITURA. Responde tres perguntas, sem rodeios:
 
-  1. Quais chaves existem no banco (`config/jarvis.db`) e em que estado estao?
+  1. Quais chaves existem no banco (`config/nia.db`) e em que estado estao?
   2. O provedor ACEITA cada uma? (leitura do catalogo de modelos, sem gastar cota)
-  3. Cada area do JARVIS puxa a chave da fonte certa (banco/roteador) ou ficou
+  3. Cada area do NIA puxa a chave da fonte certa (banco/roteador) ou ficou
      presa no `config/api_keys.json` antigo?
 
 Nunca imprime a chave inteira. Nao altera nada.
@@ -78,7 +78,7 @@ def _ler_json_antigo() -> dict:
 
 
 def main() -> int:
-    print("JARVIS · diagnostico das chaves")
+    print("NIA · diagnostico das chaves")
     print(f"banco: {db_chaves.DB_PATH}")
     print(f"config antigo: {RAIZ / 'config' / 'api_keys.json'}")
 
@@ -130,7 +130,7 @@ def main() -> int:
     chave_banco = llm_router.resolver("gemini") or ""
     if chave_json and chave_banco and chave_json != chave_banco:
         print("\n  AVISO: o `api_keys.json` tem uma chave Gemini DIFERENTE da do")
-        print("  banco. O JARVIS usa a do banco; a do arquivo so' serve de reserva.")
+        print("  banco. O NIA usa a do banco; a do arquivo so' serve de reserva.")
 
     print("\n== conclusao ==")
     if alguma_aceita:

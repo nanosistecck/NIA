@@ -96,7 +96,7 @@ _QUOTA_STATE_PATH = _BASE / "config" / "vision_quota_state.json"
 # Pergunta do Diego: "e se a cota da Gemini acabar? As funcoes de ver imagem
 # param?" Paravam. O cerebro ja tinha piso (o Codex); a visao nao tinha.
 #
-# Nao ha chave nova aqui: e a mesma ponte por onde o JARVIS ja manda a foto da
+# Nao ha chave nova aqui: e a mesma ponte por onde o NIA ja manda a foto da
 # tela no computer use — la o Codex olha a imagem e decide o movimento; aqui
 # ele olha e responde. Quem passa a ponte e o main, no `_visao_ponte`.
 _PONTE_DA_VISAO = None
@@ -109,9 +109,9 @@ def definir_ponte(ponte) -> None:
 
 
 def _anotar(evento: str, detalhe: str = "") -> None:
-    """Escreve no mesmo diario do JARVIS (`logs/voice_session.log`).
+    """Escreve no mesmo diario do NIA (`logs/voice_session.log`).
 
-    O `print` daqui nao serve para nada em producao: o JARVIS roda no
+    O `print` daqui nao serve para nada em producao: o NIA roda no
     `pythonw.exe`, que nao tem janela — a linha some. E foi por nao ter registro
     que o socorro da visao passou despercebido, devolvendo desculpa de
     OpenRouter em vez da analise.
@@ -272,7 +272,7 @@ _CAM_JPEG_Q = 82
 _MIN_LIVE_CAMERA_BYTES_FOR_ANALYSIS = 18_000
 
 _SYSTEM_PROMPT = (
-    "You are JARVIS, a smart desktop vision assistant. "
+    "You are NIA, a smart desktop vision assistant. "
     "You are given an image from either the user's screen or their webcam. "
     "Analyze visible objects, text, UI, components, clothing, accessories, pose, lighting, and context clearly. "
     "For technical questions (circuits, code, hardware) give specific, expert answers. "
@@ -349,7 +349,7 @@ def _quiet_native_stderr():
     """Temporarily silence native OpenCV warnings printed directly to stderr.
 
     Some camera backends print hundreds of MSMF/DSHOW warnings from C/C++ before
-    Python can catch the error. This keeps the JARVIS terminal readable while
+    Python can catch the error. This keeps the NIA terminal readable while
     preserving normal Python errors outside the tiny camera-open window.
     """
     try:
@@ -663,10 +663,10 @@ class _VisionSession:
                     if transcript and self._player:
                         full = re.sub(r"\s+", " ", " ".join(transcript)).strip()
                         if full:
-                            self._player.write_log(f"JARVIS: {full}")
+                            self._player.write_log(f"NIA: {full}")
                             print(f"[Vision] 💬 {full}")
                     transcript = []
-                    # Auto-close camera ~2s after JARVIS finishes speaking
+                    # Auto-close camera ~2s after NIA finishes speaking
                     if self._player and hasattr(self._player, "stop_camera_stream"):
                         async def _deferred_close():
                             await asyncio.sleep(2.0)
@@ -760,20 +760,20 @@ def _vision_prompt(user_text: str, angle: str) -> str:
 
 
 def _generate_vision_answer(image_bytes: bytes, mime_type: str, user_text: str, angle: str) -> str:
-    """Analisa uma foto da tela ou da camera e devolve TEXTO para o JARVIS falar.
+    """Analisa uma foto da tela ou da camera e devolve TEXTO para o NIA falar.
 
     Dois degraus, nesta ordem: a Gemini do cliente (rapida, mas com cota que
     acaba no meio do dia) e o Codex da VPS (mais lento, sem cota). O OpenRouter
     ficava no meio ate 05/09/2026 e foi removido: alem de o Diego ter tirado ele
     do produto, ele devolvia FRASE DE DESCULPA no lugar de `None` quando estava
-    de castigo — e essa desculpa saia pela boca do JARVIS como se fosse a analise,
+    de castigo — e essa desculpa saia pela boca do NIA como se fosse a analise,
     escondendo o socorro que vinha depois.
     """
     prompt = _vision_prompt(user_text, angle)
 
     # SEM CHAVE DA GEMINI — OU COM UMA QUE NAO TEM CARA DE CHAVE — NEM TENTA:
-    # vai direto ao Codex. A chave e opcional no JARVIS desde 05/09/2026, e o
-    # campo do setup aceita qualquer coisa (o JARVIS do Diego rodou com "asdasd..."
+    # vai direto ao Codex. A chave e opcional no NIA desde 05/09/2026, e o
+    # campo do setup aceita qualquer coisa (o NIA do Diego rodou com "asdasd..."
     # ate 05/09). Sem esta linha, cada pedido gastava uma ida a Google so para
     # ouvir "API key not valid" antes do socorro.
     if not _chave_da_gemini_serve():
@@ -889,7 +889,7 @@ def screen_process(
     #
     # O codigo so reconhecia `camera`; a declaracao da ferramenta diz
     # "'camera' for webcam" — e o modelo, lendo a palavra webcam ali, mandou
-    # `angle="webcam"`. Nao casava com nada, caia no ramo da TELA, e o JARVIS
+    # `angle="webcam"`. Nao casava com nada, caia no ramo da TELA, e o NIA
     # analisou a propria janela dele: o Diego pediu "olha minha webcam" e ouviu
     # de volta uma descricao da interface do proprio programa.
     #
@@ -902,7 +902,7 @@ def screen_process(
     #
     # O modelo errou este campo duas vezes no mesmo dia — mandou
     # `angle="screen"` com o dono dizendo "analisa minha WEBCAM e ve o objeto
-    # que estou segurando". O JARVIS analisou a tela e respondeu que so via o
+    # que estou segurando". O NIA analisou a tela e respondeu que so via o
     # computador, com a cara dele na frente da camera.
     #
     # Quando a PERGUNTA fala claramente em camera e o campo diz tela, quem
@@ -956,10 +956,10 @@ def screen_process(
 def warmup_session(player=None) -> None:
     """No-op by design.
 
-    The JARVIS main audio session is the only live/audio session allowed.
+    The NIA main audio session is the only live/audio session allowed.
     Webcam/screen analysis in this file is synchronous and returns plain text,
     so adding OpenRouter fallback cannot interfere with microphone listening or
-    JARVIS voice playback.
+    NIA voice playback.
     """
     return None
 

@@ -1,9 +1,9 @@
-"""Em que lingua o JARVIS fala (24/09/2026).
+"""Em que lingua o NIA fala (24/09/2026).
 
 O padrao continua PORTUGUES DO BRASIL, como sempre foi, e nada muda para quem
 nao tiver o arquivo abaixo.
 
-Pedido do Diego para um cliente que mora no Canada: o JARVIS (e todas as
+Pedido do Diego para um cliente que mora no Canada: o NIA (e todas as
 outras vozes/personagens) falando INGLES desde a primeira frase. O pacote
 desse cliente leva `config/idioma.json` com {"idioma": "en"}; o resto do
 programa pergunta AQUI antes de montar prompt, escolher o ouvido, falar a
@@ -24,7 +24,7 @@ _conf: dict | None = None
 
 
 def _config() -> dict:
-    """O idioma.json, lido uma vez: trocar pede reabrir o JARVIS."""
+    """O idioma.json, lido uma vez: trocar pede reabrir o NIA."""
     global _conf
     if _conf is None:
         try:
@@ -104,7 +104,7 @@ def no_idioma(texto: str) -> str:
     return t
 
 
-# ── FRASES FIXAS que o JARVIS fala sem passar pelo cerebro ────────────────
+# ── FRASES FIXAS que o NIA fala sem passar pelo cerebro ────────────────
 #
 # Saudacao, avisos do computer use, "so um instante". O cerebro ja responde em
 # ingles pela REGRA_INGLES; estas nao passam por ele, entao a traducao e aqui.
@@ -127,9 +127,9 @@ _FRASES_EN = {
     "pode falar, chefe.": "Go ahead, boss.",
     "diga, chefe.": "Tell me, boss.",
     "as ordens.": "At your service.",
-    # aviso do Linux quando ja ha um JARVIS aberto (26/09/2026)
-    "o jarvis ja esta aberto. procure a janela dele.":
-        "JARVIS is already open. Look for its window.",
+    # aviso do Linux quando ja ha um NIA aberto (26/09/2026)
+    "o nia ja esta aberto. procure a janela dele.":
+        "NIA is already open. Look for its window.",
 }
 
 
@@ -140,7 +140,7 @@ def _chave(texto: str) -> str:
 
 
 def frase(texto: str) -> str:
-    """A frase fixa na lingua do JARVIS. Frase desconhecida volta como veio."""
+    """A frase fixa na lingua do NIA. Frase desconhecida volta como veio."""
     if not em_ingles() or not texto:
         return texto
     return _FRASES_EN.get(_chave(texto), texto)

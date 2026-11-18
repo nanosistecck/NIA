@@ -2,18 +2,18 @@
 """SECRETARIA DO WHATSAPP (05/11/2026, pedido do Diego).
 
 Quando alguem liga no WhatsApp, a secretaria atende e CONVERSA com a pessoa em
-tempo real, com a voz escolhida (JARVIS, Leda...). Se o dono esta por perto,
+tempo real, com a voz escolhida (NIA, Leda...). Se o dono esta por perto,
 ela pode perguntar a ele no meio da ligacao ("um momento, vou ver com ele") e
 voltar com a resposta. Se ele nao esta, ela responde pelo que estiver escrito
-nas INFORMACOES (arquivos .txt na pasta "JARVIS Secretaria" em Documentos) e
+nas INFORMACOES (arquivos .txt na pasta "NIA Secretaria" em Documentos) e
 anota o recado. No fim conta ao dono quem ligou e o que ficou combinado.
 
 Como funciona por dentro:
   * secretaria/motor.py roda em PROCESSO SEPARADO (igual ao globo): abre o
-    WhatsApp Web numa janela do Edge controlada pelo JARVIS (perfil proprio), le
+    WhatsApp Web numa janela do Edge controlada pelo NIA (perfil proprio), le
     a ligacao que toca, atende, e liga o som da ligacao direto na voz ao vivo da
     Gemini do cliente. Nada passa pela caixa de som nem pelo microfone do PC.
-  * Este arquivo e' o que o JARVIS importa: opcoes, pastas, o modelo do TXT,
+  * Este arquivo e' o que o NIA importa: opcoes, pastas, o modelo do TXT,
     o entendimento das frases do dono e a PONTE com o motor. Nao importa Qt nem
     nada pesado: o custo da secretaria so' existe com ela ligada.
 
@@ -42,7 +42,7 @@ ARQ_LOG = RAIZ / "logs" / "secretaria.log"
 
 
 def _ingles() -> bool:
-    """O JARVIS deste cliente esta em ingles (config/idioma.json)? (v1.0.39)"""
+    """O NIA deste cliente esta em ingles (config/idioma.json)? (v1.0.39)"""
     try:
         from core.idioma import em_ingles  # noqa: PLC0415
         return bool(em_ingles())
@@ -51,7 +51,7 @@ def _ingles() -> bool:
 
 
 def txt(pt: str, en: str) -> str:
-    """A frase na lingua do JARVIS (v1.0.39: a secretaria tambem atende cliente em ingles)."""
+    """A frase na lingua do NIA (v1.0.39: a secretaria tambem atende cliente em ingles)."""
     return en if _ingles() else pt
 
 PADRAO: dict = {
@@ -74,7 +74,7 @@ PADRAO: dict = {
     "sempre_recusar": [],
     "mensagem_recusa": "Oi! Nao posso atender agora, te retorno assim que puder.",
     "minimizar_navegador": True,
-    # A voz DELA nas caixas do PC (para gravar video; a de quem liga NAO sai). O JARVIS fica mudo junto.
+    # A voz DELA nas caixas do PC (para gravar video; a de quem liga NAO sai). O NIA fica mudo junto.
     "ouvir_no_pc": False,
     "navegador": "auto",
     # Arquivos de informacao FORA da pasta dela (ex.: a base na Area de Trabalho), lidos em
@@ -106,7 +106,7 @@ FORMATOS_CHAT_EN = {
 
 
 def formatos_chat() -> dict:
-    """{chave: (rotulo curto, explicacao)} na lingua do JARVIS (v1.0.40)."""
+    """{chave: (rotulo curto, explicacao)} na lingua do NIA (v1.0.40)."""
     return FORMATOS_CHAT_EN if _ingles() else FORMATOS_CHAT
 MENSAGEM_RECUSA_EN = "Hi! I can't take your call right now, I'll get back to you as soon as I can."
 
@@ -125,7 +125,7 @@ MODOS_CURTOS_EN = {"perguntar": "ASK ME", "sempre": "100% AUTOMATIC", "so_avisar
 
 
 def modos() -> dict:
-    """Os modos com o texto na lingua do JARVIS (as chaves sao as mesmas)."""
+    """Os modos com o texto na lingua do NIA (as chaves sao as mesmas)."""
     return MODOS_EN if _ingles() else MODOS
 
 
@@ -141,7 +141,7 @@ _trava_cfg = threading.Lock()
 
 def _arq_config() -> Path:
     # A bancada de teste usa um arquivo proprio e nunca mexe nas opcoes do dono.
-    outro = os.environ.get("JARVIS_SECRETARIA_CONFIG")
+    outro = os.environ.get("NIA_SECRETARIA_CONFIG")
     return Path(outro) if outro else ARQ_CONFIG
 
 
@@ -226,10 +226,14 @@ def _documentos() -> Path:
 
 def pasta_do_dono() -> Path:
     """Onde o dono le e escreve: informacoes, recados e cada ligacao."""
-    outra = os.environ.get("JARVIS_SECRETARIA_PASTA")      # so' a bancada de teste
+    outra = os.environ.get("NIA_SECRETARIA_PASTA")      # so' a bancada de teste
     if outra:
         return Path(outra)
-    return _documentos() / "JARVIS Secretaria"
+    novo = _documentos() / "NIA Secretaria"
+    antigo = _documentos() / "JARVIS Secretaria"
+    # Recados, informacoes e historico da secretaria ficam com o dono. Se ele
+    # ja tem a pasta antiga, continua nela — nada de sumir na atualizacao.
+    return antigo if antigo.is_dir() and not novo.exists() else novo
 
 
 def pasta_ligacoes() -> Path:
@@ -251,9 +255,13 @@ def arq_recados() -> Path:
 
 def pasta_navegador() -> Path:
     """Perfil do navegador da secretaria: FORA da pasta do programa, para nunca ir
-    num instalador e para nao sumir quando o JARVIS e' atualizado."""
+    num instalador e para nao sumir quando o NIA e' atualizado."""
     base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
-    return Path(base) / "JARVIS-CyberBot" / "secretaria" / "navegador"
+    novo = Path(base) / "NIA-CyberBot" / "secretaria" / "navegador"
+    antigo = Path(base) / "JARVIS-CyberBot" / "secretaria" / "navegador"
+    # O perfil guarda a sessao do WhatsApp Web. Continuar no antigo evita
+    # desparear o celular de quem ja usava a versao com o nome anterior.
+    return antigo if antigo.is_dir() and not novo.exists() else novo
 
 
 def _nome_do_dono() -> str:
@@ -347,7 +355,7 @@ def garantir_pastas() -> Path:
 
 
 _IGNORAR_NA_BASE = {"recados.txt"}
-# 05/11: 40 mil -> 120 mil letras (a base grande do Diego: CyberBot, JARVIS, planos). Cabe folgado
+# 05/11: 40 mil -> 120 mil letras (a base grande do Diego: CyberBot, NIA, planos). Cabe folgado
 # na voz ao vivo (~30 mil fichas) e ela le tudo de novo a cada ligacao.
 LIMITE_BASE = 120000
 EXTENSOES_BASE = (".txt", ".md", ".csv")
@@ -477,7 +485,7 @@ def vozes() -> list[tuple[str, str, str]]:
     except Exception:
         pass
     if not saida:
-        saida = [("charon", "JARVIS", "Charon"), ("leda", "Leda", "Leda")]
+        saida = [("charon", "NIA", "Charon"), ("leda", "Leda", "Leda")]
     return saida
 
 
@@ -528,7 +536,7 @@ _RE_RECUSAR = re.compile(
     r"\b(recusa|recusar|rejeita|rejeitar|nao atende|nao atenda|nao quero atender|nao posso atender"
     r"|decline|reject|refuse|don t answer|dont answer|do not answer"
     r"|i can t (answer|talk)|i cannot (answer|talk))\b"
-    # v1.0.40 (11/11): o JARVIS nao anuncia mais a ligacao em voz alta, entao o dono pode estar falando
+    # v1.0.40 (11/11): o NIA nao anuncia mais a ligacao em voz alta, entao o dono pode estar falando
     # de OUTRA coisa enquanto toca. "desliga", "ignora", "hang up" so' valem sozinhos ou com a ligacao
     # ("desliga", "desliga ai", "ignora essa ligacao", "desliga e fala que...") — "desliga a musica" NAO.
     r"|\b(desliga|derruba|ignora|hang up|ignore|not now)"
@@ -548,7 +556,7 @@ def interpretar_decisao(texto: str) -> dict | None:
     """Fala do dono enquanto a ligacao toca -> {'decisao': ..., 'mensagem': ...}.
 
     secretaria | dono | recusar | ignorar. Devolve None quando a frase nao e'
-    sobre a ligacao (ai ela segue para o JARVIS normal)."""
+    sobre a ligacao (ai ela segue para o NIA normal)."""
     t = _norm(texto)
     if not t:
         return None
@@ -573,7 +581,7 @@ def interpretar_decisao(texto: str) -> dict | None:
     if _RE_DEIXA_TOCAR.search(t):
         return {"decisao": "ignorar"}
     # v1.0.40: "sim", "ok", "beleza", "pode" sozinhos NAO decidem mais: eram a resposta a pergunta
-    # falada "Eu atendo, voce atende ou recuso?", que o JARVIS nao faz mais (o dono diria "ok" para
+    # falada "Eu atendo, voce atende ou recuso?", que o NIA nao faz mais (o dono diria "ok" para
     # outra coisa e a frase sumia).
     if _RE_SECRETARIA.search(t):
         return {"decisao": "secretaria"}
@@ -606,8 +614,8 @@ _RE_RESP_CURTA = re.compile(r"\b(responde|responda|answer|reply)( pra (ele|ela)|
 def resposta_para_ela(texto: str) -> str | None:
     """Fala do dono com a pergunta dela esperando -> o texto da resposta, ou None.
 
-    v1.0.40 (11/11): o JARVIS NAO le mais a pergunta em voz alta (pedido do Diego: nada de falar
-    quando alguem liga), entao a fala solta do dono (ele conversando outra coisa com o JARVIS) nao pode
+    v1.0.40 (11/11): o NIA NAO le mais a pergunta em voz alta (pedido do Diego: nada de falar
+    quando alguem liga), entao a fala solta do dono (ele conversando outra coisa com o NIA) nao pode
     virar resposta para quem ligou. Vale so' quando ele diz que e' resposta: "responde que sim", "fala
     pra ela que eu chego as 5", "diz que pode", "responde sim", "tell her that ...". Fora isso a
     resposta vai pelo cartao (campo + RESPONDER)."""
@@ -725,7 +733,7 @@ def _matar_navegador_da_secretaria() -> int:
 
 
 def fechar_motor(espera: float = 3.0) -> bool:
-    """O JARVIS fechando: o motor fecha o navegador e sai; o que sobrar, sai a forca."""
+    """O NIA fechando: o motor fecha o navegador e sai; o que sobrar, sai a forca."""
     e = estado_motor()
     if not e:
         return True
@@ -749,7 +757,7 @@ def fechar_motor(espera: float = 3.0) -> bool:
 
 
 class Ponte:
-    """O lado do JARVIS: sobe o motor, recebe os eventos, manda as decisoes.
+    """O lado do NIA: sobe o motor, recebe os eventos, manda as decisoes.
 
     `ao_evento(evento: dict)` e' chamado numa linha separada (nunca no Qt).
     """

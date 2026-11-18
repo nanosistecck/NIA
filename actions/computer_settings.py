@@ -1066,7 +1066,7 @@ def computer_settings(
             # "+10" E "-10" SAO RELATIVOS (01/10/2026). Pedido "aumenta o volume",
             # o cerebro mandou volume_set com value="+10" — e o numero era lido
             # como ABSOLUTO: o volume ia para 10%. Ele pedia para subir e o
-            # JARVIS baixava. Sinal na frente (ou "mais"/"menos") = degrau.
+            # NIA baixava. Sinal na frente (ou "mais"/"menos") = degrau.
             _rel = re.match(r"^\s*(\+|-|mais|menos)\s*(\d{1,3})?\s*%?\s*$",
                             str(value or "").strip().lower())
             if _rel:

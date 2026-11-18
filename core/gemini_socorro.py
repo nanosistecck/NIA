@@ -4,7 +4,7 @@
 Pergunta do Diego, e ela e a certa: "se a Gemini para, fudeu — tem que ter
 socorro em tudo que ela faz".
 
-Ate aqui o JARVIS tinha piso para PENSAR (o Codex da VPS, sem cota) e, desde hoje
+Ate aqui o NIA tinha piso para PENSAR (o Codex da VPS, sem cota) e, desde hoje
 de manha, para VER a tela. Mas a chave gratuita da Gemini ainda era usada
 DIRETO por sete ferramentas — gerar codigo, processar arquivo, ler documento,
 interpretar comando de sistema, achar voo, mexer na area de trabalho. Nessas,
@@ -17,7 +17,7 @@ Este arquivo e a peca que faltava. Ele imita o cliente da Gemini (mesmo
 
     1. tem chave e a cota deixa?  vai pela Gemini, como sempre foi;
     2. sem chave, 429, cota ou erro?  a MESMA pergunta vai para o Codex da
-       VPS — que ja e o cerebro do JARVIS e nao tem cota.
+       VPS — que ja e o cerebro do NIA e nao tem cota.
 
 Assim nenhuma ferramenta precisou ser reescrita: onde estava
 `genai.Client(api_key=...)` passou a estar `gemini_socorro.cliente()`, e o
@@ -50,14 +50,14 @@ def _chave() -> str:
 def chave_parece_boa(chave: str) -> bool:
     """A chave tem CARA de chave da Google (comeca com AIza, ~39 letras)?
 
-    Nao e frescura: o campo do setup aceita qualquer coisa, e o JARVIS do Diego
+    Nao e frescura: o campo do setup aceita qualquer coisa, e o NIA do Diego
     estava rodando com `asdasdasdasdasdasdsasd` — vinte letras digitadas so
     para passar da tela. Sem esta conferencia, cada pedido gastava uma ida a
     Google para ouvir "API key not valid" antes de cair no socorro. Com ela, o
-    JARVIS nem tenta: vai direto para quem responde.
+    NIA nem tenta: vai direto para quem responde.
     """
     c = str(chave or "").strip()
-    # DOIS FORMATOS, NAO UM (05/09/2026, no porte para o JARVIS). A conferencia
+    # DOIS FORMATOS, NAO UM (05/09/2026, no porte para o NIA). A conferencia
     # veio do TED exigindo o prefixo `AIza` — o classico do Google. So que a
     # chave que o Diego usa AQUI comeca com `AQ.` (o formato novo do AI Studio),
     # e a regra antiga a reprovaria: a Gemini dele seria desligada em silencio e
@@ -204,7 +204,7 @@ class _Models:
                     raise
             if self._so_gemini:
                 raise RuntimeError("a Gemini respondeu vazio")
-        # 2) O CODEX DA VPS — sem cota, e o mesmo cerebro do JARVIS.
+        # 2) O CODEX DA VPS — sem cota, e o mesmo cerebro do NIA.
         #    (audio e video ficam de fora: ele nao ouve. Melhor a ferramenta
         #     dizer que nao deu do que ele descrever um som que nao escutou.)
         if alheio and imagem is None:

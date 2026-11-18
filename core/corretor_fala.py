@@ -9,7 +9,7 @@ Nem sempre; as vezes.
 O conserto tem TRES camadas, e so a primeira mora aqui:
 
   1. ESTE ARQUIVO — compara o que foi ouvido com um catalogo de expressoes que
-     o JARVIS de fato usa, comparando pelo SOM e nao pela letra. Custo medido:
+     o NIA de fato usa, comparando pelo SOM e nao pela letra. Custo medido:
      menos de 1 ms por frase. Zero rede, zero modelo, zero espera.
   2. O CEREBRO — uma regra no prompt manda ele entender pelo contexto quando
      uma palavra nao fizer sentido (core/personas.py). Custo: zero, vai na
@@ -121,7 +121,7 @@ def som(texto: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. O CATALOGO — o que o JARVIS de fato ouve todo dia
+# 2. O CATALOGO — o que o NIA de fato ouve todo dia
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # So entra aqui expressao que ELE usa: cumprimento, ordem, nome de programa,
@@ -142,7 +142,7 @@ _FRASES = [
     "tudo bem", "tudo bom", "tudo certo", "tudo joia",
     "como você está", "como é que você está",
     "com licença", "até logo", "boa sorte", "meu amigo", "meu querido",
-    "bom dia JARVIS", "boa noite JARVIS", "boa tarde JARVIS",
+    "bom dia NIA", "boa noite NIA", "boa tarde NIA",
 
     # ── NENHUMA ORDEM COM VERBO ENTRA AQUI ──────────────────────────────────
     #
@@ -200,7 +200,7 @@ _FRASES = [
 # Isso NAO vale para nome que parece palavra ("Santos" e "cintos" tem o mesmo
 # esqueleto), e por isso a lista e separada.
 _NOMES_VOZ = [
-    "JARVIS", "Sulafat", "Fenrir", "Algieba", "Umbriel", "Despina",
+    "NIA", "Sulafat", "Fenrir", "Algieba", "Umbriel", "Despina",
     "Achernar", "Vindemiatrix",
 ]
 
@@ -505,8 +505,8 @@ def corrigir(texto: str) -> tuple[str, list]:
     total = len(palavras)
     # A JANELA NAO ATRAVESSA PONTUACAO. Entre uma palavra e a seguinte so pode
     # haver espaco; virgula, ponto ou quebra de linha fecham a janela ali. Sem
-    # isto "Ba noit, JARVIS" era trocado inteiro e a virgula ia parar no fim da
-    # frase ("Boa noite JARVIS,").
+    # isto "Ba noit, NIA" era trocado inteiro e a virgula ia parar no fim da
+    # frase ("Boa noite NIA,").
     colavel = [achados[k + 1].start() - achados[k].end() >= 0
                and not bruto[achados[k].end():achados[k + 1].start()].strip()
                for k in range(total - 1)]

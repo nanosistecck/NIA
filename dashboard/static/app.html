@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JARVIS Dashboard</title>
+  <title>NIA Dashboard</title>
   <script src="/static/crypto.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -206,7 +206,7 @@
   <main id="feed"></main>
   <div id="quick-controls" aria-label="Ações rápidas"></div>
   <footer>
-    <input id="inp" placeholder="Send a command to JARVIS…" autocomplete="off">
+    <input id="inp" placeholder="Send a command to NIA…" autocomplete="off">
     <label class="btn-attach" for="file-inp" title="Send file">📎</label>
     <input type="file" id="file-inp" multiple accept="*/*" style="display:none">
     <button id="mic-btn" onclick="doMic()" title="Voice command">🎤</button>
@@ -215,9 +215,26 @@
   </footer>
 
   <script>
+    // Troca de nome (18/11/2026): aproveita o token e os ajustes ja gravados
+    // pelo painel com o nome antigo, para ninguem precisar parear de novo.
+    (function () {
+      const pares = [
+        ['jarvis_token', 'nia_token', sessionStorage],
+        ['jarvis_key', 'nia_key', sessionStorage],
+        ['jarvis_device_token', 'nia_device_token', localStorage],
+        ['jarvis_quick_buttons', 'nia_quick_buttons', localStorage],
+      ];
+      for (const [antigo, novo, onde] of pares) {
+        try {
+          const valor = onde.getItem(antigo);
+          if (valor && !onde.getItem(novo)) onde.setItem(novo, valor);
+        } catch (e) { /* storage bloqueado */ }
+      }
+    })();
+
     // ── Auth — bearer token ───────────────────────────────────────────────────
-    const _authToken  = sessionStorage.getItem('jarvis_token');
-    const _sessionKey = sessionStorage.getItem('jarvis_key');
+    const _authToken  = sessionStorage.getItem('nia_token');
+    const _sessionKey = sessionStorage.getItem('nia_key');
 
     if (!_authToken) {
       location.replace('/login');
@@ -228,8 +245,8 @@
       opts.headers = Object.assign({}, opts.headers, _authHeader());
       const response = await fetch(url, opts);
       if (response.status === 401) {
-        sessionStorage.removeItem('jarvis_token');
-        sessionStorage.removeItem('jarvis_key');
+        sessionStorage.removeItem('nia_token');
+        sessionStorage.removeItem('nia_key');
         location.replace('/login');
       }
       return response;
@@ -279,14 +296,14 @@
     let ws = null;
     let _wsRetry = null;
     function refreshKnownDeviceLogin() {
-      sessionStorage.removeItem('jarvis_token');
-      sessionStorage.removeItem('jarvis_key');
+      sessionStorage.removeItem('nia_token');
+      sessionStorage.removeItem('nia_key');
       location.replace('/login');
     }
     function connectRemoteSocket() {
       clearTimeout(_wsRetry);
       ws = new WebSocket(_wsUrl);
-      ws.onopen = () => { sys('Remote session active.'); toast('Connected to JARVIS'); _restoreRemoteMedia(); };
+      ws.onopen = () => { sys('Remote session active.'); toast('Connected to NIA'); _restoreRemoteMedia(); };
       ws.onclose = async (event) => {
         if (event.code === 4001) {
           refreshKnownDeviceLogin();
@@ -296,7 +313,7 @@
           const check = await fetch('/api/remote-media/status', {headers:_authHeader(), cache:'no-store'});
           if (check.status === 401) { refreshKnownDeviceLogin(); return; }
         } catch (_) {}
-        sys('JARVIS offline — tentando reconectar automaticamente…');
+        sys('NIA offline — tentando reconectar automaticamente…');
         _wsRetry = setTimeout(connectRemoteSocket, 2000);
       };
       ws.onerror = () => {};
@@ -327,9 +344,9 @@
 
     function append(speaker, text) {
       const d = document.createElement('div');
-      if (speaker === 'jarvis') {
+      if (speaker === 'nia') {
         d.className = 'msg msg-j';
-        d.innerHTML = `<div class="lbl">Jarvis</div>${esc(text)}`;
+        d.innerHTML = `<div class="lbl">Nia</div>${esc(text)}`;
       } else {
         d.className = 'msg msg-u';
         d.innerHTML = `<div class="lbl">You</div>${esc(text)}`;
@@ -359,7 +376,7 @@
         const url = URL.createObjectURL(blob);
         const card = document.createElement('div');
         card.className = 'msg-media';
-        card.innerHTML = `<div class="media-head"><span class="media-title">Tela do computador</span><span class="media-time">agora</span></div><img class="screen-image" alt="Captura da tela do computador"><div class="media-actions"><a class="media-link" target="_blank" rel="noopener">ABRIR</a><a class="media-link" download="tela-jarvis.jpg">BAIXAR</a></div>`;
+        card.innerHTML = `<div class="media-head"><span class="media-title">Tela do computador</span><span class="media-time">agora</span></div><img class="screen-image" alt="Captura da tela do computador"><div class="media-actions"><a class="media-link" target="_blank" rel="noopener">ABRIR</a><a class="media-link" download="tela-nia.jpg">BAIXAR</a></div>`;
         card.querySelector('img').src = url;
         card.querySelectorAll('a').forEach(a => a.href = url);
         feed.appendChild(card);
@@ -573,7 +590,7 @@
 
     function loadQuickConfig() {
       try {
-        const saved = JSON.parse(localStorage.getItem('jarvis_quick_buttons') || 'null');
+        const saved = JSON.parse(localStorage.getItem('nia_quick_buttons') || 'null');
         if (Array.isArray(saved)) return DEFAULT_QUICK.map(d => Object.assign({}, d, saved.find(s => s.id === d.id) || {}));
       } catch (_) {}
       return DEFAULT_QUICK.map(x => Object.assign({}, x));
@@ -606,7 +623,7 @@
         enabled:document.querySelector(`[data-id="${c.id}"]`).checked,
         label:document.querySelector(`[data-label="${c.id}"]`).value.trim() || QUICK_ACTIONS.find(a => a.id === c.id).label,
       }));
-      localStorage.setItem('jarvis_quick_buttons', JSON.stringify(_quickConfig));
+      localStorage.setItem('nia_quick_buttons', JSON.stringify(_quickConfig));
       renderQuickControls(); closeQuickConfig(); toast('Botões atualizados');
     }
     function confirmSystemAction(action) {
@@ -635,8 +652,8 @@
     }
     async function disconnectRemote() {
       try { await _authFetch('/api/revoke-devices', {method:'POST'}); } catch (_) {}
-      localStorage.removeItem('jarvis_device_token');
-      sessionStorage.removeItem('jarvis_token'); sessionStorage.removeItem('jarvis_key');
+      localStorage.removeItem('nia_device_token');
+      sessionStorage.removeItem('nia_token'); sessionStorage.removeItem('nia_key');
       location.replace('/login');
     }
     renderQuickControls();

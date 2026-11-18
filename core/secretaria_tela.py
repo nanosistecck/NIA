@@ -10,9 +10,9 @@ Duas coisas:
 
 Thread-safe: `mostrar(dados)` pode ser chamado de qualquer linha; quem mexe nos
 widgets e' sempre o Qt (sinal da `_Ponte`, criada no `instalar`).
-As acoes (botoes do cartao e mudancas na aba) chegam ao JARVIS pelos ganchos
+As acoes (botoes do cartao e mudancas na aba) chegam ao NIA pelos ganchos
 `on_secretaria_acao(acao, dados)` e `on_secretaria_mudou(cfg, ligou_ou_desligou)`
-da casca (JarvisUI), postos pelo main.py.
+da casca (NiaUI), postos pelo main.py.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from core import secretaria as SEC
 
 
 def _t(pt: str, en: str) -> str:
-    """O texto na lingua do JARVIS (v1.0.39: a tela da secretaria tambem em ingles)."""
+    """O texto na lingua do NIA (v1.0.39: a tela da secretaria tambem em ingles)."""
     return SEC.txt(pt, en)
 
 _E: dict = {}            # C (cores) e fx (fonte) da interface, entregues no instalar
@@ -71,7 +71,7 @@ def estado_ligacoes() -> dict:
 
 
 def _mudar(casca, mudancas: dict) -> dict:
-    """Grava a opcao e avisa o JARVIS (liga/desliga sobe ou derruba o motor)."""
+    """Grava a opcao e avisa o NIA (liga/desliga sobe ou derruba o motor)."""
     antes = SEC.carregar()
     novo = SEC.salvar(mudancas)
     ligou_desligou = ("ligada" in mudancas) and bool(antes.get("ligada")) != bool(novo.get("ligada"))
@@ -111,7 +111,7 @@ class _Ponte(QObject):
 
 
 def instalar(casca, C, fx) -> None:
-    """Chamado pelo JarvisUI no Qt, logo que a janela existe."""
+    """Chamado pelo NiaUI no Qt, logo que a janela existe."""
     global _ponte, _casca
     _casca = casca
     _E.update(C=C, fx=fx)
@@ -141,7 +141,7 @@ def _no_qt(d: dict) -> None:
             _ultimo_qr = str(d.get("img") or "")
             return
         if estado == "mudo":
-            # O dono na ligacao pelo PC: o JARVIS para de ouvir a sala (e volta no fim).
+            # O dono na ligacao pelo PC: o NIA para de ouvir a sala (e volta no fim).
             if _casca is not None:
                 try:
                     _casca.muted = bool(d.get("valor"))
@@ -230,7 +230,7 @@ class Cartao(QWidget):
         lay.addWidget(self.imagem, 0, Qt.AlignmentFlag.AlignHCenter)
         self.campo = QLineEdit()
         self.campo.setFont(_fx(9))
-        self.campo.setPlaceholderText(_t("Responda aqui (ou fale com o JARVIS)", "Answer here (or talk to JARVIS)"))
+        self.campo.setPlaceholderText(_t("Responda aqui (ou fale com o NIA)", "Answer here (or talk to NIA)"))
         self.campo.setStyleSheet(
             f"QLineEdit {{ color: {_c('TEXT')}; background: transparent; border: 1px solid {_c('BORDER_B')};"
             f" border-radius: 4px; padding: 4px 6px; }} QLineEdit:focus {{ border-color: {_c('PRI')}; }}")
@@ -328,8 +328,8 @@ class Cartao(QWidget):
                 self._tic()
                 self._relogio.start(500)
             else:
-                self.sub.setText(_t("Ela só está te avisando: decida aqui ou fale com o JARVIS.",
-                                    "She is just letting you know: decide here or talk to JARVIS."))
+                self.sub.setText(_t("Ela só está te avisando: decida aqui ou fale com o NIA.",
+                                    "She is just letting you know: decide here or talk to NIA."))
             self.corpo.setText("")
             self._botoes([(_t("SECRETÁRIA ATENDE", "ASSISTANT ANSWERS"), "secretaria", _c("GREEN", "#00ff88")),
                           (_t("EU ATENDO", "I'LL ANSWER"), "dono", None),
@@ -338,8 +338,8 @@ class Cartao(QWidget):
         elif estado == "atendeu":
             if d.get("quem") == "dono":
                 self.titulo.setText(_t(f"📞  Você está na ligação com {nome}", f"📞  You are on the call with {nome}"))
-                self.sub.setText(_t("Fale normalmente pelo microfone do PC. O JARVIS fica sem ouvir até a ligação acabar.",
-                                    "Talk normally through the PC microphone. JARVIS stops listening until the call ends."))
+                self.sub.setText(_t("Fale normalmente pelo microfone do PC. O NIA fica sem ouvir até a ligação acabar.",
+                                    "Talk normally through the PC microphone. NIA stops listening until the call ends."))
                 self.corpo.setText("")
                 self._botoes([(_t("DESLIGAR", "HANG UP"), "encerrar", _c("RED", "#ff3355")),
                               (_t("VER A LIGAÇÃO", "SHOW THE CALL"), "mostrar", None)])
@@ -509,11 +509,11 @@ def pagina(janela) -> QWidget:
                           "WHATSAPP ASSISTANT  ·  she answers your calls and replies to your messages"), 9, "PRI", True))
     lay.addWidget(_rot(_t("Quando alguém te liga no WhatsApp, ela atende com a voz que você escolher, conversa ao vivo, "
                           "te pergunta o que precisar e anota o recado. Quem ligou e o que ficou combinado aparecem "
-                          "escritos no chat do JARVIS (ele não fala nada em voz alta). Ela sempre se apresenta como "
+                          "escritos no chat do NIA (ele não fala nada em voz alta). Ela sempre se apresenta como "
                           "assistente virtual.",
                           "When someone calls you on WhatsApp, she answers with the voice you choose, talks live, asks "
                           "you whatever she needs and takes a message. Who called and what was agreed show up written "
-                          "in the JARVIS chat (JARVIS says nothing out loud). She always introduces herself as a "
+                          "in the NIA chat (NIA says nothing out loud). She always introduces herself as a "
                           "virtual assistant.")))
     lay.addWidget(_rot(_t("LIGAÇÕES", "CALLS"), 8, "PRI", True))
 
@@ -732,8 +732,8 @@ def pagina(janela) -> QWidget:
         ("atender_se_nao_responder", _t("Se eu não decidir a tempo, ela atende", "If I don't decide in time, she answers")),
         ("consultar_dono", _t("Ela pode me perguntar coisas no meio da ligação (só no modo ME PERGUNTA)",
                               "She can ask me things during the call (only in ASK ME mode)")),
-        ("atender_em_segundo_plano", _t("Atender também com o JARVIS em segundo plano (eu fora)",
-                                        "Also answer with JARVIS in the background (I'm away)")),
+        ("atender_em_segundo_plano", _t("Atender também com o NIA em segundo plano (eu fora)",
+                                        "Also answer with NIA in the background (I'm away)")),
         ("minimizar_navegador", _t("Deixar o WhatsApp dela escondido (só aparece quando eu pedir)",
                                    "Keep her WhatsApp hidden (it only shows when I ask)")),
         ("ouvir_no_pc", _t("Tocar a voz dela nas caixas do PC (só a dela, bom para gravar vídeo)",
@@ -763,8 +763,8 @@ def pagina(janela) -> QWidget:
         campo.editingFinished.connect(lambda c=campo, k=chave: _mudou(
             {k: [s.strip() for s in c.text().split(",") if s.strip()]}))
         lay.addWidget(campo)
-    lay.addWidget(_rot(_t("Mensagem ao recusar (vai pelo WhatsApp do JARVIS, se ele estiver conectado):",
-                          "Message when declining (sent through JARVIS's WhatsApp, if it is connected):")))
+    lay.addWidget(_rot(_t("Mensagem ao recusar (vai pelo WhatsApp do NIA, se ele estiver conectado):",
+                          "Message when declining (sent through NIA's WhatsApp, if it is connected):")))
     campo_msg = QLineEdit(str(cfg.get("mensagem_recusa") or ""))
     campo_msg.setFont(_fx(8))
     campo_msg.setStyleSheet(estilo_campo)
@@ -773,11 +773,11 @@ def pagina(janela) -> QWidget:
 
     # -- o que ela sabe
     lay.addWidget(_rot(_t("O QUE ELA SABE SOBRE VOCÊ", "WHAT SHE KNOWS ABOUT YOU"), 8, "PRI", True))
-    lay.addWidget(_rot(_t("Ela só fala o que estiver nos arquivos .txt da pasta \"JARVIS Secretaria\" (em Documentos): "
+    lay.addWidget(_rot(_t("Ela só fala o que estiver nos arquivos .txt da pasta \"NIA Secretaria\" (em Documentos): "
                           "horário, serviços, preços, o que dizer para cada pessoa. No modo 100% AUTOMÁTICA ela responde "
                           "SÓ por eles e, o que não estiver lá, vira recado. Ela lê os arquivos de novo a cada ligação: "
                           "mudou o TXT, já vale na próxima. Tudo que ela atender fica salvo lá também.",
-                          "She only says what is in the .txt files of the \"JARVIS Secretaria\" folder (in Documents): "
+                          "She only says what is in the .txt files of the \"NIA Secretaria\" folder (in Documents): "
                           "hours, services, prices, what to tell each person. In 100% AUTOMATIC mode she answers ONLY "
                           "from them, and whatever is not there becomes a message. She reads the files again on every "
                           "call: change the TXT and it counts on the next one. Everything she answers is saved there too.")))

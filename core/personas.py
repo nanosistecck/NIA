@@ -1,4 +1,4 @@
-"""Personagens (voz) e personalidades (jeito de falar) do JARVIS.
+"""Personagens (voz) e personalidades (jeito de falar) do NIA.
 
 Criado em 30/08/2026 a pedido do Diego: o cliente escolhe na engrenagem, clica
 e muda na hora.
@@ -42,18 +42,18 @@ from pathlib import Path
 #
 # O QUE NAO SAIU, e de proposito: o Kokoro continua no disco como SOCORRO
 # MUDO. Ele nao aparece mais na engrenagem, mas e ele que fala se a chave do
-# cliente falhar, a cota apertar ou a internet cair — sem isso o JARVIS
+# cliente falhar, a cota apertar ou a internet cair — sem isso o NIA
 # emudece justamente no pior dia. Ver `_falar_local` no main.py.
 #
 # `voz_gemini` e o nome do timbre no servidor; `nome` e o que o cliente le.
 # As 11 foram escolhidas de ouvido pelo Diego entre as 30 que a conta aceita
-# (amostras em `Desktop\Meus Projeto\Jarvisozes-gemini\`).
+# (amostras em `Desktop\Meus Projeto\Niaozes-gemini\`).
 PERSONAGENS = {
     # A VOZ DELE. `Charon` e o nome do timbre na Gemini; na tela ele se chama
-    # JARVIS, porque e o nome do produto — o cliente nao tem por que saber o
+    # NIA, porque e o nome do produto — o cliente nao tem por que saber o
     # nome interno do motor.
     "charon": {
-        "nome": "JARVIS",
+        "nome": "NIA",
         "desc": "A voz oficial. Firme, clara e informativa.",
         "base": "__gemini__", "voz_gemini": "Charon", "vel": 1.0,
         # o socorro (VPS ou Kokoro) escolhe alguem do MESMO sexo
@@ -140,7 +140,7 @@ PERSONAGEM_PADRAO = "charon"
 # ---------------------------------------------------------------------------
 # PERSONALIDADES — a cabeca
 # ---------------------------------------------------------------------------
-# Regras que NAO sao estilo: sao o que impede o JARVIS de quebrar.
+# Regras que NAO sao estilo: sao o que impede o NIA de quebrar.
 REGRAS_FIXAS = "\n".join([
     # A identidade sai daqui e entra pelo `montar_prompt`: quem E ele depende da
     # voz escolhida, e quem e o DONO depende do que o cliente preencheu na
@@ -265,7 +265,7 @@ REGRAS_FIXAS = "\n".join([
     "CADA PEDIDO E NOVO. Olhe o que ele acabou de dizer AGORA, nao o que pediu",
     "antes. Se a mensagem anterior foi ABRIR e esta e FECHAR, a acao e FECHAR.",
     "Repetir a acao anterior porque ela esta no historico e o erro mais comum:",
-    "em 30/08 o Diego pediu para FECHAR o bloco de notas tres vezes e o JARVIS",
+    "em 30/08 o Diego pediu para FECHAR o bloco de notas tres vezes e o NIA",
     "ABRIU outro, tres vezes, copiando o pedido anterior.",
     "",
     "REGRA ABSOLUTA DO RELOGIO: voce NAO SABE que dia e hoje nem que horas sao.",
@@ -528,7 +528,7 @@ PERSONALIDADES = {
             "normal, sem fazer drama e sem insistir. Cantada que insiste deixa de",
             "ser graca.",
             # O exemplo NAO traz hora nem dado nenhum: o primeiro trazia
-            # "sao duas e meia" e o JARVIS repetiu isso ao vivo, do nada, no
+            # "sao duas e meia" e o NIA repetiu isso ao vivo, do nada, no
             # meio de outra conversa (01/09/2026). Exemplo com dado vira
             # resposta com dado inventado.
             "EXEMPLO: 'Ai, que voz e essa... e antes que voce pergunte: sim, eu",
@@ -584,11 +584,11 @@ def _voz_interpreta(personagem: str) -> bool:
     return base == "__openai__"
 
 
-# O nome proprio de cada voz. As brasileiras e a Charon sao o JARVIS de sempre;
+# O nome proprio de cada voz. As brasileiras e a Charon sao o NIA de sempre;
 # as vozes de estudio tem nome de gente, e o cliente as chama pelo nome.
 # O NOME DELE SAI DO PROPRIO DICIONARIO (05/09/2026). Era uma segunda lista
 # escrita a mao, e listas paralelas desandam: com as vozes trocadas ela ficaria
-# apontando para nomes que nao existem mais. A voz `charon` chama JARVIS.
+# apontando para nomes que nao existem mais. A voz `charon` chama NIA.
 NOME_DA_VOZ = {chave: dados["nome"] for chave, dados in PERSONAGENS.items()}
 
 
@@ -632,7 +632,7 @@ def apelidos() -> dict:
 
 
 def nome_original(personagem: str) -> str:
-    return NOME_DA_VOZ.get(personagem or "", "JARVIS")
+    return NOME_DA_VOZ.get(personagem or "", "NIA")
 
 
 def nome_da_ia(personagem: str) -> str:
@@ -643,7 +643,7 @@ def nome_da_ia(personagem: str) -> str:
 def validar_apelido(personagem: str, texto: str) -> tuple:
     """(ok, apelido limpo ou "", motivo). Vazio = voltar ao nome de fabrica.
 
-    UMA palavra so: o nome e o que acorda o JARVIS ("Roberta, que horas sao")
+    UMA palavra so: o nome e o que acorda o NIA ("Roberta, que horas sao")
     e o que os atalhos procuram na frase — "Ana Clara" faria "Clara" sozinho
     nao acordar ninguem."""
     limpo = " ".join(str(texto or "").split())
@@ -661,8 +661,8 @@ def validar_apelido(personagem: str, texto: str) -> tuple:
             continue
         if alvo in (_sem_acento(nome_original(chave)), _sem_acento(nome_da_ia(chave))):
             return False, "", f"Esse nome já é de outra voz ({nome_da_ia(chave)})."
-    if alvo == "jarvis" and personagem != PERSONAGEM_PADRAO:
-        return False, "", "JARVIS é o nome da voz oficial."
+    if alvo == "nia" and personagem != PERSONAGEM_PADRAO:
+        return False, "", "NIA é o nome da voz oficial."
     return True, limpo[0].upper() + limpo[1:], ""
 
 

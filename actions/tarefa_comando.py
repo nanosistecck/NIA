@@ -26,7 +26,7 @@ Comando gerado por IA rodando na maquina do dono nao pode ir solto. Aqui:
   mexer no registro critico, baixar-e-executar da internet);
 - **so PowerShell**, sem `cmd /c` encadeado nem `Invoke-Expression` de texto
   vindo da rede;
-- **prazo** de 90 s: comando pendurado nao trava o JARVIS;
+- **prazo** de 90 s: comando pendurado nao trava o NIA;
 - **tudo aparece no registro**, entao da para auditar o que rodou.
 
 O freio e por PADRAO, nao por lista de permitidos: lista de permitidos seria
@@ -69,10 +69,10 @@ PROIBIDOS = [
     (r"\bvssadmin\b.*delete", "apagar os pontos de restauracao"),
 ]
 
-# Nunca encerrar estes por comando: derruba o Windows ou o proprio JARVIS.
+# Nunca encerrar estes por comando: derruba o Windows ou o proprio NIA.
 PROIBIDOS.append(
-    (r"\bstop-process\b[^|]*\b(explorer|winlogon|csrss|lsass|services|jarvis|pythonw)\b",
-     "encerrar processo critico do sistema ou o proprio JARVIS")
+    (r"\bstop-process\b[^|]*\b(explorer|winlogon|csrss|lsass|services|nia|pythonw)\b",
+     "encerrar processo critico do sistema ou o proprio NIA")
 )
 
 
@@ -101,8 +101,8 @@ PROIBIDOS_LINUX = [
     (r"\beval\b", "executar texto como codigo"),
     (r"\b(userdel|useradd|usermod|passwd|chpasswd)\b", "mexer nas contas do sistema"),
     (r"\b(iptables|nft|ufw|firewall-cmd)\b", "mexer no firewall"),
-    (r"\b(pkill|killall|kill)\b[^|;]*\b(plasmashell|kwin\w*|sddm|systemd|pipewire|wireplumber|xwayland|xorg|python\w*|jarvis)",
-     "encerrar processo critico do sistema ou o proprio JARVIS"),
+    (r"\b(pkill|killall|kill)\b[^|;]*\b(plasmashell|kwin\w*|sddm|systemd|pipewire|wireplumber|xwayland|xorg|python\w*|nia)",
+     "encerrar processo critico do sistema ou o proprio NIA"),
     (r"\bkill\s+(-\d+\s+)?(-1|1)\b", "encerrar todos os processos"),
     (r"\bsystemctl\s+(--user\s+)?(stop|disable|mask)\b", "desligar servico do sistema"),
     (r"\bpacman\s+-r|\bpamac\s+remove|\bapt(-get)?\s+(remove|purge)", "desinstalar programa"),
@@ -157,7 +157,7 @@ def executar(comando: str) -> dict:
                 "saida": "", "comando": comando}
     if LINUX:
         try:
-            try:  # sem o QT_QPA_PLATFORM=xcb do JARVIS (ver open_app)
+            try:  # sem o QT_QPA_PLATFORM=xcb do NIA (ver open_app)
                 from actions.open_app import _ambiente_do_programa  # noqa: PLC0415
                 env = _ambiente_do_programa()
             except Exception:
@@ -188,7 +188,7 @@ def executar(comando: str) -> dict:
         erro = (r.stderr or "").strip()
         # O PowerShell devolve codigo 0 mesmo tendo IMPRIMIDO erro (erro
         # nao-terminante). Sem esta linha, "Expand-Archive : o caminho nao
-        # existe" virava sucesso e o JARVIS respondia "pronto" (medido na
+        # existe" virava sucesso e o NIA respondia "pronto" (medido na
         # bateria de 30/08). Regra conservadora: so e falha quando nao veio
         # NADA de saida e veio erro — assim aviso de rotina nao derruba
         # comando que funcionou.

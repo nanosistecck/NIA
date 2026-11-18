@@ -807,7 +807,7 @@ def foco_agora() -> str:
 
     A TERCEIRA PROVA DE QUE A TELA MUDOU (04/09/2026, defeito real).
 
-    No Visualizador de Eventos o JARVIS clicava na arvore, a selecao andava de um
+    No Visualizador de Eventos o NIA clicava na arvore, a selecao andava de um
     ramo para outro... e as duas provas que existiam nao viam nada: o desenho
     mal muda (uma linha fica azul) e a lista de elementos e exatamente a mesma
     (os mesmos itens, nos mesmos lugares). Seis voltas assim e o laco desistia

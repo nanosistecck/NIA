@@ -1,11 +1,11 @@
 # actions/vision_control.py
-# JARVIS — Vision Control / Controle por Visao
+# NIA — Vision Control / Controle por Visao
 #
 # Versao integrada com a logica do Gesture Control que funcionava no projeto antigo.
 # - Usa MediaPipe Hands quando mp.solutions existe.
 # - Usa MediaPipe Tasks + models/gesture_recognizer.task quando mp.solutions nao existe.
 # - Nao usa fallback por cor de pele para mover mouse, evitando o bug do corpo/rosto mover o cursor.
-# - Webcam embutida no painel lateral do JARVIS.
+# - Webcam embutida no painel lateral do NIA.
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _duble_de_modulo(nome: str) -> None:
     falso = _types.ModuleType(nome)
     falso.__path__ = []                  # deixa `import x.y` funcionar
     falso.__spec__ = None
-    falso.__duble_do_jarvis__ = True
+    falso.__duble_do_nia__ = True
 
     def _qualquer_coisa(*_a, **_k):      # pyplot.figure(), plt.plot()...
         return None
@@ -949,21 +949,21 @@ class _VisionController:
             if cv2 is None:
                 self._error = ("a camera do Vision Control nao carregou nesta "
                                f"instalacao ({_ERRO_CV2 or 'opencv ausente'}). "
-                               "Reinstale o JARVIS por cima para repor a peca.")
+                               "Reinstale o NIA por cima para repor a peca.")
                 print(f"[VisionControl] opencv fora: {_ERRO_CV2}")
                 self._notify_panel(False, "ERRO OPENCV")
                 return
             if mp is None:
                 self._error = ("o reconhecimento de mao nao carregou nesta "
                                f"instalacao ({_ERRO_MEDIAPIPE or 'mediapipe ausente'}). "
-                               "Reinstale o JARVIS por cima para repor a peca.")
+                               "Reinstale o NIA por cima para repor a peca.")
                 print(f"[VisionControl] mediapipe fora: {_ERRO_MEDIAPIPE}")
                 self._notify_panel(False, "ERRO MEDIAPIPE")
                 return
             if pyautogui is None:
                 self._error = ("o controle do mouse nao carregou nesta "
                                f"instalacao ({_ERRO_PYAUTOGUI or 'pyautogui ausente'}). "
-                               "Reinstale o JARVIS por cima para repor a peca.")
+                               "Reinstale o NIA por cima para repor a peca.")
                 print(f"[VisionControl] pyautogui fora: {_ERRO_PYAUTOGUI}")
                 self._notify_panel(False, "ERRO PYAUTOGUI")
                 return
@@ -1178,7 +1178,7 @@ _CONTROLLER = _VisionController()
 
 
 def vision_control(parameters: dict | None = None, response=None, player=None, session_memory=None) -> str:
-    """Entrada da ferramenta Vision Control usada pelo JARVIS."""
+    """Entrada da ferramenta Vision Control usada pelo NIA."""
     params = parameters or {}
     raw_action = str(params.get("action") or params.get("mode") or "start").strip().lower()
     if raw_action in {"start", "on", "enable", "iniciar", "abrir", "ligar", "ativar", "restart", "reiniciar"}:
@@ -1224,7 +1224,7 @@ def vision_control(parameters: dict | None = None, response=None, player=None, s
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="JARVIS Vision Control")
+    parser = argparse.ArgumentParser(description="NIA Vision Control")
     parser.add_argument("--start", action="store_true", help="inicia o controle")
     parser.add_argument("--stop", action="store_true", help="para o controle")
     parser.add_argument("--status", action="store_true", help="mostra status")
@@ -1239,4 +1239,4 @@ if __name__ == "__main__":
     elif args.status:
         print(_CONTROLLER.status())
     else:
-        print("Para testar com painel embutido, abra o JARVIS e diga: ativar vision control.")
+        print("Para testar com painel embutido, abra o NIA e diga: ativar vision control.")

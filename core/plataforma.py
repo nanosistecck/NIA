@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """O QUE MUDA DE UM SISTEMA PARA O OUTRO — num lugar so (05/09/2026).
 
-Escrito quando o Diego pegou um cliente de Mac. O JARVIS nasceu no Windows e
+Escrito quando o Diego pegou um cliente de Mac. O NIA nasceu no Windows e
 esta cheio de coisa que so existe la; o levantamento antes de comecar deu isto:
 
     imports de Windows no TOPO dos arquivos ............ 0
@@ -87,11 +87,11 @@ def pasta_conhecida(chave: str):
     return p if p.is_dir() else None
 
 
-# ── UM JARVIS DE CADA VEZ ────────────────────────────────────────────────────
+# ── UM NIA DE CADA VEZ ────────────────────────────────────────────────────
 #
-# No Windows isso e um cadeado nomeado do kernel (ver `_ja_existe_um_jarvis` no
+# No Windows isso e um cadeado nomeado do kernel (ver `_ja_existe_um_nia` no
 # main.py). No Mac nao existe CreateMutexW, e sem substituto o cliente abriria
-# dois JARVIS que brigam pela porta 8000 do painel — o mesmo defeito que o
+# dois NIA que brigam pela porta 8000 do painel — o mesmo defeito que o
 # cadeado do Windows foi criado para matar, em 01/09/2026.
 #
 # Aqui e um arquivo trancado com `flock`: se o programa for morto, o sistema
@@ -100,15 +100,30 @@ def pasta_conhecida(chave: str):
 _TRANCA = None
 
 
-def ja_existe_outro(nome: str = "jarvis-cyberbot") -> bool:
+def ja_existe_outro(nome: str = "nia-cyberbot") -> bool:
     global _TRANCA
     if E_WINDOWS:
         return False                       # quem manda no Windows e o mutex
     try:
         import fcntl  # noqa: PLC0415
-        base = (Path.home() / "Library" / "Application Support" / "JARVIS-CyberBot"
-                if E_MAC else Path.home() / ".cache" / "jarvis-cyberbot")
+        base = (Path.home() / "Library" / "Application Support" / "NIA-CyberBot"
+                if E_MAC else Path.home() / ".cache" / "nia-cyberbot")
         base.mkdir(parents=True, exist_ok=True)
+        # transicao: se ainda ha um processo com o nome antigo, ele e o dono
+        antiga = (Path.home() / "Library" / "Application Support" / "JARVIS-CyberBot"
+                  if E_MAC else Path.home() / ".cache" / "jarvis-cyberbot")
+        velho = antiga / "jarvis-cyberbot.lock"
+        if velho.is_file():
+            try:
+                prova = open(velho, "r")       # noqa: SIM115
+                try:
+                    fcntl.flock(prova.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    prova.close()
+                    return True
+                prova.close()
+            except OSError:
+                pass
         f = open(base / f"{nome}.lock", "w")     # noqa: SIM115
         try:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -120,7 +135,7 @@ def ja_existe_outro(nome: str = "jarvis-cyberbot") -> bool:
         _TRANCA = f                        # guardado: se fechar, a tranca abre
         return False
     except Exception:
-        return False                       # sem tranca e melhor que sem JARVIS
+        return False                       # sem tranca e melhor que sem NIA
 
 
 # ── FOTO DA TELA NO WAYLAND (26/09/2026, cliente do Big Linux) ─────────────
@@ -149,7 +164,7 @@ def bloqueio_do_mouse() -> str:
     """O recado de por que nao da para mexer no mouse aqui, ou "" se da.
 
     No Wayland, se o usuario pode escrever no /dev/uinput (no Big Linux pode,
-    pela regra do KDE Connect), o JARVIS liga o mouse e o teclado VIRTUAIS do
+    pela regra do KDE Connect), o NIA liga o mouse e o teclado VIRTUAIS do
     kernel no lugar do pyautogui (core/entrada_uinput.py) e segue normalmente.
     O cliente nao quis ficar no Plasma X11 ("e muito antigo")."""
     if not na_sessao_wayland():
@@ -172,7 +187,7 @@ def foto_da_tela_wayland(tudo: bool = False):
     import shutil  # noqa: PLC0415
     if not shutil.which("spectacle"):
         return None
-    arq = Path(tempfile.gettempdir()) / f"jarvis-tela-{os.getpid()}.png"
+    arq = Path(tempfile.gettempdir()) / f"nia-tela-{os.getpid()}.png"
     try:
         arq.unlink(missing_ok=True)
         env = dict(os.environ)

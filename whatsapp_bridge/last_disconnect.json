@@ -1,0 +1,8 @@
+{
+  "code": 428,
+  "reason": "connection_lost",
+  "message": "Connection Terminated by Server",
+  "data": null,
+  "at": "2026-11-19T09:57:30.522Z",
+  "logged_out": false
+}

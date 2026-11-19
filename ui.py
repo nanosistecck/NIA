@@ -25,7 +25,7 @@ else:
     _WIN_HIDE: dict = {}
 
 from PyQt6.QtCore import (
-    QEasingCurve, QEvent, QLineF, QPointF, QRectF, Qt,
+    QEasingCurve, QEvent, QLineF, QPointF, QRectF, QSize, Qt,
     QTimer, QVariantAnimation, pyqtSignal,
 )
 from PyQt6.QtGui import (
@@ -36,9 +36,9 @@ from PyQt6.QtGui import (
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
+    QMainWindow, QPushButton, QScrollArea, QSizePolicy,
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget,
-    QDialog, QGridLayout, QGraphicsDropShadowEffect, QMenu, QSystemTrayIcon,
+    QGridLayout, QGraphicsDropShadowEffect, QMenu, QSystemTrayIcon,
 )
 
 # SEGUNDO PLANO (01/11/2026, v1.0.37): botao e tecla F9 que deixam o NIA so
@@ -50,6 +50,7 @@ from core import segundo_plano as _segundo_plano
 # codigo da tela continua escrevendo a paleta ORIGINAL (classe C); quem troca
 # e este gancho. A folha original fica guardada no proprio widget para a troca
 # AO VIVO (`MainWindow.aplicar_tema`). Ver a explicacao no tema.py.
+from core.interface_canvas import CanvasBackground, CanvasStage, VerticalDock, DockPreferences, GLASS, icon, vector_icon
 from core import tema as _tema
 
 _SETSS_ORIGINAL = QWidget.setStyleSheet
@@ -1182,16 +1183,11 @@ class HudCanvas(QWidget):
     # raio de cada peca em relacao ao raio do anel externo
     _RAIO_INTERNO = 0.555     # o anel do reator cabe no buraco do anel de HUD
     _RAIO_ENERGIA = 0.40
-    # altura do nome da voz + nome do estado + medidor de voz. Era 80; ganhou
-    # 30 px em 22/10/2026 para o NOME DA VOZ ATUAL ficar em destaque embaixo
-    # do nucleo (pedido do Diego), sem o nucleo crescer por cima dele.
-    _BASE = 110
-    _N_BARRAS = 48
 
     def __init__(self, face_path: str, parent=None):
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
-        self.setMinimumSize(300, 260)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMinimumSize(120, 120)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         self.muted    = False
@@ -1228,12 +1224,6 @@ class HudCanvas(QWidget):
         self._ondas: list[list] = []
         self._vale = 0.0
         self._ultima_onda = 0.0
-        # MEDIDOR DE VOZ (05/10/2026, pedido do Diego: "igual o antigo"). Uma
-        # fileira de barras embaixo do nome do estado que sobe com a voz: a do
-        # NIA (ciano, volume real da caixa) ou a do dono (verde, microfone).
-        self._barras = [0.0] * self._N_BARRAS
-        self._ruido = [random.random() for _ in range(self._N_BARRAS)]
-        self._ruido_alvo = list(self._ruido)
         self._pontos = [[random.uniform(0, 2 * math.pi), random.uniform(1.03, 1.20),
                          random.uniform(0.15, 0.45) * random.choice((-1, 1)),
                          random.uniform(0.6, 1.3)] for _ in range(20)]
@@ -1246,7 +1236,6 @@ class HudCanvas(QWidget):
         self._centro: dict = {}
         self._carregar_pecas()
         self._cache_tam = None
-        self._fundo: QPixmap | None = None
         self._pecas: dict = {}          # (nome, modo) -> pixmap no tamanho maximo
         self._luz: QPixmap | None = None
         self._luzes: dict = {}
@@ -1254,9 +1243,6 @@ class HudCanvas(QWidget):
         # TROCA DE VOZ NA TELA (22/10/2026): {"fase": "sair"/"entrar", "t0",
         # "antigo", "novo"} enquanto uma voz chama a outra. Ver `transicao`.
         self._trans: dict | None = None
-        # O nome da voz que esta falando agora, relido a cada meio segundo.
-        self._nome_voz_txt = ""
-        self._nome_voz_t = 0.0
 
         # QUADROS POR SEGUNDO SOB DEMANDA (22/10/2026, v1.0.35). Eram 60 por
         # segundo SEMPRE — inclusive parado e minimizado, onde o `_step` fazia
@@ -1532,73 +1518,25 @@ class HudCanvas(QWidget):
         if (win is not None and win.isMinimized()) or not self.isVisible():
             self._ritmo(self._MS_ESCONDIDO)
             return
-        self._mover_barras(modo)
         ativo = (modo in ("nia", "dono", "pensando") or self._trans is not None
                  or bool(self._ondas) or self.nivel_voz > 0.02 or self._voz_lenta > 0.02)
         self._ritmo(self._MS_ATIVO if ativo else self._MS_QUIETO)
         self.update()
 
-    def _mover_barras(self, modo: str) -> None:
-        n = self._N_BARRAS
-        if self._tick % 4 == 0:
-            self._ruido_alvo = [random.random() for _ in range(n)]
-        t = self._fase
-        if modo == "nia":
-            nivel = self.nivel_voz
-        elif modo == "dono":
-            nivel = self._mic_mostrar
-        else:
-            nivel = 0.0
-        for i in range(n):
-            self._ruido[i] += (self._ruido_alvo[i] - self._ruido[i]) * 0.35
-            u = (i + 0.5) / n
-            corcova = math.sin(math.pi * u) ** 0.6       # o meio sobe mais
-            if modo in ("nia", "dono"):
-                onda = 0.55 + 0.45 * math.sin(t * 9.0 + i * 0.7)
-                alvo = min(1.0, 1.6 * nivel * corcova * (0.30 + 0.45 * self._ruido[i] + 0.25 * onda))
-            elif modo == "pensando":
-                alvo = 0.10 + 0.08 * math.sin(t * 5.0 + i * 0.45)
-            elif modo == "mudo":
-                alvo = 0.02
-            else:   # quieto: respira baixinho
-                alvo = 0.05 + 0.03 * math.sin(t * 1.8 + i * 0.35)
-            atual = self._barras[i]
-            self._barras[i] = atual + (alvo - atual) * (0.55 if alvo > atual else 0.18)
-
     # ── caches ──────────────────────────────────────────────────────────────
     def _geometria(self, W: int, H: int):
         cx = W / 2.0
-        livre = H - self._BASE                  # embaixo: estado + medidor de voz
+        livre = H
         cy = livre * 0.5 + 4
         alcance = max(60.0, min(cx, W - cx, cy, livre - cy + 8) - 2.0)
-        R = max(40.0, min(alcance * 0.96, W * 0.30))     # raio do anel externo no maximo
+        R = max(40.0, min(alcance * 0.96, W * 0.46))     # raio do anel externo no maximo
         return cx, cy, R, alcance
 
     def _montar_cache(self, W: int, H: int) -> None:
-        self._cache_tam = (W, H)
+        self._cache_tam = (W, H, self.devicePixelRatioF())
         cx, cy, R, alcance = self._geometria(W, H)
         self._geo = (cx, cy, R, alcance)
         dpr = self.devicePixelRatioF()
-
-        # Fundo do NIA de sempre: quase preto, grade de pontinhos e uma luz
-        # no centro que some na cor da janela (sem emenda com o resto).
-        fundo = QPixmap(max(1, int(W * dpr)), max(1, int(H * dpr)))
-        fundo.setDevicePixelRatio(dpr)
-        fundo.fill(qcol(_tc(C.BG)))
-        p = QPainter(fundo)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        g = QRadialGradient(QPointF(cx, cy), alcance)
-        g.setColorAt(0.0, qcol(_tc("#00263a")))
-        g.setColorAt(0.40, qcol(_tc("#001522")))
-        g.setColorAt(0.80, qcol(_tc("#000a10")))
-        g.setColorAt(1.0, qcol(_tc(C.BG)))
-        p.fillRect(QRectF(0, 0, W, H), QBrush(g))
-        p.setPen(QPen(qcol(_tc(C.PRI_GHO)), 1))
-        for x in range(0, W, 48):
-            for y in range(0, H, 48):
-                p.drawPoint(x, y)
-        p.end()
-        self._fundo = fundo
 
         # Pecas ja no tamanho maximo da tela (diminuir um pouco a cada quadro
         # e barato; aumentar borraria).
@@ -1693,7 +1631,7 @@ class HudCanvas(QWidget):
 
     def paintEvent(self, _):
         W, H = self.width(), self.height()
-        if self._cache_tam != (W, H) or self._tema_v != _tema.versao():
+        if self._cache_tam != (W, H, self.devicePixelRatioF()) or self._tema_v != _tema.versao():
             self._tema_v = _tema.versao()
             self._montar_cache(W, H)
         cx, cy, R, alcance = self._geo
@@ -1706,7 +1644,6 @@ class HudCanvas(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        p.drawPixmap(0, 0, self._fundo)
         # TROCA DE VOZ (22/10/2026): o nucleo inteiro encolhe/cresce em volta
         # do centro; o resto do desenho nao muda nada.
         tr = self._estado_transicao()
@@ -1778,8 +1715,6 @@ class HudCanvas(QWidget):
             p.resetTransform()
             self._desenhar_chamada(p, cx, cy, R, alcance, tr[2])
 
-        y_txt = self._desenhar_status(p, W, H, cx, cy, R, tr[1] if tr is not None else None)
-        self._desenhar_medidor(p, W, y_txt + 26)
         p.end()
 
     def _aneis_simples(self, p, cx, cy, r, e) -> None:
@@ -1795,136 +1730,6 @@ class HudCanvas(QWidget):
                           Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             for rep in range(3):
                 p.drawArc(ret, int((ang + rep * 120) * 16), int(comp * 16))
-
-    def _nome_voz(self) -> str:
-        """O nome da voz atual (com apelido), em maiuscula. Le a escolha que o
-        main guarda na casca (`persona_atual`); conta pronta a cada 0,5 s."""
-        agora = time.monotonic()
-        if agora - self._nome_voz_t < 0.5:
-            return self._nome_voz_txt
-        self._nome_voz_t = agora
-        try:
-            casca = getattr(self.window(), "_ui", None)
-            pg = (getattr(casca, "persona_atual", None) or {}).get("personagem", "")
-            if pg:
-                from core.personas import nome_da_ia  # noqa: PLC0415
-                self._nome_voz_txt = str(nome_da_ia(pg) or "").upper()
-        except Exception:
-            pass
-        return self._nome_voz_txt
-
-    def _desenhar_nome_voz(self, p, W, y: float) -> None:
-        """NOME DA VOZ ATUAL NA FRENTE (22/10/2026, pedido do Diego). Some
-        enquanto uma voz chama a outra e volta acendendo com o nome novo."""
-        nome = self._nome_voz()
-        if not nome:
-            return
-        alfa = 1.0
-        tr = self._trans
-        if tr:
-            dt = time.monotonic() - tr["t0"]
-            if tr["fase"] == "sair":
-                alfa = max(0.0, 1.0 - dt / 0.35)
-            else:
-                alfa = min(1.0, max(0.0, (dt - 0.3) / 0.6))
-        if alfa <= 0.01:
-            return
-        f = getattr(self, "_fonte_nome_voz", None)
-        if f is None:
-            f = self._fonte_nome_voz = _espacado(_fx(16, QFont.Weight.DemiBold), 9.0)
-        p.setFont(f)
-        ret = QRectF(0, y, W, 28)
-        pri = QColor(_tc(C.PRI))
-        # um halo fraco na cor do NIA atras do nome, depois o nome claro
-        p.setPen(QPen(QColor(pri.red(), pri.green(), pri.blue(), int(70 * alfa)), 1))
-        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            p.drawText(ret.translated(dx, dy), Qt.AlignmentFlag.AlignCenter, nome)
-        p.setPen(QPen(QColor(235, 250, 255, int(240 * alfa)), 1))
-        p.drawText(ret, Qt.AlignmentFlag.AlignCenter, nome)
-
-    def _desenhar_status(self, p, W, H, cx, cy, R, forcado: str | None = None) -> None:
-        # Tarefa longa aparece na frente de "FALANDO": enquanto o NIA
-        # desenha uma imagem ou busca leads, o cliente precisa ver o que esta
-        # sendo feito.
-        _TAREFAS = {
-            "EDITING_IMAGE":   "EDITANDO IMAGEM",
-            "CREATING_IMAGE":  "CRIANDO IMAGEM",
-            "CREATING_SITE":   "CRIANDO SITE",
-            "SEARCHING_LEADS": "BUSCANDO LEADS",
-        }
-        _tarefa = _TAREFAS.get(str(self.state).upper())
-        if self.muted:
-            txt = "MICROFONE MUDO"
-        elif _tarefa:
-            txt = _tarefa
-        elif self.speaking:
-            txt = "FALANDO"
-        elif self.state == "THINKING":
-            txt = "PENSANDO"
-        elif self.state == "PROCESSING":
-            txt = "PROCESSANDO"
-        elif self.state == "LISTENING":
-            txt = "OUVINDO"
-        else:
-            txt = {
-                "INITIALISING": "INICIANDO",
-                "MUTED": "MICROFONE MUDO",
-                "SPEAKING": "FALANDO",
-                "THINKING": "PENSANDO",
-                "PROCESSING": "PROCESSANDO",
-                "LISTENING": "OUVINDO",
-            }.get(str(self.state).upper(), str(self.state))
-        if forcado:                       # troca de voz: o rodape conta a chamada
-            txt = forcado
-        f = getattr(self, "_fonte_status", None)
-        if f is None:
-            f = self._fonte_status = _espacado(_fx(9.5, QFont.Weight.DemiBold), 5.0)
-        cor = self._cor
-        # lugar fixo, abaixo do tamanho maximo: nao pula enquanto o reator cresce.
-        # Primeiro o NOME DA VOZ (22/10/2026), o estado logo embaixo dele.
-        y_nome = min(H - self._BASE + 4.0, cy + R + 4)
-        self._desenhar_nome_voz(p, W, y_nome)
-        y = y_nome + 32
-        p.setFont(f)
-        p.setPen(QPen(QColor(cor.red(), cor.green(), cor.blue(), 220), 1))
-        p.drawText(QRectF(0, y, W, 22), Qt.AlignmentFlag.AlignCenter, txt)
-        return y
-
-    def _desenhar_medidor(self, p, W, topo: float) -> None:
-        """As barras de voz: sobem a partir de uma linha, mais claras na ponta,
-        com um reflexo fraco embaixo (como o medidor antigo, mais caprichado)."""
-        n = self._N_BARRAS
-        alto = 32.0
-        larg, vao = 5.0, 3.0
-        total = n * (larg + vao) - vao
-        x0 = W / 2.0 - total / 2.0
-        base = topo + alto
-        cor = self._cor
-        r, g, b = cor.red(), cor.green(), cor.blue()
-        ativo = self._modo in ("nia", "dono")
-        grad = QLinearGradient(QPointF(0, base), QPointF(0, topo))
-        grad.setColorAt(0.0, QColor(r, g, b, 150 if ativo else 70))
-        grad.setColorAt(1.0, QColor(min(255, r + 120), min(255, g + 60), min(255, b + 40),
-                                    255 if ativo else 110))
-        reflexo = QColor(r, g, b, 40 if ativo else 18)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(grad))
-        for i, v in enumerate(self._barras):
-            h = max(2.0, alto * min(1.0, v))
-            x = x0 + i * (larg + vao)
-            p.drawRoundedRect(QRectF(x, base - h, larg, h), 1.5, 1.5)
-        p.setBrush(QBrush(reflexo))
-        for i, v in enumerate(self._barras):
-            h = max(1.0, alto * 0.35 * min(1.0, v))
-            p.drawRect(QRectF(x0 + i * (larg + vao), base + 2, larg, h))
-        # linha fina de base que some nas pontas
-        lg = QLinearGradient(QPointF(x0 - 30, 0), QPointF(x0 + total + 30, 0))
-        lg.setColorAt(0.0, QColor(r, g, b, 0))
-        lg.setColorAt(0.5, QColor(r, g, b, 120))
-        lg.setColorAt(1.0, QColor(r, g, b, 0))
-        p.setPen(QPen(QBrush(lg), 1.0))
-        p.drawLine(QPointF(x0 - 30, base + 1), QPointF(x0 + total + 30, base + 1))
-
 
 class _MarcaNia(QWidget):
     """O simbolo no alto da barra lateral: um mini nucleo que gira devagar."""
@@ -2135,6 +1940,11 @@ class ControlCard(QPushButton):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet("background: transparent; border: none;")
 
+    def setText(self, text):
+        super().setText(text)
+        self.setToolTip(text.replace("\n", " · "))
+        self.setAccessibleName(text.replace("\n", " "))
+
     def set_card_theme(self, color: str, background: str) -> None:
         self._theme_anim.stop()
         self._theme_from_color = QColor(self._display_color)
@@ -2216,7 +2026,7 @@ class ControlCard(QPushButton):
         self, painter: QPainter, center: QPointF, color: QColor, status: str,
         k: float = 1.0
     ) -> None:
-        """Render crisp controls from Windows' native Fluent icon library."""
+        """Ícones vetoriais sem dependência das fontes instaladas."""
         del status  # State is already conveyed by color, LED and the status pill.
         if self.objectName() == "whatsapp":
             if self._whatsapp_renderer is None:
@@ -2231,69 +2041,8 @@ class ControlCard(QPushButton):
                 )
                 painter.restore()
                 return
-        glyphs = {
-            "mute": "\ue720",       # Microphone
-            "interrupt": "\ue71a",  # Stop
-            "whatsapp": "\ue8bd",   # Message
-            "remote": "\ue703",     # Connect devices
-            "webcam": "\ue722",     # Camera
-            "cowork": "\ue943",     # Code
-            "computer_use": "\ue7f4",  # Monitor (08/10/2026)
-            "segundo_plano": "\ue708",  # QuietHours, a lua (01/11/2026)
-            "globo": "\ue774",          # Globe (02/11/2026)
-        }
-        # A LUA DO SEGUNDO PLANO SEM A FONTE DO WINDOWS (Linux/Mac): desenhada
-        # aqui, para o botao novo nao virar um quadradinho vazio.
-        if (self.objectName() == "segundo_plano"
-                and _system_icon_font_family() == "Segoe UI Symbol"):
-            r = 9.0 * k
-            lua = QPainterPath()
-            lua.addEllipse(center, r, r)
-            corte = QPainterPath()
-            corte.addEllipse(QPointF(center.x() + r * 0.55, center.y() - r * 0.40),
-                             r * 0.82, r * 0.82)
-            painter.save()
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(color))
-            painter.drawPath(lua.subtracted(corte))
-            painter.restore()
-            return
-        # O GLOBO SEM A FONTE DO WINDOWS (Linux/Mac): desenhado, como a lua acima.
-        if (self.objectName() == "globo"
-                and _system_icon_font_family() == "Segoe UI Symbol"):
-            r = 9.5 * k
-            painter.save()
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(color, 1.5))
-            painter.drawEllipse(center, r, r)
-            painter.drawEllipse(center, r * 0.45, r)
-            painter.drawLine(QPointF(center.x() - r, center.y()), QPointF(center.x() + r, center.y()))
-            painter.restore()
-            return
-        # O ICONE VEM DAQUI, NAO DO TEXTO DO CARTAO.
-        #
-        # Eu tinha posto um cadeado na PRIMEIRA linha do texto achando que ela
-        # virava icone — nao vira: o `paintEvent` usa a linha 1 como titulo e a
-        # 2 como estado, e a linha 0 e ignorada. O cartao novo caia no
-        # `\uecca` generico e ficava com o mesmo circulo nos dois estados.
-        #
-        # Este e o unico cartao que muda de icone com o estado, entao ele nao
-        # cabe na tabela: o cadeado fecha quando o portao esta ligado.
-        if self.objectName() == "so_nome":
-            linhas = self.text().splitlines()
-            titulo = linhas[1] if len(linhas) > 1 else ""
-            glyph = "\ue72e" if titulo.startswith("SÓ") else "\ue785"
-        else:
-            glyph = glyphs.get(self.objectName(), "\uecca")
-        painter.save()
-        painter.setFont(QFont(_system_icon_font_family(), max(12, int(round(22 * k)))))
-        painter.setPen(QPen(color, 1.0))
-        painter.drawText(
-            QRectF(center.x() - 18 * k, center.y() - 18 * k, 36 * k, 36 * k),
-            Qt.AlignmentFlag.AlignCenter,
-            glyph,
-        )
-        painter.restore()
+        renderer = vector_icon(self.objectName(), color.name())
+        renderer.render(painter, QRectF(center.x()-13*k,center.y()-13*k,26*k,26*k))
 
     def paintEvent(self, _):
         # BOTAO DO DOCK (visual novo, 05/10/2026). Texto em 3 linhas, animacoes
@@ -2324,7 +2073,9 @@ class ControlCard(QPushButton):
             title = _nome_tela("botao_" + self.objectName(), title)
         status = lines[2] if len(lines) > 2 else ""
 
-        ic = QPointF(w / 2.0, 28.0 + y_shift)
+        dock_icon_size = self.property('dock_icon_size')
+        compact = dock_icon_size is not None or h <= 56
+        ic = QPointF(w / 2.0, (h / 2.0 if compact else 28.0) + y_shift)
         r_ic = 18.0
         halo = QRadialGradient(ic, r_ic * 2.1)
         halo.setColorAt(0.0, qcol(accent.name(), round(55 + 70 * hover)))
@@ -2339,9 +2090,14 @@ class ControlCard(QPushButton):
         disco.setColorAt(1.0, self._mix_color(QColor(_tc("#010d14")), accent, 0.10))
         p.setBrush(QBrush(disco))
         p.setPen(QPen(qcol(accent.name(), round(120 + 100 * hover)), 1.2))
-        p.drawEllipse(ic, r_ic, r_ic)
+        if compact:
+            half = min(w,h)/2-5
+            p.drawRoundedRect(QRectF(ic.x()-half,ic.y()-half,half*2,half*2),13,13)
+        else:
+            p.drawEllipse(ic, r_ic, r_ic)
         cor_icone = self._mix_color(accent, QColor(_tc("#ffffff")), 0.30 + 0.25 * hover)
-        self._paint_vector_icon(p, ic, cor_icone, status, 0.82)
+        self._paint_vector_icon(p, ic, cor_icone, status,
+                                float(dock_icon_size)/26 if dock_icon_size else 0.82)
 
         if status.strip().upper() in {"ATIVO", "ATIVA"}:
             led = QPointF(ic.x() + r_ic * 0.74, ic.y() - r_ic * 0.74)
@@ -2354,12 +2110,13 @@ class ControlCard(QPushButton):
             p.setBrush(QBrush(self._mix_color(accent, QColor(_tc("#ffffff")), 0.45)))
             p.drawEllipse(led, 2.4, 2.4)
 
-        p.setFont(_ftexto(7.3, QFont.Weight.DemiBold))
-        p.setPen(QPen(qcol(_tc(C.WHITE), 235), 1))
-        p.drawText(QRectF(1, 50 + y_shift, w - 2, 14), Qt.AlignmentFlag.AlignCenter, title)
-        p.setFont(_espacado(_fx(6.0, QFont.Weight.DemiBold), 0.8))
-        p.setPen(QPen(self._mix_color(accent, QColor(_tc("#ffffff")), 0.10), 1))
-        p.drawText(QRectF(1, 64 + y_shift, w - 2, 12), Qt.AlignmentFlag.AlignCenter, status)
+        if not compact:
+            p.setFont(_ftexto(7.3, QFont.Weight.DemiBold))
+            p.setPen(QPen(qcol(_tc(C.WHITE), 235), 1))
+            p.drawText(QRectF(1, 50 + y_shift, w - 2, 14), Qt.AlignmentFlag.AlignCenter, title)
+            p.setFont(_espacado(_fx(6.0, QFont.Weight.DemiBold), 0.8))
+            p.setPen(QPen(self._mix_color(accent, QColor(_tc("#ffffff")), 0.10), 1))
+            p.drawText(QRectF(1, 64 + y_shift, w - 2, 12), Qt.AlignmentFlag.AlignCenter, status)
 
         if self._ripple_progress < 1.0:
             ripple_path = QPainterPath()
@@ -2617,7 +2374,13 @@ class LogWidget(QScrollArea):
         self._text = corpo or texto
         self._lbl = self._novo_balao(tipo, quem, self._text)
         self._pos = 0
-        self._tmr.start(14)
+        if not self.isVisible():
+            _SET_TEXT_CRU(self._lbl, self._text)
+            self._pos = len(self._text)
+            self._typing = False
+            QTimer.singleShot(0, self._next)
+        else:
+            self._tmr.start(14)
 
     def _step(self):
         if self._lbl is None:
@@ -2625,7 +2388,7 @@ class LogWidget(QScrollArea):
             self._typing = False
             return
         # Com fila acumulada, escreve de uma vez para nao ficar para tras.
-        passo = 3 if len(self._queue) < 3 else len(self._text)
+        passo = 3 if self.isVisible() and len(self._queue) < 3 else len(self._text)
         self._pos = min(len(self._text), self._pos + passo)
         try:
             _SET_TEXT_CRU(self._lbl, self._text[: self._pos])
@@ -3662,11 +3425,11 @@ class WhatsAppQrOverlay(QWidget):
                 pass
 
     def _abrir_opcoes_secretaria(self):
-        """MAIS OPCOES da secretaria: a aba dela na engrenagem."""
+        """MAIS OPCOES da secretaria: abre a área Secretária do dashboard."""
         try:
             janela = self.window()
-            if hasattr(janela, "_show_personas"):
-                janela._show_personas(abrir_em="secretaria")
+            if hasattr(janela, "_abrir_dashboard_config"):
+                janela._abrir_dashboard_config("secretaria")
         except Exception as exc:
             print(f"[ui] opcoes da secretaria: {exc}")
 
@@ -3936,507 +3699,6 @@ class AvisoComputador(QWidget):
         return True
 
 
-class _SeletorCor(QWidget):
-    """Quadro de cor (saturacao x brilho) + faixa de matiz.
-
-    Passar o mouse emite `passou(cor)` — a cor EXATA debaixo do ponteiro;
-    clicar (ou arrastar e soltar) emite `escolheu(cor)`."""
-
-    passou = pyqtSignal(QColor)
-    escolheu = pyqtSignal(QColor)
-    saiu = pyqtSignal()
-
-    _QW, _QH, _FAIXA, _VAO = 340, 176, 18, 10
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMouseTracking(True)
-        self.setCursor(Qt.CursorShape.CrossCursor)
-        self.setFixedSize(self._QW, self._QH + self._VAO + self._FAIXA)
-        self._h, self._s, self._v = 190.0, 1.0, 1.0
-        self._mouse = None          # ponto do ponteiro (para a mira)
-        self._arrastando = None     # "quadro" | "faixa" | None
-        self._img_quadro = None
-        self._h_img = None
-
-    def set_cor(self, cor: QColor) -> None:
-        h, s, v, _a = cor.getHsvF()
-        if h is not None and h >= 0:
-            self._h = h * 360.0
-        self._s, self._v = float(s), float(v)
-        self.update()
-
-    def _cor(self) -> QColor:
-        return QColor.fromHsvF((self._h % 360.0) / 360.0, self._s, self._v)
-
-    def _de_ponto(self, pos):
-        """(zona, cor) do ponto, sem mexer no estado."""
-        x = max(0.0, min(float(self._QW - 1), pos.x()))
-        y = pos.y()
-        if y <= self._QH + self._VAO / 2:
-            y = max(0.0, min(float(self._QH - 1), y))
-            s = x / (self._QW - 1)
-            v = 1.0 - y / (self._QH - 1)
-            return "quadro", QColor.fromHsvF((self._h % 360.0) / 360.0, s, v), (s, v)
-        h = 359.0 * x / (self._QW - 1)
-        return "faixa", QColor.fromHsvF(h / 360.0, self._s, self._v), h
-
-    def _montar_quadro(self):
-        img = QImage(self._QW, self._QH, QImage.Format.Format_RGB32)
-        p = QPainter(img)
-        p.fillRect(img.rect(), QColor.fromHsvF((self._h % 360.0) / 360.0, 1.0, 1.0))
-        g1 = QLinearGradient(0, 0, self._QW, 0)
-        g1.setColorAt(0.0, QColor(255, 255, 255, 255))
-        g1.setColorAt(1.0, QColor(255, 255, 255, 0))
-        p.fillRect(img.rect(), QBrush(g1))
-        g2 = QLinearGradient(0, 0, 0, self._QH)
-        g2.setColorAt(0.0, QColor(0, 0, 0, 0))
-        g2.setColorAt(1.0, QColor(0, 0, 0, 255))
-        p.fillRect(img.rect(), QBrush(g2))
-        p.end()
-        self._img_quadro = img
-        self._h_img = self._h
-
-    def paintEvent(self, _):
-        if self._img_quadro is None or self._h_img != self._h:
-            self._montar_quadro()
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        caminho = QPainterPath()
-        caminho.addRoundedRect(QRectF(0, 0, self._QW, self._QH), 8, 8)
-        p.setClipPath(caminho)
-        p.drawImage(0, 0, self._img_quadro)
-        p.setClipping(False)
-        p.setPen(QPen(QColor(255, 255, 255, 60), 1))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(QRectF(0.5, 0.5, self._QW - 1, self._QH - 1), 8, 8)
-        # faixa de matiz
-        y0 = self._QH + self._VAO
-        g = QLinearGradient(0, 0, self._QW, 0)
-        for i in range(13):
-            g.setColorAt(i / 12.0, QColor.fromHsvF((i / 12.0) % 1.0 if i < 12 else 0.9999, 1.0, 1.0))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(g))
-        p.drawRoundedRect(QRectF(0, y0, self._QW, self._FAIXA), 6, 6)
-        # marcas da cor escolhida
-        sx = self._s * (self._QW - 1)
-        sy = (1.0 - self._v) * (self._QH - 1)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor(0, 0, 0, 200), 3))
-        p.drawEllipse(QPointF(sx, sy), 7, 7)
-        p.setPen(QPen(QColor(255, 255, 255), 1.6))
-        p.drawEllipse(QPointF(sx, sy), 7, 7)
-        hx = (self._h % 360.0) / 359.0 * (self._QW - 1)
-        p.setPen(QPen(QColor(0, 0, 0, 200), 3))
-        p.drawRoundedRect(QRectF(hx - 3, y0 - 2, 6, self._FAIXA + 4), 2, 2)
-        p.setPen(QPen(QColor(255, 255, 255), 1.4))
-        p.drawRoundedRect(QRectF(hx - 3, y0 - 2, 6, self._FAIXA + 4), 2, 2)
-        # mira do ponteiro: um circulo com a cor exata debaixo dele
-        if self._mouse is not None and self._arrastando is None:
-            zona, cor, _v = self._de_ponto(self._mouse)
-            mx = max(0.0, min(float(self._QW), self._mouse.x()))
-            my = self._mouse.y() if zona == "quadro" else y0 + self._FAIXA / 2
-            p.setPen(QPen(QColor(255, 255, 255, 230), 2))
-            p.setBrush(QBrush(cor))
-            p.drawEllipse(QPointF(mx, my), 9, 9)
-        p.end()
-
-    def _aplicar_ponto(self, pos, zona):
-        _z, cor, val = self._de_ponto(pos)
-        if zona == "quadro" and _z == "quadro":
-            self._s, self._v = val
-        elif zona == "faixa":
-            if _z == "faixa":
-                self._h = val
-            else:
-                self._h = 359.0 * max(0.0, min(float(self._QW - 1), pos.x())) / (self._QW - 1)
-        self.update()
-        return self._cor()
-
-    def mousePressEvent(self, ev):
-        if ev.button() != Qt.MouseButton.LeftButton:
-            return
-        zona, _c, _v = self._de_ponto(ev.position())
-        self._arrastando = zona
-        self.passou.emit(self._aplicar_ponto(ev.position(), zona))
-
-    def mouseMoveEvent(self, ev):
-        self._mouse = ev.position()
-        if self._arrastando:
-            self.passou.emit(self._aplicar_ponto(ev.position(), self._arrastando))
-            return
-        _z, cor, _v = self._de_ponto(ev.position())
-        self.passou.emit(cor)
-        self.update()
-
-    def mouseReleaseEvent(self, ev):
-        if ev.button() != Qt.MouseButton.LeftButton or not self._arrastando:
-            return
-        cor = self._aplicar_ponto(ev.position(), self._arrastando)
-        self._arrastando = None
-        self.escolheu.emit(cor)
-
-    def leaveEvent(self, ev):
-        self._mouse = None
-        self.update()
-        self.saiu.emit()
-        super().leaveEvent(ev)
-
-
-class _PreviaTema(QWidget):
-    """Miniatura do NIA com as cores de agora — ou com a cor debaixo do
-    mouse, antes de clicar (`prever`)."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(250, 132)
-        self._teste = (None, None)
-        self._pecas = {}
-        self._nid = None
-        self._carregar()
-
-    def _carregar(self) -> None:
-        # as pecas do nucleo escolhido na aba NUCLEO (13/10/2026)
-        self._nid = _nucleo_atual()
-        for nome in ("anel_interno", "energia"):
-            px, _centro = _arte_nucleo(self._nid, nome)
-            self._pecas[nome] = None if px is None else px.scaled(
-                76, 76, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-
-    def prever(self, chave, valor) -> None:
-        self._teste = (chave, valor)
-        self.update()
-
-    @staticmethod
-    def _tingir(px: QPixmap, cor: str) -> QPixmap:
-        img = px.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
-        img = img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-        p = QPainter(img)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
-        p.fillRect(img.rect(), QColor(cor))
-        p.end()
-        return QPixmap.fromImage(img)
-
-    def paintEvent(self, _):
-        chave, valor = self._teste
-        guardado = None
-        if chave:
-            guardado = (dict(_tema._escolhas), _tema._versao)
-            _tema.definir(chave, valor, gravar=False)
-        try:
-            self._desenhar()
-        finally:
-            if guardado is not None:
-                _tema._escolhas.clear()
-                _tema._escolhas.update(guardado[0])
-                _tema._cache.clear()
-                _tema._versao = guardado[1]
-
-    def _desenhar(self):
-        if self._nid != _nucleo_atual():
-            self._carregar()
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        W, H = self.width(), self.height()
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(_tc(C.BG))))
-        p.drawRoundedRect(QRectF(0, 0, W, H), 8, 8)
-        # o nucleo
-        cx, cy = 50.0, H / 2.0
-        luz = QRadialGradient(QPointF(cx, cy), 48)
-        luz.setColorAt(0.0, qcol(_tc("#00263a")))
-        luz.setColorAt(1.0, qcol(_tc(C.BG), 0))
-        p.setBrush(QBrush(luz))
-        p.drawEllipse(QPointF(cx, cy), 48, 48)
-        cor_n = _tema.nucleo("ocioso")
-        for nome in ("anel_interno", "energia"):
-            px = self._pecas.get(nome)
-            if px is None:
-                continue
-            if _tema.nucleo_tingido():
-                px = self._tingir(px, cor_n)
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-            p.drawPixmap(QPointF(cx - px.width() / 2, cy - px.height() / 2), px)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-        # o painel com texto
-        painel = QRectF(104, 12, W - 114, 56)
-        p.setBrush(QBrush(QColor(_tc(C.PANEL))))
-        p.setPen(QPen(QColor(_tc(C.BORDER_B)), 1))
-        p.drawRoundedRect(painel, 7, 7)
-        p.setFont(_fx(8.2, QFont.Weight.Bold))
-        p.setPen(QPen(QColor(_tc(C.PRI))))
-        p.drawText(QRectF(painel.x() + 8, painel.y() + 5, painel.width() - 10, 16),
-                   Qt.AlignmentFlag.AlignLeft, "NIA")
-        p.setFont(_ftexto(7.6))
-        p.setPen(QPen(QColor(_tc(C.TEXT))))
-        p.drawText(QRectF(painel.x() + 8, painel.y() + 21, painel.width() - 10, 14),
-                   Qt.AlignmentFlag.AlignLeft, "Pois não, senhor.")
-        p.setPen(QPen(QColor(_tc(C.TEXT_DIM))))
-        p.drawText(QRectF(painel.x() + 8, painel.y() + 36, painel.width() - 10, 14),
-                   Qt.AlignmentFlag.AlignLeft, "Tudo pronto por aqui.")
-        # tres botoes da barra
-        for i, (nome, cor0) in enumerate((("mute", C.GREEN), ("cowork", C.ACC),
-                                          ("computer_use", C.PRI))):
-            c = QColor(_tema.cor_botao(nome, cor0) or cor0)
-            bx = 118 + i * 42
-            by = 98
-            halo = QRadialGradient(QPointF(bx, by), 18)
-            halo.setColorAt(0.0, qcol(c.name(), 90))
-            halo.setColorAt(1.0, qcol(c.name(), 0))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(halo))
-            p.drawEllipse(QPointF(bx, by), 18, 18)
-            p.setBrush(QBrush(QColor(_tc("#010d14"))))
-            p.setPen(QPen(c, 1.4))
-            p.drawEllipse(QPointF(bx, by), 11, 11)
-            p.setBrush(QBrush(c))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QPointF(bx, by), 4, 4)
-        p.end()
-
-
-class _CartaoNucleo(QWidget):
-    """Um cartao da aba NUCLEO (13/10/2026): miniatura animada + nome.
-
-    O movimento e o do proprio `_MotorNucleo`, com uma voz de mentira (fala
-    3 s, cala 2,8 s): o cliente ve como cada um reage a voz antes de escolher.
-    As pecas sao copias pequenas, feitas uma vez (e de novo se a cor mudar)."""
-
-    escolhido = pyqtSignal(str)
-    _W, _H = 124, 146
-    _RAIO = 46.0                 # raio do anel de fora no maximo
-    _CICLO = 5.8
-
-    def __init__(self, nid: str, atraso: float = 0.0, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(self._W, self._H)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.nid = nid
-        self.ativo = False
-        self._sobre = False
-        self._motor = _MotorNucleo(nid)
-        self.setToolTip(self._motor.cfg["nome"])
-        self._t = atraso
-        self._ang = [0.0, 0.0, 0.0, 0.0]
-        self._v = self._lenta = self._pulso = 0.0
-        self._tam = 0.82
-        self._pecas: dict = {}
-        self._centros: dict = {}
-        self._bases: dict = {}          # copias pequenas sem tinta (lidas UMA vez)
-        self._bases_dpr = None
-        self._chave = None
-
-    def avancar(self, dt: float) -> None:
-        self._t += dt
-        c = self._t % self._CICLO
-        if c < 3.0:
-            env = math.sin(math.pi * c / 3.0) ** 0.5
-            alvo = env * (0.30 + 0.70 * abs(math.sin(c * 8.5 + 1.6 * math.sin(c * 2.3))))
-            modo = "nia"
-        else:
-            alvo, modo = 0.0, "ocioso"
-        self._v += (alvo - self._v) * (0.6 if alvo > self._v else 0.35)
-        lenta = self._v if modo == "nia" else 0.0
-        self._lenta += (lenta - self._lenta) * (0.18 if lenta > self._lenta else 0.07)
-        self._pulso += (self._v - self._pulso) * (0.6 if self._v > self._pulso else 0.25)
-        giros = _giros_base(modo, self._v)
-        for i, g in enumerate(giros):
-            self._ang[i] = (self._ang[i] + g * dt) % 360
-        self._motor.passo(dt, modo, self._v, 0.0, self._lenta, self._pulso, self._ang, giros)
-        alvo_tam = 0.82 + 0.18 * min(1.0, self._lenta * 1.6) if modo == "nia" else 0.82
-        self._tam += (alvo_tam - self._tam) * 0.15
-
-    def _garantir_pecas(self) -> None:
-        tingido = _tema.nucleo_tingido()
-        dpr = self.devicePixelRatioF()
-        chave = (_tema.versao(), dpr, tingido)
-        if chave == self._chave:
-            return
-        self._chave = chave
-        if self._bases_dpr != dpr:
-            # a arte de 800 px e lida sem ir para o cache (13/10/2026): o
-            # cartao guarda so a copia pequena; trocar a cor so retinge
-            self._bases_dpr = dpr
-            cfg = self._motor.cfg
-            esc_max = cfg.get("esc_max", 1.0)
-            lado = {"anel_externo": 2 * self._RAIO * esc_max,
-                    "anel_interno": 2 * self._RAIO * cfg.get("r_int", 0.555) * esc_max,
-                    "energia": 2 * self._RAIO * cfg.get("r_en", 0.40) * 1.7}
-            self._bases, self._centros = {}, {}
-            for nome in HudCanvas._PECAS:
-                px, centro = _arte_nucleo(self.nid, nome, guardar=False)
-                if px is None:
-                    continue
-                n = max(8, int(lado[nome] * dpr))
-                px = px.scaled(n, n, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                px.setDevicePixelRatio(dpr)
-                self._bases[nome] = px
-                self._centros[nome] = centro
-        self._pecas = {}
-        for nome, px in self._bases.items():
-            if tingido:
-                px = _PreviaTema._tingir(px, _tema.nucleo("ocioso"))
-                px.setDevicePixelRatio(dpr)
-            self._pecas[nome] = px
-
-    def _peca(self, p, nome, cx, cy, raio, ang, opac, sx=1.0) -> None:
-        px = self._pecas.get(nome)
-        if px is None:
-            return
-        lado = px.width() / px.devicePixelRatio()
-        esc = 2 * raio / lado
-        ox, oy = self._centros.get(nome, (0.0, 0.0))
-        p.save()
-        p.translate(cx, cy)
-        p.rotate(ang)
-        p.scale(esc * sx, esc)
-        p.setOpacity(max(0.0, min(1.0, opac)))
-        p.drawPixmap(QRectF(-lado / 2 - ox * lado, -lado / 2 - oy * lado, lado, lado), px, QRectF(px.rect()))
-        p.restore()
-
-    def paintEvent(self, _):
-        self._garantir_pecas()
-        W, H = self.width(), self.height()
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        caixa = QRectF(1, 1, W - 2, H - 2)
-        if self.ativo:
-            borda, larg = QColor(_tc(C.PRI)), 2.0
-        else:
-            borda, larg = QColor(_tc(C.BORDER_B if self._sobre else C.BORDER)), 1.0
-        p.setPen(QPen(borda, larg))
-        p.setBrush(QBrush(QColor(_tc(C.PRI_GHO if self.ativo else C.PANEL))))
-        p.drawRoundedRect(caixa, 8, 8)
-        moldura = QPainterPath()
-        moldura.addRoundedRect(caixa.adjusted(1.5, 1.5, -1.5, -1.5), 7, 7)
-        p.setClipPath(moldura)
-
-        m = self._motor
-        cfg = m.cfg
-        cx, cy = W / 2.0, 59.0
-        r = self._RAIO * self._tam
-        alcance = 56.0
-        e = 0.45 + 0.50 * self._v
-        cor = QColor(_tema.nucleo("ocioso"))
-        luz = _luz_tingida(cor)
-        branco = _luz_tingida(_misturar(cor, QColor(255, 255, 255), 0.6))
-        FR = QPainter.PixmapFragment.create
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-        esc = min(alcance, r * 1.35) / 64.0
-        p.drawPixmapFragments([FR(QPointF(cx, cy), _FS, esc, esc, 0, 0.10 + 0.22 * e)], luz)
-        m.desenhar_atras(p, cx, cy, r, alcance, cor, luz, branco, e)
-        self._peca(p, "anel_externo", cx, cy, r * m.esc_ext, m.ang_ext, 0.55 + 0.45 * e)
-        self._peca(p, "anel_interno", cx, cy, r * cfg.get("r_int", 0.555) * m.esc_int, m.ang_int, 0.60 + 0.40 * e)
-        re = r * cfg.get("r_en", 0.40) * m.fator_en
-        self._peca(p, "energia", cx, cy, re, m.ang_en, 0.75 + 0.25 * e, m.sx_en)
-        en2 = cfg.get("en2", "contra")
-        if en2 == "contra":
-            self._peca(p, "energia", cx, cy, re * 0.92, m.ang_en2, 0.35 + 0.35 * e, m.sx_en)
-        elif en2 == "eco" and m.eco > 0.03:
-            self._peca(p, "energia", cx, cy, re * (1.0 + 0.30 * m.eco), m.ang_en, 0.45 * m.eco, m.sx_en)
-        elif en2 == "rastro" and m.rastro > 1.0:
-            self._peca(p, "energia", cx, cy, re, m.ang_en - m.sentido * m.rastro, 0.30, m.sx_en)
-        esc = r * (0.16 + 0.22 * self._pulso) / 64.0
-        p.drawPixmapFragments([FR(QPointF(cx, cy), _FS, esc, esc, 0, 0.35 + 0.55 * e)], branco)
-        m.desenhar_frente(p, cx, cy, r, alcance, cor, luz, branco, e)
-        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-        p.setClipping(False)
-
-        p.setFont(_fx(8.4, QFont.Weight.Bold))
-        p.setPen(QPen(QColor(_tc(C.TEXT if self.ativo else C.TEXT_MED))))
-        p.drawText(QRectF(0, H - 30, W, 22), Qt.AlignmentFlag.AlignCenter, cfg["nome"])
-        p.end()
-
-    def mousePressEvent(self, ev):
-        if ev.button() == Qt.MouseButton.LeftButton:
-            self.escolhido.emit(self.nid)
-
-    def enterEvent(self, ev):
-        self._sobre = True
-        self.update()
-        super().enterEvent(ev)
-
-    def leaveEvent(self, ev):
-        self._sobre = False
-        self.update()
-        super().leaveEvent(ev)
-
-
-class _PaginaNucleo(QWidget):
-    """A aba NUCLEO da engrenagem (13/10/2026): os dez formatos em cartoes com
-    miniatura animada. Clicar aplica na hora no nucleo grande e grava em
-    config/nucleo.json. As miniaturas so andam com a aba na tela (um
-    cronometro de ~30 quadros por segundo; escondida, ele para)."""
-
-    def __init__(self, hud=None, parent=None):
-        super().__init__(parent)
-        self._hud = hud
-        raiz = QVBoxLayout(self)
-        raiz.setContentsMargins(0, 8, 0, 0)
-        raiz.setSpacing(10)
-        exp = QLabel("Escolha o núcleo do NIA. Ele muda na hora.")
-        exp.setWordWrap(True)
-        exp.setFont(_fx(8.6))
-        exp.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        raiz.addWidget(exp)
-        grade = QGridLayout()
-        grade.setHorizontalSpacing(10)
-        grade.setVerticalSpacing(10)
-        self._cartoes: dict = {}
-        for i, nid in enumerate(_NUCLEOS):
-            c = _CartaoNucleo(nid, atraso=i * 0.53)
-            c.escolhido.connect(self._escolher)
-            grade.addWidget(c, i // 5, i % 5)
-            self._cartoes[nid] = c
-        linha = QHBoxLayout()
-        linha.addStretch()
-        linha.addLayout(grade)
-        linha.addStretch()
-        raiz.addLayout(linha)
-        raiz.addStretch()
-        self._marcar(getattr(hud, "_nucleo", None) or _nucleo_salvo())
-        self._t_ant = time.monotonic()
-        self._tmr = QTimer(self)
-        self._tmr.timeout.connect(self._quadro)
-
-    def showEvent(self, ev):
-        super().showEvent(ev)
-        self._t_ant = time.monotonic()
-        self._tmr.start(33)
-
-    def hideEvent(self, ev):
-        self._tmr.stop()
-        super().hideEvent(ev)
-
-    def _quadro(self) -> None:
-        if not self.isVisible():
-            self._tmr.stop()
-            return
-        agora = time.monotonic()
-        dt = max(0.005, min(0.08, agora - self._t_ant))
-        self._t_ant = agora
-        for c in self._cartoes.values():
-            c.avancar(dt)
-            c.update()
-
-    def _marcar(self, nid: str) -> None:
-        for k, c in self._cartoes.items():
-            c.ativo = (k == nid)
-            c.update()
-
-    def _escolher(self, nid: str) -> None:
-        # Nada aqui pode levantar: excecao em slot do Qt fecha a janela.
-        try:
-            if self._hud is not None:
-                nid = self._hud.trocar_nucleo(nid, gravar=True)
-            else:
-                _gravar_nucleo(nid)
-            self._marcar(nid)
-        except Exception as exc:
-            print(f"[NIA] nao troquei o nucleo: {exc}")
-
-
 class MainWindow(QMainWindow):
     _log_sig     = pyqtSignal(str)
     _state_sig   = pyqtSignal(str)
@@ -4455,7 +3717,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, face_path: str):
         # ANTES DE MONTAR QUALQUER PAINEL. O cartao "so com o nome" e criado
-        # dentro de `_build_right_panel`, que roda no meio deste __init__ e ja
+        # dentro de `_build_dock`, que roda no meio deste __init__ e ja
         # chama `_style_nome_btn()`. Declarado mais abaixo, junto com o resto do
         # estado, o programa nao abria: AttributeError no primeiro estilo.
         #
@@ -4504,42 +3766,21 @@ class MainWindow(QMainWindow):
         self._whatsapp_overlay: WhatsAppQrOverlay | None = None
         self._whatsapp_connecting = False
 
-        # ESTRUTURA NOVA (05/10/2026): topo, palco (esfera + dock) e a coluna
-        # da direita (sistema + conversa). Fundo liso na cor da janela: a luz
-        # atras da esfera some nessa mesma cor, sem emenda.
-        central = QWidget()
-        central.setObjectName("NiaFundo")
-        central.setStyleSheet(f"QWidget#NiaFundo {{ background: {C.BG}; }}")
+        central = CanvasBackground(preferences=DockPreferences(CONFIG_DIR / 'interface.json').data)
         self.setCentralWidget(central)
-
         root = QVBoxLayout(central)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        root.setContentsMargins(28, 16, 28, 24)
+        root.setSpacing(12)
         root.addWidget(self._build_header())
-
         corpo = QHBoxLayout()
-        corpo.setContentsMargins(14, 4, 14, 14)
-        corpo.setSpacing(14)
+        corpo.setSpacing(18)
         root.addLayout(corpo, 1)
-
-        shell = QWidget()
-        shell.setObjectName("NiaShell")
-        shell.setStyleSheet("QWidget#NiaShell { background: transparent; }")
-        shell_lay = QVBoxLayout(shell)
-        shell_lay.setContentsMargins(0, 0, 0, 0)
-        shell_lay.setSpacing(0)
-        corpo.addWidget(shell, stretch=1)
-
-        # Center column: HUD + resizable content panel via QSplitter
         self.hud = HudCanvas(face_path)
-        self.hud.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._content_panel = self._build_content_panel()
-
         # Keep the original animated HUD alive at all times.  The real camera
         # feed is only a visual overlay and reuses the existing stream methods.
         self._hud_cam_stack = QStackedWidget()
         self._hud_cam_stack.setObjectName("HudStage")
-        self._hud_cam_stack.setStyleSheet(f"QStackedWidget#HudStage {{ background: {C.BG}; }}")
+        self._hud_cam_stack.setStyleSheet("QStackedWidget#HudStage { background: transparent; }")
         self._hud_cam_stack.addWidget(self.hud)
 
         self._cam_cont = QWidget(self._hud_cam_stack)
@@ -4592,32 +3833,43 @@ class MainWindow(QMainWindow):
         self._cam_cont.hide()
         self._cam_stream_active = False
 
-        self._center_split = QSplitter(Qt.Orientation.Vertical)
-        self._center_split.setStyleSheet(f"""
-            QSplitter::handle {{
-                background: transparent;
-                height: 8px;
-            }}
-            QSplitter::handle:hover {{
-                background: {C.PRI_DIM};
-            }}
-        """)
-        self._center_split.addWidget(self._hud_cam_stack)
-        self._center_split.addWidget(self._content_panel)
-        self._center_split.setStretchFactor(0, 3)
-        self._center_split.setStretchFactor(1, 1)
-        self._center_split.setCollapsible(0, False)
-        shell_lay.addWidget(self._center_split, stretch=1)
-
         self._right_panel = self._build_dock()
-        shell_lay.addWidget(self._right_panel, stretch=0)
-        self._left_panel = self._build_coluna_lateral()
-        corpo.addWidget(self._left_panel, stretch=0)
+        corpo.addWidget(self._right_panel, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._stage = CanvasStage(self._hud_cam_stack)
+        corpo.addWidget(self._stage, 1)
+        self._left_panel = QScrollArea(self._stage)
+        self._left_panel.setWidgetResizable(True)
+        self._left_panel.setFrameShape(QFrame.Shape.NoFrame)
+        self._left_panel.setStyleSheet("QScrollArea {background:transparent; border:none;}")
+        self._left_panel.viewport().setStyleSheet("background:transparent;")
+        self._left_panel.setWidget(self._build_coluna_lateral())
+        self._left_panel.hide()
 
-        self._clock_tmr = QTimer(self)
-        self._clock_tmr.timeout.connect(self._tick_clock)
-        self._clock_tmr.start(1000)
-        self._tick_clock()
+        self._drawer = QFrame(central)
+        self._drawer.setObjectName("Glass")
+        self._drawer.setStyleSheet(GLASS)
+        drawer_layout = QVBoxLayout(self._drawer)
+        self._log = LogWidget()
+        drawer_layout.addWidget(self._log)
+        self._drawer.hide()
+        self._composer = QFrame()
+        self._composer.setObjectName("Glass")
+        self._composer.setStyleSheet(GLASS)
+        composer_layout = QVBoxLayout(self._composer)
+        composer_layout.setContentsMargins(14, 6, 14, 6)
+        self._file_hint = QLabel(_dica_arquivo())
+        self._file_hint.setWordWrap(True)
+        self._file_hint.hide()
+        composer_layout.addWidget(self._file_hint)
+        composer_layout.addLayout(self._build_input_row())
+        footer = QHBoxLayout()
+        footer.addStretch()
+        footer.addWidget(self._composer, 1)
+        footer.addStretch()
+        root.addLayout(footer)
+        self._composer.setMinimumWidth(460)
+        self._composer.setMaximumWidth(600)
+        self._composer.setMinimumHeight(58)
 
         # Metrik güncelleme timer'ı
         self._metric_tmr = QTimer(self)
@@ -4628,7 +3880,7 @@ class MainWindow(QMainWindow):
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
         self._content_sig.connect(self._show_content)
-        self._reconfig_sig.connect(self._show_setup)
+        self._reconfig_sig.connect(self._ao_reconfigurar)
         self._camera_sig.connect(self._show_camera_frame)
         self._cam_stream_sig.connect(self._on_cam_stream)
         self._cam_frame_sig.connect(self._on_cam_frame)
@@ -4667,7 +3919,8 @@ class MainWindow(QMainWindow):
         # recusada: quem precisasse trocar a chave (limite estourado, chave
         # nova) simplesmente nao tinha por onde.
         sc_cfg = QShortcut(QKeySequence("F2"), self)
-        sc_cfg.activated.connect(self._show_setup)
+        sc_cfg.activated.connect(
+            lambda: self._abrir_dashboard_config("provedores"))
         # SEGUNDO PLANO (01/11/2026): a tecla que esconde o NIA perto do
         # relogio. Volta pelo clique no icone dele (ou no atalho da area de
         # trabalho — ver `_conferir_pedido_abrir`).
@@ -4810,6 +4063,11 @@ class MainWindow(QMainWindow):
     def _set_vision_control_panel(self, active: bool, status: str = "") -> None:
         try:
             self._vision_panel.setVisible(bool(active))
+            if active:
+                self._left_panel.show()
+                self._stage.tools_open = True
+                self._stage.arrange(True)
+                self._position_canvas_panels()
             label = (status or ("ATIVA" if active else "INATIVA")).upper()[:28]
             label = {
                 "ACTIVE": "ATIVA",
@@ -5349,7 +4607,6 @@ class MainWindow(QMainWindow):
                 pass
         self._timers_pausados = []
         try:
-            self._tick_clock()
             self._update_metrics()
         except Exception:
             pass
@@ -5411,13 +4668,7 @@ class MainWindow(QMainWindow):
                 ow, oh,
             )
         self._position_camera_panels()
-
-        # Keep secondary rail information available without crowding small
-        # windows. Core controls and metrics remain visible at every size.
-        compact = self.height() < 720
-        if hasattr(self, "_rail_optional_widgets"):
-            for widget in self._rail_optional_widgets:
-                widget.setVisible(not compact)
+        QTimer.singleShot(0, self._position_canvas_panels)
 
         QTimer.singleShot(0, self._position_camera_panels)
 
@@ -5503,136 +4754,32 @@ class MainWindow(QMainWindow):
 
 
     def _build_header(self) -> QWidget:
-        # TOPO NOVO (05/10/2026): marca a esquerda, estado no meio (pilula que
-        # muda de cor), relogio e engrenagem a direita.
         w = QWidget()
-        w.setObjectName("TopoBar")
-        w.setFixedHeight(66)
-        w.setStyleSheet("QWidget#TopoBar { background: transparent; }")
-        lay = QHBoxLayout(w)
-        lay.setContentsMargins(16, 8, 18, 4)
-        lay.setSpacing(0)
-
-        esquerda = QWidget()
-        esquerda.setFixedWidth(300)
-        esquerda.setStyleSheet("background: transparent;")
-        el = QHBoxLayout(esquerda)
-        el.setContentsMargins(0, 0, 0, 0)
-        el.setSpacing(10)
-        el.addWidget(_MarcaNia(), 0, Qt.AlignmentFlag.AlignVCenter)
-        nomes = QVBoxLayout()
-        nomes.setSpacing(0)
-        nomes.addStretch()
-        title = QLabel(_nome_tela("titulo", "N.I.A"))
-        self._lbl_titulo_topo = title
-        title.setFont(_espacado(_fx(15, QFont.Weight.Light), 5.0))
-        title.setStyleSheet(f"color: {C.WHITE}; background: transparent; border: none;")
-        _brilho(title, C.PRI, 20, 140)
-        nomes.addWidget(title)
-
-        # BANDEIRA DO PAIS DO CLIENTE (24/09/2026): o cliente do Canada pediu a
-        # dele no alto da janela. Sem "bandeira" no config/idioma.json, nada.
-        _flag = None
-        try:
-            from core.idioma import caminho_da_bandeira  # noqa: PLC0415
-            _flag = caminho_da_bandeira()
-        except Exception:
-            _flag = None
-        sub_lin = QHBoxLayout()
-        sub_lin.setSpacing(6)
-        self._sub_topo_padrao = "NIA Intelligent System" if _flag else "Sistema Inteligente do NIA"
-        sub = QLabel(_nome_tela("subtitulo", self._sub_topo_padrao))
-        self._lbl_sub_topo = sub
-        fsub = _espacado(_fx(6.6, QFont.Weight.DemiBold), 2.2)
-        fsub.setCapitalization(QFont.Capitalization.AllUppercase)
-        sub.setFont(fsub)
-        sub.setStyleSheet(f"color: {C.PRI_DIM}; background: transparent; border: none;")
-        sub_lin.addWidget(sub)
-        _pm = QPixmap(str(_flag)) if _flag else None
-        if _pm is not None and not _pm.isNull():
-            _img = QLabel()
-            try:
-                _dpr = max(1.0, float(QApplication.primaryScreen().devicePixelRatio()))
-            except Exception:
-                _dpr = 1.0
-            _pm = _pm.scaled(int(22 * _dpr), int(12 * _dpr),
-                             Qt.AspectRatioMode.KeepAspectRatio,
-                             Qt.TransformationMode.SmoothTransformation)
-            _pm.setDevicePixelRatio(_dpr)
-            _img.setPixmap(_pm)
-            _img.setStyleSheet("background: transparent; border: none;")
-            _img.setToolTip("Canada" if "ca" == _flag.stem else _flag.stem.upper())
-            sub_lin.addWidget(_img)
-        sub_lin.addStretch()
-        nomes.addLayout(sub_lin)
-        nomes.addStretch()
-        el.addLayout(nomes)
-        el.addStretch()
-        lay.addWidget(esquerda)
-        lay.addStretch()
-
-        # o estado (OUVINDO, FALANDO...) numa pilula no meio do topo
-        self._rail_state_lbl = QLabel("●  INICIANDO")
-        self._rail_state_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._rail_state_lbl.setFont(_espacado(_fx(8, QFont.Weight.DemiBold), 2.2))
+        w.setFixedHeight(58)
+        row = QHBoxLayout(w)
+        row.setContentsMargins(6,0,0,0)
+        row.setSpacing(14)
+        row.addWidget(_MarcaNia())
+        self._lbl_titulo_topo = QLabel(_nome_tela("titulo", "NIA"))
+        self._lbl_titulo_topo.setFont(_ftexto(19))
+        self._lbl_titulo_topo.setStyleSheet("color:#edf8ff;background:transparent;")
+        row.addWidget(self._lbl_titulo_topo)
+        divider = QFrame()
+        divider.setFixedSize(1,22)
+        divider.setStyleSheet("background:#678195;")
+        row.addWidget(divider)
+        self._rail_state_lbl = QLabel("●  Iniciando")
+        self._rail_state_lbl.setFont(_ftexto(11))
         self._rail_state_lbl.setStyleSheet(self._estilo_pilula(C.PRI))
-        lay.addWidget(self._rail_state_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
-        lay.addStretch()
-
-        direita = QWidget()
-        direita.setFixedWidth(300)
-        direita.setStyleSheet("background: transparent;")
-        dl = QHBoxLayout(direita)
-        dl.setContentsMargins(0, 0, 0, 0)
-        dl.setSpacing(14)
-        dl.addStretch()
-        relogio = QVBoxLayout()
-        relogio.setSpacing(0)
-        relogio.addStretch()
-        self._clock_lbl = QLabel("00:00:00")
-        self._clock_lbl.setFont(_espacado(_fx(17, QFont.Weight.Light), 1.5))
-        self._clock_lbl.setStyleSheet(f"color: {C.WHITE}; background: transparent; border: none;")
-        self._clock_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        _brilho(self._clock_lbl, C.PRI, 16, 110)
-        relogio.addWidget(self._clock_lbl)
-        self._date_lbl = QLabel("")
-        fdata = _espacado(_fx(6.6, QFont.Weight.DemiBold), 1.6)
-        fdata.setCapitalization(QFont.Capitalization.AllUppercase)
-        self._date_lbl.setFont(fdata)
-        self._date_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
-        self._date_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-        relogio.addWidget(self._date_lbl)
-        relogio.addStretch()
-        dl.addLayout(relogio)
-        dl.addWidget(self._build_botao_config(), 0, Qt.AlignmentFlag.AlignVCenter)
-        lay.addWidget(direita)
+        row.addWidget(self._rail_state_lbl)
+        row.addStretch()
+        self._sub_topo_padrao = "Sistema Inteligente do NIA"
+        self._lbl_titulo_topo.setToolTip(_nome_tela("subtitulo", self._sub_topo_padrao))
         return w
 
     @staticmethod
     def _estilo_pilula(cor: str) -> str:
-        c = QColor(cor)
-        r, g, b = c.red(), c.green(), c.blue()
-        return (f"QLabel {{ color: {cor}; background: rgba({r},{g},{b},0.10);"
-                f" border: 1px solid rgba({r},{g},{b},0.45); border-radius: 15px;"
-                " padding: 6px 18px; }")
-
-    def _tick_clock(self):
-        self._clock_lbl.setText(time.strftime("%H:%M:%S"))
-        if getattr(self, "_datas_em_ingles", None) is None:
-            try:
-                from core.idioma import em_ingles  # noqa: PLC0415
-                self._datas_em_ingles = em_ingles()
-            except Exception:
-                self._datas_em_ingles = False
-        if self._datas_em_ingles:
-            week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][time.localtime().tm_wday]
-            months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        else:
-            week = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"][time.localtime().tm_wday]
-            months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
-        now = time.localtime()
-        self._date_lbl.setText(f"{week} {now.tm_mday:02d} {months[now.tm_mon - 1]} {now.tm_year}")
-
+        return f"color: {cor}; background: transparent; border: none; padding: 4px;"
 
     def _build_vision_control_panel(self) -> QWidget:
         # Cartao da VISAO (a camera do modo de controle por visao). So aparece
@@ -5679,25 +4826,27 @@ class MainWindow(QMainWindow):
         return panel
 
     def _build_botao_config(self) -> QWidget:
-        """A engrenagem: abre TUDO numa janela so (chave, voz, jeito, microfone,
-        som e os dados do dono, em secoes). Agora fica no topo, a direita."""
+        """A engrenagem abre diretamente o dashboard definitivo de Configurações."""
         _fam_icone = _system_icon_font_family()
         _fluent = _fam_icone != "Segoe UI Symbol"
-        b = QPushButton("" if _fluent else "⚙")
+        b = QPushButton()
+        b.setIcon(icon("config"))
+        b.setIconSize(QSize(28, 28))
         b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setToolTip("Configurar: chave, voz, jeito, microfone, som e seus dados")
+        b.setToolTip("Abrir Configurações: geral, perfil, aparência, integrações, "
+                     "voz, áudio, APIs e modelos")
         b.setFont(QFont(_fam_icone, 13 if _fluent else 16))
-        b.setFixedSize(40, 40)
+        b.setFixedSize(54, 54)
         b.setStyleSheet(
             f"QPushButton {{ color: {C.PRI}; background: rgba(0,212,255,0.07);"
-            f" border: 1px solid rgba(0,212,255,0.28); border-radius: 20px; }}"
+            f" border: 1px solid rgba(0,212,255,0.28); border-radius: 13px; }}"
             f"QPushButton:hover {{ color: {C.WHITE}; border-color: {C.PRI};"
             f" background: rgba(0,212,255,0.18); }}")
 
         def _abrir():
             # Rede de seguranca: excecao aqui nao pode fechar o NIA.
             try:
-                self._show_personas()
+                self._abrir_dashboard_config()
             except Exception as exc:
                 import traceback as _tb
                 _tb.print_exc()
@@ -5705,8 +4854,72 @@ class MainWindow(QMainWindow):
                 if casca is not None:
                     casca.write_log(
                         f"ERR: configuracoes falharam — {type(exc).__name__}: {str(exc)[:110]}")
+
         b.clicked.connect(_abrir)
         return b
+
+    def _dashboard_config_fechou(self) -> None:
+        self._dashboard_config = None
+        # Se uma reconfiguração pediu credenciais e a janela foi fechada sem
+        # salvar, a tela inicial reassume a responsabilidade de prontidão.
+        if getattr(self, "_aguardando_credencial", False):
+            self._show_setup()
+
+    def _credencial_pronta(self) -> None:
+        if not getattr(self, "_aguardando_credencial", False):
+            return
+        self._aguardando_credencial = False
+        self._ready = True
+        self._log.append_log("SIS: Credencial atualizada. NIA pronto para continuar.")
+
+    def _ao_reconfigurar(self) -> None:
+        """Reconfiguração com instalação já pronta abre Provedores e modelos."""
+        if getattr(self, "_aguardando_credencial", False):
+            return
+        if self._check_config():
+            self._aguardando_credencial = True
+            self._abrir_dashboard_config("provedores")
+        else:
+            self._show_setup()
+
+    def _abrir_dashboard_config(self, abrir_em: str | None = None):
+        """Abre (ou traz de volta) o dashboard padrão de Configurações.
+
+        A mesma janela é reaproveitada enquanto estiver aberta: clicar de novo
+        não cria uma segunda cópia nem duplica conexões de sinal.
+        """
+        atual = getattr(self, "_dashboard_config", None)
+        if atual is not None:
+            try:
+                if abrir_em:
+                    atual.activate_page(abrir_em)
+                atual.showNormal()
+                atual.raise_()
+                atual.activateWindow()
+                return atual
+            except RuntimeError:
+                self._dashboard_config = None
+        try:
+            from core.config_dashboard import ConfigDashboardWindow
+            from core.config_preferencias import ConfigService
+            janela = ConfigDashboardWindow(
+                ConfigService(host=getattr(self, "_ui", None)))
+            if abrir_em:
+                janela.activate_page(abrir_em)
+            janela.fechada.connect(self._dashboard_config_fechou)
+            janela.credencial_pronta.connect(self._credencial_pronta)
+            self._dashboard_config = janela
+            janela.show()
+            janela.raise_()
+            janela.activateWindow()
+            return janela
+        except Exception as exc:
+            casca = getattr(self, "_ui", None)
+            if casca is not None:
+                casca.write_log(
+                    f"ERR: nao abri as novas configuracoes — "
+                    f"{type(exc).__name__}: {str(exc)[:110]}")
+            return None
 
     @staticmethod
     def _cartao(nome_obj: str) -> QWidget:
@@ -5738,8 +4951,7 @@ class MainWindow(QMainWindow):
         return linha
 
     def _build_coluna_lateral(self) -> QWidget:
-        """Coluna da direita: SISTEMA (medidores), CAMERA (so quando ligada) e
-        a CONVERSA em baloes com o campo de digitar."""
+        """Ferramentas existentes, abertas sob demanda sobre o Canvas."""
         col = QWidget()
         col.setObjectName("ColunaLateral")
         col.setStyleSheet("QWidget#ColunaLateral { background: transparent; }")
@@ -5805,44 +5017,12 @@ class MainWindow(QMainWindow):
         self._cw_card = self._build_cartao_cowork()
         v.addWidget(self._cw_card)
 
-        # ── CONVERSA ─────────────────────────────────────────────────────────
-        conversa = self._cartao("CartaoConversa")
-        cv = QVBoxLayout(conversa)
-        cv.setContentsMargins(14, 12, 14, 14)
-        cv.setSpacing(8)
-        cv.addWidget(self._titulo_cartao("CONVERSA", C.PRI))
-        self._log = LogWidget()
-        self._log.setMinimumHeight(90)
-        cv.addWidget(self._log, stretch=1)
-        self._file_hint = QLabel(_dica_arquivo())
-        self._file_hint.setFont(_ftexto(7))
-        self._file_hint.setWordWrap(True)
-        self._file_hint.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
-        self._file_hint.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        cv.addWidget(self._file_hint)
-        cv.addLayout(self._build_input_row())
-        v.addWidget(conversa, stretch=1)
+        v.addStretch()
         return col
 
     def _build_dock(self) -> QWidget:
-        """Os botoes numa barra de vidro flutuando embaixo da esfera."""
-        area = QWidget()
-        area.setObjectName("DockArea")
-        area.setStyleSheet("QWidget#DockArea { background: transparent; }")
-        v = QVBoxLayout(area)
-        v.setContentsMargins(0, 2, 0, 0)
-        v.setSpacing(6)
-
-        pilula = QWidget()
-        pilula.setObjectName("DockVidro")
-        pilula.setStyleSheet(
-            "QWidget#DockVidro { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-            " stop:0 rgba(2,32,46,0.88), stop:1 rgba(0,13,20,0.88));"
-            " border: 1px solid rgba(26,120,160,0.55); border-radius: 28px; }")
-        row = QHBoxLayout(pilula)
-        row.setContentsMargins(8, 7, 8, 7)
-        row.setSpacing(0)
-
+        collector = QWidget()
+        row = QVBoxLayout(collector)
         self._mute_btn = self._make_control_button("mute", "🎙\nMICROFONE\nATIVO", C.GREEN)
         self._mute_btn.clicked.connect(self._toggle_mute)
         self._style_mute_btn()
@@ -5920,43 +5100,50 @@ class MainWindow(QMainWindow):
         self._drop_zone.setFixedSize(80, 84)
         self._drop_zone.file_selected.connect(self._on_file_selected)
         self._drop_zone.files_selected.connect(self._on_files_selected)
-        row.addWidget(self._drop_zone)
-        pilula.adjustSize()
+        self._drop_zone.hide()
+        buttons = [(row.itemAt(i).widget().objectName(), row.itemAt(i).widget())
+                   for i in range(row.count())]
+        config = self._build_botao_config()
+        buttons.append(("config", config))
+        system = QPushButton()
+        system.setIcon(icon("system"))
+        system.setFixedSize(54, 48)
+        system.setToolTip("Sistema, visão e Cowork")
+        system.clicked.connect(self._toggle_tools_panel)
+        buttons.append(("system", system))
+        dock = VerticalDock(buttons, CONFIG_DIR / "interface.json")
+        # O botão de editar e o menu "Editar dock" abrem a mesma página do
+        # dashboard; não existe mais um segundo diálogo de aparência.
+        dock.abrir_configuracoes = lambda pagina: self._abrir_dashboard_config(pagina)
+        dock.appearance_changed.connect(self.centralWidget().set_appearance)
+        self._drop_zone.setParent(dock)
+        collector.deleteLater()
+        return dock
 
-        # Janela estreita: o dock rola para o lado em vez de esconder botao.
-        rolagem = QScrollArea()
-        rolagem.setWidgetResizable(False)
-        rolagem.setFrameShape(QFrame.Shape.NoFrame)
-        rolagem.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        rolagem.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        rolagem.setStyleSheet(f"""
-            QScrollArea {{ background: transparent; border: none; }}
-            QScrollBar:horizontal {{ background: transparent; height: 5px; border: none; }}
-            QScrollBar::handle:horizontal {{ background: {C.BORDER_B}; border-radius: 2px; min-width: 30px; }}
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; border: none; }}
-        """)
-        rolagem.viewport().setStyleSheet("background: transparent;")
-        rolagem.setWidget(pilula)
-        rolagem.setFixedHeight(pilula.sizeHint().height() + 8)
-        rolagem.setMaximumWidth(pilula.sizeHint().width() + 2)
-        linha = QHBoxLayout()
-        linha.setContentsMargins(0, 0, 0, 0)
-        linha.addStretch()
-        linha.addWidget(rolagem, stretch=1)
-        linha.addStretch()
-        v.addLayout(linha)
+    def _toggle_tools_panel(self):
+        self._left_panel.setVisible(not self._left_panel.isVisible())
+        self._stage.tools_open = self._left_panel.isVisible()
+        self._stage.arrange(True)
+        self._position_canvas_panels()
 
-        self._atalhos_lbl = QLabel("[F4] Mudo  ·  [F6] Globo  ·  [F11] Tela cheia  ·  [F2] Chave de IA  ·  "
-                                   f"[{_segundo_plano.TECLA}] Segundo plano")
-        self._atalhos_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._atalhos_lbl.setFont(_espacado(_fx(6.6), 1.0))
-        self._atalhos_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
-        v.addWidget(self._atalhos_lbl)
+    def _toggle_history(self):
+        self._drawer.setVisible(not self._drawer.isVisible())
+        self._history_btn.setChecked(self._drawer.isVisible())
+        self._stage.chat_open = self._drawer.isVisible()
+        self._stage.arrange(True)
+        self._position_canvas_panels()
 
-        self._dock_content = pilula
-        self._dock_expanded = True
-        self._rail_optional_widgets = [self._atalhos_lbl]
-        return area
+    def _position_canvas_panels(self):
+        if not hasattr(self, "_drawer"): return
+        cw = self.centralWidget()
+        pos = self._composer.mapTo(cw, self._composer.rect().topLeft())
+        height = min(260, max(130, self.height() // 3))
+        self._drawer.setGeometry(pos.x(), pos.y()-height-10, self._composer.width(), height)
+        self._drawer.raise_()
+        tools_width = min(344, max(220, int(self._stage.width()*.5)-24))
+        tools_height = self._stage.height() - (height+10 if self._drawer.isVisible() else 0)
+        self._left_panel.setGeometry(12, 8, tools_width, max(100,tools_height-16))
+        self._left_panel.raise_()
 
     # ── NINGUEM OLHANDO, NINGUEM DESENHANDO (02/11/2026) ─────────────────────
     def _janela_coberta(self) -> bool:
@@ -6000,14 +5187,13 @@ class MainWindow(QMainWindow):
             self._relogios_parados = [
                 t for t in self.findChildren(QTimer)
                 if t.isActive() and not t.isSingleShot()
-                and (isinstance(t.parent(), donos) or t in (self._clock_tmr, self._metric_tmr))]
+                and (isinstance(t.parent(), donos) or t in (self._metric_tmr,))]
             for t in self._relogios_parados:
                 t.stop()
         else:
             for t in self._relogios_parados:
                 t.start()
             self._relogios_parados = []
-            self._tick_clock()
             self._update_metrics()
             self.hud.update()
 
@@ -6090,300 +5276,6 @@ class MainWindow(QMainWindow):
             pass
         print(f"[NIA] cores aplicadas: {n} estilos em {time.monotonic() - t0:.2f}s")
 
-    def _pagina_nucleo(self) -> QWidget:
-        """A aba NUCLEO da engrenagem (13/10/2026): os dez formatos."""
-        return _PaginaNucleo(getattr(self, "hud", None))
-
-    def _pagina_cores(self) -> QWidget:
-        """A aba CORES da engrenagem: item a esquerda, quadro de cor a direita.
-
-        Passar o mouse no quadro mostra a cor EXATA (RGB e #hex) e a previa;
-        clicar aplica no NIA inteiro, na hora, e guarda."""
-        pag = QWidget()
-        raiz = QVBoxLayout(pag)
-        raiz.setContentsMargins(0, 8, 0, 0)
-        raiz.setSpacing(8)
-        exp = QLabel("Escolha o que pintar à esquerda. Passe o mouse no quadro para ver a cor exata; "
-                     "clique para aplicar. Muda na hora e fica salvo.")
-        exp.setWordWrap(True)
-        exp.setFont(_fx(8.6))
-        exp.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        raiz.addWidget(exp)
-
-        corpo = QHBoxLayout()
-        corpo.setSpacing(14)
-        raiz.addLayout(corpo)
-
-        # ── esquerda: grupos e itens ────────────────────────────────────────
-        esq = QVBoxLayout()
-        esq.setSpacing(6)
-        corpo.addLayout(esq, 0)
-        abas = QHBoxLayout()
-        abas.setSpacing(4)
-        esq.addLayout(abas)
-        pilha = QStackedWidget()
-        pilha.setFixedWidth(250)
-        pilha.setFixedHeight(292)
-        esq.addWidget(pilha)
-        esq.addStretch()
-        previa = _PreviaTema()
-
-        estado = {"chave": "principal", "grupo": 0}
-        linhas: dict = {}       # chave -> (botao, amostra)
-        botoes_aba: list = []
-
-        def _estilo_aba(b, ativo):
-            b.setStyleSheet(
-                f"QPushButton {{ color: {C.TEXT if ativo else C.PRI};"
-                f" background: {'rgba(0,212,255,0.12)' if ativo else 'transparent'};"
-                f" border: 1px solid {C.PRI if ativo else C.BORDER_B};"
-                f" border-radius: 4px; padding: 4px 8px; }}"
-                f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI}; }}")
-
-        def _estilo_linha(b, ativo):
-            b.setStyleSheet(
-                f"QPushButton {{ text-align: left; padding: 5px 8px 5px 34px;"
-                f" border: 1px solid {C.PRI if ativo else C.BORDER};"
-                f" border-radius: 4px; background: {C.PRI_GHO if ativo else 'transparent'};"
-                f" color: {C.TEXT if ativo else C.TEXT_MED}; }}"
-                f"QPushButton:hover {{ border-color: {C.BORDER_B}; color: {C.TEXT}; }}")
-
-        def _pintar_amostras():
-            for chave, (_b, amostra) in linhas.items():
-                c = _tema.atual(chave)
-                marca = "" if _tema.escolhida(chave) else "  "
-                amostra.setStyleSheet(
-                    _SEM_TEMA + f"background: {c}; border: 1px solid #ffffff55; border-radius: 4px;")
-                amostra.setToolTip(c.upper() + ("" if marca else "  (escolhida por você)"))
-
-        def _selecionar(chave):
-            estado["chave"] = chave
-            for k, (b, _a) in linhas.items():
-                _estilo_linha(b, k == chave)
-            seletor.set_cor(QColor(_tema.atual(chave)))
-            _mostrar(QColor(_tema.atual(chave)), "agora")
-            previa.prever(None, None)
-
-        for gi, (grupo, itens) in enumerate(_tema.GRUPOS):
-            ba = QPushButton(grupo)
-            ba.setCursor(Qt.CursorShape.PointingHandCursor)
-            ba.setFont(_fx(7.8, QFont.Weight.Bold))
-            ba.setFixedHeight(26)
-            botoes_aba.append(ba)
-            abas.addWidget(ba)
-            lista = QWidget()
-            lv = QVBoxLayout(lista)
-            lv.setContentsMargins(0, 0, 0, 0)
-            lv.setSpacing(4)
-            for chave, nome, desc in itens:
-                b = QPushButton(nome + chr(10) + desc)
-                b.setCursor(Qt.CursorShape.PointingHandCursor)
-                b.setFont(_fx(7.8))
-                b.setMinimumHeight(36)
-                amostra = QLabel(b)
-                amostra.setGeometry(8, 9, 18, 18)
-                amostra.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-                b.clicked.connect(lambda _=False, k=chave: _selecionar(k))
-                linhas[chave] = (b, amostra)
-                lv.addWidget(b)
-            lv.addStretch()
-            if len(itens) > 6:
-                rol = QScrollArea()
-                rol.setWidgetResizable(True)
-                rol.setFrameShape(QFrame.Shape.NoFrame)
-                rol.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-                rol.viewport().setStyleSheet("background: transparent;")
-                rol.setWidget(lista)
-                pilha.addWidget(rol)
-            else:
-                pilha.addWidget(lista)
-
-        def _ir_grupo(gi):
-            estado["grupo"] = gi
-            pilha.setCurrentIndex(gi)
-            for i, ba in enumerate(botoes_aba):
-                _estilo_aba(ba, i == gi)
-            primeiro = _tema.GRUPOS[gi][1][0][0]
-            _selecionar(primeiro)
-
-        for gi, ba in enumerate(botoes_aba):
-            ba.clicked.connect(lambda _=False, g=gi: _ir_grupo(g))
-
-        # ── direita: o quadro de cor, os numeros e os botoes ────────────────
-        dir_ = QVBoxLayout()
-        dir_.setSpacing(8)
-        corpo.addLayout(dir_, 1)
-        seletor = _SeletorCor()
-        dir_.addWidget(seletor)
-
-        info = QHBoxLayout()
-        info.setSpacing(10)
-        grande = QLabel()
-        grande.setFixedSize(54, 38)
-        info.addWidget(grande)
-        numeros = QLabel()
-        numeros.setFont(_fx(10, QFont.Weight.Bold))
-        numeros.setStyleSheet(f"color: {C.WHITE}; background: transparent;")
-        quando = QLabel()
-        quando.setFont(_fx(7.6))
-        quando.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        col_num = QVBoxLayout()
-        col_num.setSpacing(0)
-        col_num.addWidget(numeros)
-        col_num.addWidget(quando)
-        info.addLayout(col_num, 1)
-        dir_.addLayout(info)
-
-        def _mostrar(cor: QColor, como: str):
-            grande.setStyleSheet(
-                _SEM_TEMA + f"background: {cor.name()}; border: 1px solid #ffffff66; border-radius: 6px;")
-            numeros.setText(f"R {cor.red():>3}   G {cor.green():>3}   B {cor.blue():>3}    {cor.name().upper()}")
-            quando.setText({"passando": "passando o mouse — clique para aplicar",
-                            "agora": "cor que está valendo agora",
-                            "aplicada": "aplicada no NIA inteiro"}.get(como, ""))
-
-        # RGB e #hex digitados
-        from PyQt6.QtWidgets import QSpinBox  # noqa: PLC0415
-        linha_rgb = QHBoxLayout()
-        linha_rgb.setSpacing(6)
-        campos = {}
-        estilo_campo = (f"QSpinBox, QLineEdit {{ background: #000d12; color: {C.TEXT};"
-                        f" border: 1px solid {C.BORDER_B}; border-radius: 4px; padding: 3px 4px; }}"
-                        f"QSpinBox:focus, QLineEdit:focus {{ border-color: {C.PRI}; }}")
-        for letra in ("R", "G", "B"):
-            rot = QLabel(letra)
-            rot.setFont(_fx(8, QFont.Weight.Bold))
-            rot.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-            sp = QSpinBox()
-            sp.setRange(0, 255)
-            sp.setFixedWidth(62)
-            sp.setStyleSheet(estilo_campo)
-            campos[letra] = sp
-            linha_rgb.addWidget(rot)
-            linha_rgb.addWidget(sp)
-        hexa = QLineEdit()
-        hexa.setFixedWidth(84)
-        hexa.setMaxLength(7)
-        hexa.setPlaceholderText("#00d4ff")
-        hexa.setStyleSheet(estilo_campo)
-        linha_rgb.addWidget(hexa)
-        b_aplicar = QPushButton("APLICAR")
-        linha_rgb.addWidget(b_aplicar)
-        linha_rgb.addStretch()
-        dir_.addLayout(linha_rgb)
-
-        linha_bt = QHBoxLayout()
-        linha_bt.setSpacing(6)
-        b_volta = QPushButton("VOLTAR À ORIGINAL")
-        b_tudo = QPushButton("RESTAURAR TODAS AS CORES")
-        linha_bt.addWidget(b_volta)
-        linha_bt.addWidget(b_tudo)
-        linha_bt.addStretch()
-        dir_.addLayout(linha_bt)
-        rot_previa = QLabel("PRÉVIA")
-        rot_previa.setFont(_espacado(_fx(7.4, QFont.Weight.Bold), 1.6))
-        rot_previa.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        dir_.addWidget(rot_previa)
-        dir_.addWidget(previa)
-        dir_.addStretch()
-        for bb in (b_aplicar, b_volta, b_tudo):
-            bb.setCursor(Qt.CursorShape.PointingHandCursor)
-            bb.setFont(_fx(7.8, QFont.Weight.Bold))
-            bb.setFixedHeight(28)
-            bb.setStyleSheet(
-                f"QPushButton {{ color: {C.PRI}; background: transparent;"
-                f" border: 1px solid {C.BORDER_B}; border-radius: 4px; padding: 0 12px; }}"
-                f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI}; }}")
-
-        _sincronizando = {"v": False}
-
-        def _campos_de(cor: QColor):
-            _sincronizando["v"] = True
-            try:
-                campos["R"].setValue(cor.red())
-                campos["G"].setValue(cor.green())
-                campos["B"].setValue(cor.blue())
-                hexa.setText(cor.name())
-            finally:
-                _sincronizando["v"] = False
-
-        def _aplicar_cor(cor: QColor):
-            _tema.definir(estado["chave"], cor.name())
-            self.aplicar_tema()
-            _pintar_amostras()
-            _campos_de(cor)
-            _mostrar(cor, "aplicada")
-            previa.prever(None, None)
-
-        def _passou(cor: QColor):
-            _mostrar(cor, "passando")
-            previa.prever(estado["chave"], cor.name())
-
-        def _saiu():
-            atual = QColor(_tema.atual(estado["chave"]))
-            _mostrar(atual, "agora")
-            previa.prever(None, None)
-
-        def _rgb_digitado(*_):
-            if _sincronizando["v"]:
-                return
-            cor = QColor(campos["R"].value(), campos["G"].value(), campos["B"].value())
-            _sincronizando["v"] = True
-            hexa.setText(cor.name())
-            _sincronizando["v"] = False
-            _passou(cor)
-            seletor.set_cor(cor)
-
-        def _hex_digitado(txt):
-            if _sincronizando["v"]:
-                return
-            n = _tema.normalizar(txt)
-            if n:
-                cor = QColor(n)
-                _sincronizando["v"] = True
-                campos["R"].setValue(cor.red())
-                campos["G"].setValue(cor.green())
-                campos["B"].setValue(cor.blue())
-                _sincronizando["v"] = False
-                _passou(cor)
-                seletor.set_cor(cor)
-
-        for sp in campos.values():
-            sp.valueChanged.connect(_rgb_digitado)
-        hexa.textEdited.connect(_hex_digitado)
-        b_aplicar.clicked.connect(lambda: _aplicar_cor(
-            QColor(campos["R"].value(), campos["G"].value(), campos["B"].value())))
-        hexa.returnPressed.connect(lambda: _aplicar_cor(
-            QColor(campos["R"].value(), campos["G"].value(), campos["B"].value())))
-        seletor.passou.connect(_passou)
-        seletor.saiu.connect(_saiu)
-        seletor.escolheu.connect(_aplicar_cor)
-
-        def _voltar():
-            _tema.definir(estado["chave"], None)
-            self.aplicar_tema()
-            _pintar_amostras()
-            atual = QColor(_tema.atual(estado["chave"]))
-            seletor.set_cor(atual)
-            _campos_de(atual)
-            _mostrar(atual, "agora")
-            previa.prever(None, None)
-
-        def _tudo():
-            _tema.restaurar_tudo()
-            self.aplicar_tema()
-            _pintar_amostras()
-            _selecionar(estado["chave"])
-            _campos_de(QColor(_tema.atual(estado["chave"])))
-
-        b_volta.clicked.connect(_voltar)
-        b_tudo.clicked.connect(_tudo)
-
-        _pintar_amostras()
-        _ir_grupo(0)
-        _campos_de(QColor(_tema.atual("principal")))
-        return pag
-
     # ── COWORK (05/10/2026) ─────────────────────────────────────────────────
     def _build_cartao_cowork(self) -> QWidget:
         card = self._cartao("CartaoCowork")
@@ -6434,7 +5326,7 @@ class MainWindow(QMainWindow):
         self._cw_input.setFixedHeight(30)
         self._cw_input.setStyleSheet(f"""
             QLineEdit {{
-                background: #000d14; color: {C.WHITE};
+                background: transparent; color: {C.WHITE};
                 border: 1px solid {C.BORDER_A}; border-radius: 10px; padding: 2px 10px;
                 selection-background-color: {C.PRI_GHO};
             }}
@@ -6505,6 +5397,11 @@ class MainWindow(QMainWindow):
             return
         visivel = self._cw_card.isVisible()
         self._cw_card.setVisible(not visivel)
+        if not visivel:
+            self._left_panel.show()
+            self._stage.tools_open = True
+            self._stage.arrange(True)
+            self._position_canvas_panels()
         self._cw_escondido_pelo_dono = visivel
 
     def _cowork_escolher_pasta(self) -> None:
@@ -6562,6 +5459,10 @@ class MainWindow(QMainWindow):
             return
         if ocupado or not self._cw_escondido_pelo_dono:
             self._cw_card.show()
+            self._left_panel.show()
+            self._stage.tools_open = True
+            self._stage.arrange(True)
+            self._position_canvas_panels()
         self._cw_nome.setText(str(est.get("nome") or "")[:34])
         caminho = str(est.get("pasta") or "")
         largura = max(120, self._cw_caminho.width() or 280)
@@ -6603,33 +5504,38 @@ class MainWindow(QMainWindow):
     ) -> QPushButton:
         button = ControlCard(text, color, background)
         button.setObjectName(name)
-        button.setFixedSize(80, 84)
+        button.setFixedSize(54, 54)
+        button.setToolTip(text.replace("\n", " · "))
+        button.setAccessibleName(text.replace("\n", " "))
         return button
-
-    def _toggle_control_dock(self) -> None:
-        self._dock_expanded = not getattr(self, "_dock_expanded", True)
-        self._dock_content.setVisible(self._dock_expanded)
 
     def _build_input_row(self) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(6)
+        attach = QPushButton()
+        attach.setIcon(icon("attach"))
+        attach.setToolTip("Anexar arquivos")
+        attach.clicked.connect(self._drop_zone._browse)
+        row.addWidget(attach)
+
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Digite um comando ou pergunta…")
-        self._input.setFont(_ftexto(9.5))
+        self._input.setPlaceholderText("Converse com a NIA…")
+        self._input.setFont(_ftexto(11.5))
         self._input.setFixedHeight(34)
         self._input.setStyleSheet(f"""
             QLineEdit {{
-                background: #000d14; color: {C.WHITE};
-                border: 1px solid {C.BORDER_A}; border-radius: 11px; padding: 3px 12px;
+                background: transparent; color: {C.WHITE};
+                border: none; border-radius: 11px; padding: 3px 12px;
                 selection-background-color: {C.PRI_GHO};
             }}
-            QLineEdit:focus {{ border: 1px solid {C.PRI}; background: #001a26; }}
+            QLineEdit:focus {{ border: none; background: transparent; }}
         """)
         self._input.returnPressed.connect(self._send)
         row.addWidget(self._input)
 
         _fam_icone = _system_icon_font_family()
         _fluent = _fam_icone != "Segoe UI Symbol"
-        send = QPushButton("\ue724" if _fluent else "▸")
+        send = QPushButton()
+        send.setIcon(icon("send", "#002332"))
         send.setFixedSize(34, 34)
         send.setFont(QFont(_fam_icone, 11) if _fluent else _fx(12, QFont.Weight.Bold))
         send.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -6648,6 +5554,24 @@ class MainWindow(QMainWindow):
         """)
         send.clicked.connect(self._send)
         row.addWidget(send)
+        mic = QPushButton()
+        self._composer_mic = mic
+        mic.setCheckable(True)
+        mic.setIcon(icon("mute"))
+        mic.setToolTip("Microfone [F4]")
+        mic.clicked.connect(self._toggle_mute)
+        row.addWidget(mic)
+        self._history_btn = QPushButton()
+        self._history_btn.setIcon(icon("history"))
+        self._history_btn.setCheckable(True)
+        self._history_btn.setToolTip("Mostrar ou recolher histórico")
+        self._history_btn.clicked.connect(self._toggle_history)
+        row.addWidget(self._history_btn)
+        self._style_mute_btn()
+        for i in range(row.count()):
+            button = row.itemAt(i).widget()
+            if isinstance(button, QPushButton):
+                button.setAccessibleName(button.toolTip())
         return row
 
     def nivel_do_microfone(self, nivel: float) -> None:
@@ -6686,137 +5610,8 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _build_content_panel(self) -> QWidget:
-        """
-        Collapsible panel below the HUD — shows search results, news, briefings.
-        Hidden by default; appears when show_content() is called.
-        """
-        w = QWidget()
-        w.setObjectName("ContentPanel")
-        w.setStyleSheet(f"""
-            QWidget#ContentPanel {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(1,26,38,0.85), stop:1 rgba(0,10,16,0.85));
-                border: 1px solid rgba(26,120,160,0.42);
-                border-radius: 18px;
-            }}
-        """)
-        w.hide()
-
-        lay = QVBoxLayout(w)
-        lay.setContentsMargins(12, 7, 12, 8)
-        lay.setSpacing(5)
-
-        # ── header row ───────────────────────────────────────────────────────
-        hdr = QHBoxLayout(); hdr.setSpacing(6)
-
-        dot = QLabel("◈")
-        dot.setFont(_fx(9, QFont.Weight.Bold))
-        dot.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        hdr.addWidget(dot)
-
-        self._content_title_lbl = QLabel("RESUMO")
-        self._content_title_lbl.setFont(_fx(8, QFont.Weight.Bold))
-        self._content_title_lbl.setStyleSheet(
-            f"color: {C.PRI}; background: transparent; letter-spacing: 1px;"
-        )
-        hdr.addWidget(self._content_title_lbl)
-        hdr.addStretch()
-
-        self._content_ts_lbl = QLabel("")
-        self._content_ts_lbl.setFont(_fx(7))
-        self._content_ts_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        hdr.addWidget(self._content_ts_lbl)
-
-        dismiss = QPushButton("FECHAR  ✕")
-        dismiss.setFont(_fx(7))
-        dismiss.setFixedHeight(18)
-        dismiss.setCursor(Qt.CursorShape.PointingHandCursor)
-        dismiss.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; color: {C.TEXT_DIM};
-                border: 1px solid {C.BORDER}; border-radius: 2px; padding: 0 5px;
-            }}
-            QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
-        """)
-        dismiss.clicked.connect(w.hide)
-        hdr.addWidget(dismiss)
-        lay.addLayout(hdr)
-
-        # ── separator ─────────────────────────────────────────────────────────
-        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {C.BORDER};"); lay.addWidget(sep)
-
-        # ── text display ──────────────────────────────────────────────────────
-        self._content_display = QTextEdit()
-        self._content_display.setReadOnly(True)
-        self._content_display.setFont(_fx(8))
-        self._content_display.setMinimumHeight(60)
-        self._content_display.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
-        self._content_display.setStyleSheet(f"""
-            QTextEdit {{
-                background: {C.DARK};
-                color: {C.TEXT};
-                border: 1px solid {C.BORDER};
-                border-radius: 3px;
-                padding: 6px 8px;
-                selection-background-color: {C.PRI_GHO};
-            }}
-            QScrollBar:vertical {{
-                background: {C.BG}; width: 6px; border: none;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {C.BORDER_B}; border-radius: 3px; min-height: 16px;
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                height: 0; border: none;
-            }}
-        """)
-        lay.addWidget(self._content_display)
-
-        return w
-
     def _show_content(self, title: str, text: str):
-        """Slot — runs on Qt main thread. Updates and shows the content panel."""
-        import time as _time
-        self._content_title_lbl.setText(title.upper()[:48])
-        self._content_ts_lbl.setText(_time.strftime("%H:%M:%S"))
-        self._content_display.setPlainText(text)
-        self._content_display.moveCursor(
-            self._content_display.textCursor().MoveOperation.Start
-        )
-        first_show = not self._content_panel.isVisible()
-        self._content_panel.show()
-        if first_show:
-            total = self._center_split.height()
-            self._center_split.setSizes([max(total - 220, 120), 220])
-
-    def _build_footer(self) -> QWidget:
-        w = QWidget()
-        w.setObjectName("FooterBar")
-        w.setFixedHeight(24)
-        w.setStyleSheet("QWidget#FooterBar { background: #00080d; border-top: 1px solid #082838; }")
-        lay = QHBoxLayout(w); lay.setContentsMargins(16, 0, 16, 0)
-
-        def _fl(txt, color=C.TEXT_DIM):
-            l = QLabel(txt); l.setFont(_espacado(_fx(6.6), 1.0))
-            l.setStyleSheet(f"color: {color}; background: transparent; border: none;")
-            return l
-
-        lay.addWidget(_fl("[F4] Mudo  ·  [F11] Tela cheia  ·  [F2] Chave de IA  ·  "
-                          f"[{_segundo_plano.TECLA}] Segundo plano"))
-        # Botao visivel para trocar a chave: atalho sozinho ninguem descobre, e
-        # sem isto o cliente com o limite estourado ficava sem saida.
-        # Os dois botoezinhos daqui sairam em 01/09/2026: viraram a
-        # engrenagem grande da barra lateral, abaixo da camera. Dois
-        # caminhos para a mesma janela so confundiam o cliente.
-
-        lay.addStretch()
-        lay.addWidget(_fl("NIA Industries  ·  CONFIDENCIAL"))
-        lay.addStretch()
-        lay.addWidget(_fl("© STARK INDUSTRIES", C.PRI_DIM))
-        return w
+        self._stage.show_content(title, text)
 
     def _on_files_selected(self, caminhos: list):
         """Varios arquivos soltos de uma vez: UM aviso so para o NIA, com o
@@ -6824,6 +5619,7 @@ class MainWindow(QMainWindow):
         tem "|"). Um aviso por arquivo faria ele responder tres vezes."""
         if not caminhos:
             return
+        self._file_hint.show()
         self._current_file = caminhos[0]
         nomes = []
         for c in caminhos:
@@ -6851,6 +5647,7 @@ class MainWindow(QMainWindow):
             threading.Thread(target=self.on_text_command, args=(msg,), daemon=True).start()
 
     def _on_file_selected(self, path: str):
+        self._file_hint.show()
         self._current_file = path
         p    = Path(path)
         cat  = _file_category(p)
@@ -7019,6 +5816,12 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(int(max(0.5, segundos) * 1000), self._style_nome_btn)
 
     def _style_mute_btn(self):
+        if hasattr(self, "_composer_mic"):
+            self._composer_mic.setChecked(not self._muted)
+            self._composer_mic.setIcon(icon("mute", C.MUTED_C if self._muted else "#9efaff"))
+            tooltip = "Microfone silenciado [F4]" if self._muted else "Microfone ativo [F4]"
+            self._composer_mic.setToolTip(tooltip)
+            self._composer_mic.setAccessibleName(tooltip)
         if self._muted:
             self._mute_btn.setText("🔇\nMICROFONE\nMUDO")
             if isinstance(self._mute_btn, ControlCard):
@@ -7104,643 +5907,13 @@ class MainWindow(QMainWindow):
         except Exception:
             return False
 
-    def _show_personas(self, abrir_em: str | None = None):
-        """Painel de escolha: personagem (a boca) e personalidade (a cabeca).
-
-        Clicou, aplicou. Sem botao de salvar de proposito — o cliente quer ouvir
-        a diferenca na hora, e um passo a mais so atrapalha.
-        """
-        try:
-            from core.personas import (PERSONAGENS, PERSONALIDADES,
-                                       PERSONAGEM_PADRAO, PERSONALIDADE_PADRAO)
-        except Exception as exc:
-            casca0 = getattr(self, "_ui", None)
-            if casca0 is not None:
-                casca0.write_log(f"ERR: nao consegui abrir as vozes — {str(exc)[:100]}")
-            return
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"{_nome_assistente()} · Voz e Jeito de Ser")
-        dlg.setMinimumWidth(720)
-        dlg.setStyleSheet(f"QDialog {{ background: {C.BG}; }}")
-        raiz = QVBoxLayout(dlg)
-        raiz.setContentsMargins(18, 16, 18, 16)
-        raiz.setSpacing(12)
-
-        topo = QLabel(f"Escolha como o {_nome_assistente()} fala e como ele se comporta. "
-                      "Clique e ele muda na hora.")
-        topo.setFont(_fx(9))
-        topo.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
-        raiz.addWidget(topo)
-
-        # ── BOTOES DE SECAO ──────────────────────────────────────────────────
-        #
-        # Uma pagina de cada vez. Antes tudo ficava empilhado e a janela passava
-        # da tela: o Diego nao conseguia ver os campos do fim (01/09/2026).
-        barra = QHBoxLayout()
-        barra.setSpacing(6)
-        paginas = QStackedWidget()
-        _botoes_secao = {}
-
-        def _ir_para(indice):
-            def _clique():
-                paginas.setCurrentIndex(indice)
-                for i, b in _botoes_secao.items():
-                    ativo = (i == indice)
-                    b.setStyleSheet(
-                        f"QPushButton {{ color: {C.TEXT if ativo else C.PRI};"
-                        f" background: {'rgba(0,229,255,0.12)' if ativo else 'transparent'};"
-                        f" border: 1px solid {C.PRI if ativo else C.BORDER_B};"
-                        f" border-radius: 4px; padding: 5px 14px; }}"
-                        f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI}; }}")
-            return _clique
-
-        def _secao(rotulo, widget):
-            indice = paginas.count()
-            paginas.addWidget(widget)
-            b = QPushButton(rotulo)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setFont(_fx(8, QFont.Weight.Bold))
-            b.setFixedHeight(28)
-            b.clicked.connect(_ir_para(indice))
-            _botoes_secao[indice] = b
-            barra.addWidget(b)
-            return indice
-
-        raiz.addLayout(barra)
-        raiz.addWidget(paginas)
-
-        # ── CHAVE ────────────────────────────────────────────────────────────
-        pag_chave = QWidget()
-        lay_chave = QVBoxLayout(pag_chave)
-        lay_chave.setContentsMargins(0, 8, 0, 0)
-        exp_chave = QLabel(
-            "Cadastro multi-key e multi-provedor: escolha o provedor no catalogo\n"
-            "(Gemini, OpenAI, Groq, Cerebras, Mistral e mais) e adicione quantas\n"
-            "chaves quiser. Ficam num banco local; o roteador escolhe a chave com\n"
-            "folga e troca sozinho quando uma falha ou estoura o limite.")
-        exp_chave.setFont(_fx(9))
-        exp_chave.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        exp_chave.setWordWrap(True)
-        lay_chave.addWidget(exp_chave)
-        b_chave = QPushButton("ABRIR O CADASTRO DE CHAVES")
-        b_chave.setCursor(Qt.CursorShape.PointingHandCursor)
-        b_chave.setFont(_fx(9, QFont.Weight.Bold))
-        b_chave.setFixedHeight(34)
-        b_chave.setStyleSheet(
-            f"QPushButton {{ color: {C.PRI}; background: transparent;"
-            f" border: 1px solid {C.BORDER_B}; border-radius: 4px; padding: 0 18px; }}"
-            f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI}; }}")
-
-        def _abrir_chaves():
-            try:
-                self._abrir_cadastro_chaves()
-            except Exception as exc:
-                _aviso_chave = getattr(self, "_ui", None)
-                if _aviso_chave is not None:
-                    _aviso_chave.write_log(f"ERR: nao abri o cadastro de chaves — {str(exc)[:90]}")
-        b_chave.clicked.connect(_abrir_chaves)
-        lay_chave.addWidget(b_chave)
-        lay_chave.addStretch()
-        _secao("CHAVE", pag_chave)
-
-        # ── VOZ E JEITO ──────────────────────────────────────────────────────
-        #
-        # A pagina virou VERTICAL em 05/09/2026 (antes era so a fileira de
-        # colunas) para caber, embaixo delas, o liga/desliga da SAUDACAO. As
-        # colunas continuam iguais, dentro de `colunas`.
-        pag_voz = QWidget()
-        _voz_vert = QVBoxLayout(pag_voz)
-        _voz_vert.setContentsMargins(0, 8, 0, 0)
-        _voz_vert.setSpacing(10)
-        colunas = QHBoxLayout()
-        colunas.setContentsMargins(0, 0, 0, 0)
-        colunas.setSpacing(16)
-        _voz_vert.addLayout(colunas)
-        _secao("VOZ E JEITO", pag_voz)
-
-        # Guarda os botoes para conseguir realcar o escolhido depois.
-        botoes = {"personagem": {}, "personalidade": {}, "microfone": {}, "saida": {}}
-
-        def _realcar(tipo, escolhido):
-            for chave, b in botoes.get(tipo, {}).items():
-                ativo = (chave == escolhido)
-                b.setStyleSheet(
-                    f"QPushButton {{ text-align: left; padding: 7px 10px;"
-                    f" border: 1px solid {C.PRI if ativo else C.BORDER};"
-                    f" border-radius: 4px;"
-                    f" background: {C.PRI_GHO if ativo else 'transparent'};"
-                    f" color: {C.TEXT if ativo else C.TEXT_MED}; }}"
-                    f"QPushButton:hover {{ border-color: {C.BORDER_B}; color: {C.TEXT}; }}"
-                )
-
-        def _rotulo_voz(chave, item):
-            # APELIDO (22/10/2026): a Leda que virou Roberta aparece como
-            # Roberta, com o nome de fabrica ao lado para ninguem se perder.
-            try:
-                from core.personas import nome_da_ia as _nda  # noqa: PLC0415
-                nome = _nda(chave)
-            except Exception:
-                nome = item['nome']
-            if nome != item['nome']:
-                return f"{nome}   ·  voz {item['nome']}" + chr(10) + item['desc']
-            return item['nome'] + chr(10) + item['desc']
-
-        def _coluna(titulo, itens, tipo, atual):
-            caixa = QVBoxLayout()
-            caixa.setSpacing(6)
-            cab = QLabel(titulo)
-            cab.setFont(_fx(9, QFont.Weight.Bold))
-            cab.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-            caixa.addWidget(cab)
-            for chave, item in itens.items():
-                if tipo == "personagem":
-                    rotulo = _rotulo_voz(chave, item)
-                else:
-                    rotulo = item['nome'] + chr(10) + item['desc']
-                b = QPushButton(rotulo)
-                b.setCursor(Qt.CursorShape.PointingHandCursor)
-                b.setFont(_fx(8))
-                b.setMinimumHeight(38)
-                b.clicked.connect(
-                    lambda _=False, k=chave, tp=tipo: (_aplicar(tp, k), _realcar(tp, k)))
-                botoes[tipo][chave] = b
-                if tipo != "personagem":
-                    caixa.addWidget(b)
-                    continue
-                # O LAPIS AO LADO DE CADA VOZ troca o nome dela (22/10/2026).
-                linha_v = QHBoxLayout()
-                linha_v.setSpacing(4)
-                linha_v.addWidget(b, stretch=1)
-                lapis = QPushButton("✎")
-                lapis.setToolTip("Dar outro nome para esta voz")
-                lapis.setCursor(Qt.CursorShape.PointingHandCursor)
-                lapis.setFont(_fx(11))
-                lapis.setFixedSize(34, 38)
-                lapis.setStyleSheet(
-                    f"QPushButton {{ color: {C.PRI}; background: transparent;"
-                    f" border: 1px solid {C.BORDER}; border-radius: 4px; }}"
-                    f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI}; }}")
-                lapis.clicked.connect(
-                    lambda _=False, k=chave, it=item: _renomear_voz(k, it))
-                linha_v.addWidget(lapis)
-                caixa.addLayout(linha_v)
-            caixa.addStretch()
-            return caixa
-
-        def _renomear_voz(chave, item):
-            """Janelinha do apelido. Grava pelo motor (`_trocar_persona`
-            'apelido'), que confere o nome, avisa no chat e refaz tudo."""
-            try:
-                from core.personas import (nome_da_ia as _nda,  # noqa: PLC0415
-                                           validar_apelido as _val, APELIDO_MAX as _MAX)
-                jan = QDialog(dlg)
-                jan.setWindowTitle(f"Nome da voz {item['nome']}")
-                jan.setStyleSheet(f"QDialog {{ background: {C.BG}; }}")
-                lay = QVBoxLayout(jan)
-                lay.setContentsMargins(18, 16, 18, 16)
-                lay.setSpacing(10)
-                exp = QLabel(
-                    f"Como a voz {item['nome']} deve se chamar?\n"
-                    "Ela passa a se apresentar, atender e aparecer com esse nome.\n"
-                    "Uma palavra só. Deixe vazio para voltar ao nome original.")
-                exp.setFont(_fx(9))
-                exp.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
-                lay.addWidget(exp)
-                campo = QLineEdit(_nda(chave) if _nda(chave) != item['nome'] else "")
-                campo.setPlaceholderText(item['nome'])
-                campo.setMaxLength(_MAX)
-                campo.setFont(_fx(11))
-                campo.setFixedHeight(36)
-                campo.setStyleSheet(
-                    f"QLineEdit {{ color: {C.TEXT}; background: rgba(0,229,255,0.06);"
-                    f" border: 1px solid {C.BORDER_B}; border-radius: 4px; padding: 0 10px; }}"
-                    f"QLineEdit:focus {{ border-color: {C.PRI}; }}")
-                lay.addWidget(campo)
-                erro = QLabel("")
-                erro.setFont(_fx(8))
-                erro.setStyleSheet("color: #ff6b81; background: transparent;")
-                lay.addWidget(erro)
-                fila = QHBoxLayout()
-                fila.addStretch()
-                estilo_b = (f"QPushButton {{ color: {C.PRI}; background: transparent;"
-                            f" border: 1px solid {C.BORDER_B}; border-radius: 4px; padding: 0 16px; }}"
-                            f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI}; }}")
-                for texto_b, acao in (("NOME ORIGINAL", "original"), ("CANCELAR", "cancelar"),
-                                      ("SALVAR", "salvar")):
-                    bb = QPushButton(texto_b)
-                    bb.setCursor(Qt.CursorShape.PointingHandCursor)
-                    bb.setFont(_fx(8, QFont.Weight.Bold))
-                    bb.setFixedHeight(30)
-                    bb.setStyleSheet(estilo_b)
-                    fila.addWidget(bb)
-                    if acao == "cancelar":
-                        bb.clicked.connect(jan.reject)
-                    elif acao == "original":
-                        bb.clicked.connect(lambda _=False: (campo.setText(""), _salvar()))
-                    else:
-                        bb.setDefault(True)
-                        bb.clicked.connect(lambda _=False: _salvar())
-                lay.addLayout(fila)
-
-                def _salvar():
-                    ok, limpo, motivo = _val(chave, campo.text())
-                    if not ok:
-                        erro.setText(motivo)
-                        return
-                    _aplicar("apelido", (chave, limpo))
-                    # O rotulo muda na hora; o motor grava e confere de novo.
-                    nome_f = limpo or item['nome']
-                    if nome_f != item['nome']:
-                        botoes["personagem"][chave].setText(
-                            f"{nome_f}   ·  voz {item['nome']}" + chr(10) + item['desc'])
-                    else:
-                        botoes["personagem"][chave].setText(item['nome'] + chr(10) + item['desc'])
-                    jan.accept()
-
-                campo.returnPressed.connect(_salvar)
-                jan.exec()
-            except Exception as exc:
-                _aviso(f"ERR: nao consegui abrir o nome da voz — {str(exc)[:100]}")
-
-        casca = getattr(self, "_ui", None)
-
-        def _aviso(msg):
-            if casca is not None:
-                casca.write_log(msg)
-
-        def _aplicar(tipo, chave):
-            # Nada aqui pode levantar: excecao em slot do Qt fecha a janela.
-            try:
-                cb = getattr(casca, "on_persona_change", None) if casca else None
-                if cb is None:
-                    _aviso("SIS: escolha registrada, mas o motor nao respondeu.")
-                    return
-                threading.Thread(target=cb, args=(tipo, chave), daemon=True).start()
-            except Exception as exc:
-                _aviso(f"ERR: nao consegui trocar — {str(exc)[:110]}")
-
-        _escolha = (getattr(casca, "persona_atual", None) or {}) if casca else {}
-        atual_pg = _escolha.get("personagem", PERSONAGEM_PADRAO)
-        atual_pl = _escolha.get("personalidade", PERSONALIDADE_PADRAO)
-        colunas.addLayout(_coluna("VOZ  ·  como ele soa", PERSONAGENS, "personagem", atual_pg))
-        colunas.addLayout(_coluna("JEITO  ·  como ele age", PERSONALIDADES, "personalidade", atual_pl))
-
-        # ── SAUDACAO AO ABRIR: liga e desliga (05/09/2026) ───────────────────
-        #
-        # Ela entrou no lugar dos dois recados de tecnico que apareciam no chat
-        # ao abrir. Nem todo mundo quer ser cumprimentado toda vez — quem nao
-        # quiser desliga aqui, e o NIA abre calado.
-        #
-        # Um botao SO, que alterna: dois botoes (LIGAR/DESLIGAR) obrigam o
-        # cliente a descobrir qual esta valendo. O rotulo ja diz o estado.
-        linha_saud = QHBoxLayout()
-        linha_saud.setSpacing(10)
-        rot_saud = QLabel("SAUDAÇÃO AO ABRIR  ·  ele te cumprimenta quando o programa abre")
-        rot_saud.setFont(_fx(8))
-        rot_saud.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        b_saud = QPushButton()
-        b_saud.setCursor(Qt.CursorShape.PointingHandCursor)
-        b_saud.setFont(_fx(8, QFont.Weight.Bold))
-        b_saud.setFixedHeight(28)
-        b_saud.setFixedWidth(130)
-        # `_escolha` e o que estava salvo quando o painel abriu; nasce LIGADA.
-        _saud = {"ligada": bool(_escolha.get("saudacao", True))}
-
-        def _pintar_saud():
-            ligada = _saud["ligada"]
-            b_saud.setText("LIGADA" if ligada else "DESLIGADA")
-            b_saud.setStyleSheet(
-                f"QPushButton {{ border: 1px solid {C.PRI if ligada else C.BORDER};"
-                f" border-radius: 4px;"
-                f" background: {C.PRI_GHO if ligada else 'transparent'};"
-                f" color: {C.TEXT if ligada else C.TEXT_MED}; }}"
-                f"QPushButton:hover {{ border-color: {C.BORDER_B}; color: {C.TEXT}; }}")
-
-        def _virar_saud():
-            _saud["ligada"] = not _saud["ligada"]
-            _pintar_saud()
-            _aplicar("saudacao", _saud["ligada"])
-
-        b_saud.clicked.connect(_virar_saud)
-        _pintar_saud()
-        linha_saud.addWidget(rot_saud)
-        linha_saud.addStretch()
-        linha_saud.addWidget(b_saud)
-        _voz_vert.addLayout(linha_saud)
-
-        # ── INICIAR COM O WINDOWS (24/10/2026) ───────────────────────────────
-        #
-        # Mesmo botao unico da saudacao. O estado vem do proprio Windows (chave
-        # Run do usuario) a cada vez que a engrenagem abre: se o cliente
-        # desligar pelo Gerenciador de Tarefas, aqui aparece DESLIGADA.
-        try:
-            from core import iniciar_com_sistema as _ini  # noqa: PLC0415
-            if _ini.disponivel():
-                _sistema = "Windows" if sys.platform.startswith("win") else "computador"
-                linha_ini = QHBoxLayout()
-                linha_ini.setSpacing(10)
-                rot_ini = QLabel(f"INICIAR COM O {_sistema.upper()}  ·  "
-                                 "ele abre sozinho toda vez que o computador liga")
-                rot_ini.setFont(_fx(8))
-                rot_ini.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-                b_ini = QPushButton()
-                b_ini.setCursor(Qt.CursorShape.PointingHandCursor)
-                b_ini.setFont(_fx(8, QFont.Weight.Bold))
-                b_ini.setFixedHeight(28)
-                b_ini.setFixedWidth(130)
-                _ini_estado = {"ligada": _ini.esta_ligado()}
-
-                def _pintar_ini():
-                    ligada = _ini_estado["ligada"]
-                    b_ini.setText("LIGADA" if ligada else "DESLIGADA")
-                    b_ini.setStyleSheet(
-                        f"QPushButton {{ border: 1px solid {C.PRI if ligada else C.BORDER};"
-                        f" border-radius: 4px;"
-                        f" background: {C.PRI_GHO if ligada else 'transparent'};"
-                        f" color: {C.TEXT if ligada else C.TEXT_MED}; }}"
-                        f"QPushButton:hover {{ border-color: {C.BORDER_B}; color: {C.TEXT}; }}")
-
-                def _virar_ini():
-                    querer = not _ini_estado["ligada"]
-                    ok, motivo = _ini.ligar(querer)
-                    if ok:
-                        _ini_estado["ligada"] = querer
-                        _aviso(f"SIS: o NIA vai abrir sozinho quando o {_sistema} ligar."
-                               if querer else
-                               f"SIS: o NIA nao abre mais sozinho com o {_sistema}.")
-                    else:
-                        _ini_estado["ligada"] = _ini.esta_ligado()
-                        _aviso(f"ERR: nao consegui mudar o iniciar com o {_sistema} — {motivo}")
-                    _pintar_ini()
-
-                b_ini.clicked.connect(_virar_ini)
-                _pintar_ini()
-                linha_ini.addWidget(rot_ini)
-                linha_ini.addStretch()
-                linha_ini.addWidget(b_ini)
-                _voz_vert.addLayout(linha_ini)
-        except Exception as _exc_ini:
-            _aviso(f"ERR: nao montei o iniciar com o Windows — {str(_exc_ini)[:90]}")
-
-        # ── MICROFONE ────────────────────────────────────────────────────────
-        # O cliente instala em qualquer PC, e o microfone dele pode ser qualquer
-        # coisa. Adivinhar pelo nome nao serve: em 30/08 tres aparelhos abriram
-        # sem erro e entregaram ZERO bloco. Aqui cada um mostra se FUNCIONA de
-        # verdade, medindo os blocos que chegam.
-        col_mic = QVBoxLayout()
-        col_mic.setSpacing(6)
-        cab_mic = QLabel("MICROFONE  ·  por onde ele ouve")
-        cab_mic.setFont(_fx(9, QFont.Weight.Bold))
-        cab_mic.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        col_mic.addWidget(cab_mic)
-
-        estado_mic = QLabel("Clique em Testar para ver qual funciona.")
-        estado_mic.setFont(_fx(8))
-        estado_mic.setWordWrap(True)
-        estado_mic.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-
-        botoes["microfone"] = {}
-
-        def _montar_microfones(testar_todos=False):
-            while col_mic.count() > 1:
-                item = col_mic.takeAt(1)
-                w = item.widget()
-                if w is not None and w is not estado_mic:
-                    w.deleteLater()
-            botoes["microfone"].clear()
-            try:
-                from core.audio_dispositivos import listar, testar as testar_mic
-            except Exception as exc:
-                estado_mic.setText(f"Nao consegui listar: {str(exc)[:70]}")
-                col_mic.addWidget(estado_mic)
-                return
-            lista = [{"indice": None, "nome": "Padrao do Windows",
-                      "api": "o que o sistema escolher"}] + listar()
-            for ap in lista:
-                marca = ""
-                if testar_todos:
-                    r = testar_mic(ap["indice"])
-                    marca = ("  ✓ funcionando" if r["ok"]
-                             else "  ✗ " + (r["erro"][:34] or "sem sinal"))
-                b = QPushButton(ap["nome"][:38] + chr(10) + ap["api"][:30] + marca)
-                b.setCursor(Qt.CursorShape.PointingHandCursor)
-                b.setFont(_fx(8))
-                b.setMinimumHeight(38)
-                b.clicked.connect(
-                    lambda _=False, k=ap["indice"]: (_aplicar("microfone", k),
-                                                     _realcar("microfone", k)))
-                botoes["microfone"][ap["indice"]] = b
-                col_mic.addWidget(b)
-            atual_mic = (getattr(casca, "persona_atual", None) or {}).get("microfone")
-            _realcar("microfone", atual_mic)
-            col_mic.addWidget(estado_mic)
-
-        btn_testar = QPushButton("TESTAR TODOS")
-        btn_testar.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_testar.setFont(_fx(8, QFont.Weight.Bold))
-        btn_testar.setFixedHeight(24)
-        btn_testar.setStyleSheet(
-            f"QPushButton {{ color: {C.ACC2}; background: transparent;"
-            f" border: 1px solid {C.BORDER_B}; border-radius: 4px; }}"
-            f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI}; }}")
-
-        def _testar_todos():
-            estado_mic.setText("Testando cada aparelho, aguarde...")
-            QApplication.processEvents()
-            try:
-                _montar_microfones(testar_todos=True)
-                estado_mic.setText("Escolha um que esteja marcado com ✓.")
-            except Exception as exc:
-                estado_mic.setText(f"Falhou: {str(exc)[:70]}")
-
-        btn_testar.clicked.connect(_testar_todos)
-        _montar_microfones()
-        col_mic.addWidget(btn_testar)
-
-        # ── SAIDA DE SOM ─────────────────────────────────────────────────────
-        # O NIA escolhia sozinho para onde falar e errava: o Diego ouve o PC
-        # pelo notebook (AudioRelay) e a voz ia para os alto-falantes USB.
-        # Falava certo, no lugar errado — e parecia mudo. Testar por medicao nao
-        # serve aqui: so o ouvido do cliente sabe se o som chegou nele, entao
-        # cada aparelho tem um bip para ele ouvir e decidir.
-        cab_saida = QLabel("SOM  ·  por onde ele fala")
-        cab_saida.setFont(_fx(9, QFont.Weight.Bold))
-        cab_saida.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        col_mic.addSpacing(10)
-        col_mic.addWidget(cab_saida)
-
-        dica_saida = QLabel("Clique para ouvir um bip e adotar.")
-        dica_saida.setFont(_fx(8))
-        dica_saida.setWordWrap(True)
-        dica_saida.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-
-        botoes["saida"] = {}
-        try:
-            from core.audio_dispositivos import listar_saidas
-            saidas = [{"indice": None, "nome": "Padrao do Windows", "api": ""}] + listar_saidas()
-        except Exception:
-            saidas = [{"indice": None, "nome": "Padrao do Windows", "api": ""}]
-
-        for ap in saidas[:8]:
-            rot_s = ap["nome"][:38] + (chr(10) + ap["api"][:30] if ap["api"] else "")
-            bs = QPushButton(rot_s)
-            bs.setCursor(Qt.CursorShape.PointingHandCursor)
-            bs.setFont(_fx(8))
-            bs.setMinimumHeight(34)
-            bs.clicked.connect(
-                lambda _=False, k=ap["indice"]: (_aplicar("saida", k), _realcar("saida", k)))
-            botoes["saida"][ap["indice"]] = bs
-            col_mic.addWidget(bs)
-
-        col_mic.addWidget(dica_saida)
-        _realcar("saida", (getattr(casca, "persona_atual", None) or {}).get("saida"))
-        pag_som = QWidget()
-        lay_som = QHBoxLayout(pag_som)
-        lay_som.setContentsMargins(0, 8, 0, 0)
-        lay_som.addLayout(col_mic)
-        _secao("MICROFONE E SOM", pag_som)
-        _realcar("personagem", atual_pg)
-        _realcar("personalidade", atual_pl)
-
-        # ── SOBRE VOCE ───────────────────────────────────────────────────────
-        #
-        # Ate 01/09/2026 o NIA chamava TODO cliente de "Diego": o nome estava
-        # escrito na pedra dentro do prompt. Aqui o dono diz quem e, e as treze
-        # personalidades passam a falar com ELE.
-        #
-        # Grava ao sair do campo, sem botao de salvar — botao e uma coisa a mais
-        # para o cliente esquecer de clicar.
-        try:
-            from core.dono import CAMPOS as _CAMPOS_DONO, carregar as _dono_carregar
-            from core.dono import salvar as _dono_salvar
-
-            _atual_dono = _dono_carregar()
-
-            cab_dono = QLabel("SOBRE VOCE  ·  para ele te conhecer")
-            cab_dono.setFont(_fx(9, QFont.Weight.Bold))
-            cab_dono.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-            pag_dono = QWidget()
-            lay_dono = QVBoxLayout(pag_dono)
-            lay_dono.setContentsMargins(0, 8, 0, 0)
-            lay_dono.addWidget(cab_dono)
-
-            grade = QVBoxLayout()
-            grade.setSpacing(4)
-
-            def _gravar(chave, campo):
-                def _ao_sair():
-                    try:
-                        _dono_salvar({chave: campo.text()})
-                        if casca is not None and chave == "como_chamar":
-                            nome = campo.text().strip()
-                            if nome:
-                                casca.write_log(f"SIS: agora ele te chama de {nome}.")
-                    except Exception as exc:
-                        _aviso(f"ERR: nao consegui salvar — {str(exc)[:90]}")
-                return _ao_sair
-
-            for _chave, (_rotulo, _dica) in _CAMPOS_DONO.items():
-                linha_d = QHBoxLayout()
-                lab = QLabel(_rotulo)
-                lab.setFont(_fx(8))
-                lab.setFixedWidth(250)
-                lab.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-                campo = QLineEdit(_atual_dono.get(_chave, ""))
-                campo.setPlaceholderText(_dica)
-                campo.setFont(_fx(8))
-                campo.setStyleSheet(
-                    f"QLineEdit {{ color: {C.TEXT}; background: transparent;"
-                    f" border: 1px solid {C.BORDER_B}; border-radius: 4px; padding: 3px 6px; }}"
-                    f"QLineEdit:focus {{ border-color: {C.PRI}; }}")
-                campo.editingFinished.connect(_gravar(_chave, campo))
-                linha_d.addWidget(lab)
-                linha_d.addWidget(campo)
-                grade.addLayout(linha_d)
-            lay_dono.addLayout(grade)
-            lay_dono.addStretch()
-            _secao("SOBRE VOCE", pag_dono)
-        except Exception as _exc_dono:
-            _aviso(f"ERR: nao montei os dados do dono — {str(_exc_dono)[:90]}")
-
-        # ── NOMES (17/10/2026): o cliente troca os nomes da tela ──────────────
-        try:
-            _secao("NOMES", self._pagina_nomes())
-        except Exception as _exc_nomes:
-            import traceback as _tb_nomes
-            _tb_nomes.print_exc()
-            _aviso(f"ERR: nao montei a aba de nomes — {str(_exc_nomes)[:90]}")
-
-        # ── SECRETARIA DO WHATSAPP (05/11/2026) ──────────────────────────────
-        _indice_secretaria = None
-        try:
-            from core import secretaria_tela as _sec_tela  # noqa: PLC0415
-            _indice_secretaria = _secao("SECRETÁRIA", _sec_tela.pagina(self))
-        except Exception as _exc_sec:
-            import traceback as _tb_sec
-            _tb_sec.print_exc()
-            _aviso(f"ERR: nao montei a aba da secretaria — {str(_exc_sec)[:90]}")
-
-        # ── NUCLEO (13/10/2026) ──────────────────────────────────────────────
-        # Os dez formatos do nucleo, logo antes de CORES (a cor vale para
-        # todos eles).
-        try:
-            _secao("NÚCLEO", self._pagina_nucleo())
-        except Exception as _exc_nucleo:
-            import traceback as _tb_nucleo
-            _tb_nucleo.print_exc()
-            _aviso(f"ERR: nao montei a aba do nucleo — {str(_exc_nucleo)[:90]}")
-
-        # ── CORES (08/10/2026) ───────────────────────────────────────────────
-        _indice_cores = None
-        try:
-            _indice_cores = _secao("CORES", self._pagina_cores())
-        except Exception as _exc_cores:
-            import traceback as _tb_cores
-            _tb_cores.print_exc()
-            _aviso(f"ERR: nao montei a aba de cores — {str(_exc_cores)[:90]}")
-
-        # Abre em VOZ E JEITO: e a secao que o cliente mais visita.
-        # (O MAIS OPCOES da secretaria, na janela do WhatsApp, abre direto na aba dela.)
-        try:
-            if abrir_em == "secretaria" and _indice_secretaria is not None:
-                _ir_para(_indice_secretaria)()
-            else:
-                _ir_para(_indice_cores if (abrir_em == "cores" and _indice_cores is not None) else 1)()
-        except Exception:
-            pass
-
-        rodape = QLabel("Ao escolher uma voz ele fala uma frase de teste. "
-                        "A escolha fica salva para as proximas vezes.")
-        rodape.setFont(_fx(8))
-        rodape.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        raiz.addWidget(rodape)
-
-        fechar = QPushButton("FECHAR")
-        fechar.setCursor(Qt.CursorShape.PointingHandCursor)
-        fechar.setFont(_fx(8, QFont.Weight.Bold))
-        fechar.setFixedHeight(26)
-        fechar.setStyleSheet(
-            f"QPushButton {{ color: {C.PRI}; background: transparent;"
-            f" border: 1px solid {C.BORDER_B}; border-radius: 4px; padding: 0 18px; }}"
-            f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI}; }}"
-        )
-        fechar.clicked.connect(dlg.accept)
-        linha = QHBoxLayout()
-        linha.addStretch()
-        linha.addWidget(fechar)
-        raiz.addLayout(linha)
-
-        dlg.exec()
-
     def aplicar_nomes(self) -> None:
         """Poe na tela os nomes da aba NOMES (chamado ao salvar, sem reabrir)."""
         try:
             self.setWindowTitle(_nome_tela("janela", "NIA"))
             if getattr(self, "_lbl_titulo_topo", None) is not None:
                 self._lbl_titulo_topo.setText(_nome_tela("titulo", "N.I.A"))
-            if getattr(self, "_lbl_sub_topo", None) is not None:
-                self._lbl_sub_topo.setText(_nome_tela("subtitulo", getattr(self, "_sub_topo_padrao", "")))
+            self._lbl_titulo_topo.setToolTip(_nome_tela("subtitulo", self._sub_topo_padrao))
             for texto, rotulos in _ROTULOS_CARTAO.items():
                 novo = _nome_tela("cartao_" + _sem_acento_simples(texto).lower(), texto)
                 for r in list(rotulos):
@@ -7757,104 +5930,6 @@ class MainWindow(QMainWindow):
         except Exception:
             import traceback as _tb  # noqa: PLC0415
             _tb.print_exc()
-
-    def _pagina_nomes(self) -> QWidget:
-        """Aba NOMES da engrenagem: cada campo grava ao sair dele e ja muda a tela."""
-        from core.nomes_tela import CAMPOS, carregar, salvar, voltar_ao_padrao  # noqa: PLC0415
-        pag = QWidget()
-        lay = QVBoxLayout(pag)
-        lay.setContentsMargins(0, 8, 0, 0)
-        lay.setSpacing(4)
-        cab = QLabel("NOMES DA TELA  ·  troque qualquer nome que aparece na janela")
-        cab.setFont(_fx(9, QFont.Weight.Bold))
-        cab.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        lay.addWidget(cab)
-        dica = QLabel("Deixe o campo vazio para voltar ao nome original. Muda na hora e fica salvo.")
-        dica.setFont(_fx(8))
-        dica.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        lay.addWidget(dica)
-        atual = carregar()
-        campos = {}
-        estilo = (f"QLineEdit {{ color: {C.TEXT}; background: transparent;"
-                  f" border: 1px solid {C.BORDER_B}; border-radius: 4px; padding: 3px 6px; }}"
-                  f"QLineEdit:focus {{ border-color: {C.PRI}; }}")
-        grade = QGridLayout()
-        grade.setHorizontalSpacing(10)
-        grade.setVerticalSpacing(4)
-        for i, (chave, rotulo, padrao, maximo) in enumerate(CAMPOS):
-            lab = QLabel(rotulo)
-            lab.setFont(_fx(8))
-            lab.setFixedWidth(178)
-            lab.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-            campo = QLineEdit(atual.get(chave, ""))
-            campo.setMaxLength(maximo)
-            if chave == "subtitulo":
-                campo.setPlaceholderText(getattr(self, "_sub_topo_padrao", "") or "Sistema Inteligente do NIA")
-            elif chave == "nome_chat":
-                campo.setPlaceholderText("o nome da voz escolhida")
-            else:
-                campo.setPlaceholderText(padrao)
-            campo.setFont(_fx(8))
-            campo.setStyleSheet(estilo)
-
-            def _gravar(c=chave, w=campo):
-                try:
-                    salvo = salvar({c: w.text()})
-                    w.blockSignals(True)
-                    w.setText(salvo.get(c, ""))     # como ficou (botao em maiuscula)
-                    w.blockSignals(False)
-                    self.aplicar_nomes()
-                except Exception as exc:
-                    casca = getattr(self, "_ui", None)
-                    if casca is not None:
-                        casca.write_log(f"ERR: nao consegui salvar o nome — {str(exc)[:90]}")
-            campo.editingFinished.connect(_gravar)
-
-            # AO VIVO (17/10/2026, pedido do Diego): a tela muda enquanto ele
-            # digita, sem esperar sair do campo. 300 ms depois da ultima letra.
-            def _ao_vivo(c=chave, w=campo):
-                try:
-                    salvar({c: w.text()})
-                    self.aplicar_nomes()
-                except Exception:
-                    pass
-            relogio = QTimer(campo)
-            relogio.setSingleShot(True)
-            relogio.setInterval(300)
-            relogio.timeout.connect(_ao_vivo)
-            campo.textEdited.connect(lambda _txt, r=relogio: r.start())
-            campos[chave] = campo
-            # duas colunas: assim os 15 campos cabem sem rolar
-            linha, col = i % 8, (i // 8) * 2
-            grade.addWidget(lab, linha, col)
-            grade.addWidget(campo, linha, col + 1)
-        grade.setColumnStretch(1, 1)
-        grade.setColumnStretch(3, 1)
-        lay.addLayout(grade)
-
-        padrao_btn = QPushButton("VOLTAR TODOS AO ORIGINAL")
-        padrao_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        padrao_btn.setFont(_fx(8, QFont.Weight.Bold))
-        padrao_btn.setFixedHeight(26)
-        padrao_btn.setStyleSheet(
-            f"QPushButton {{ color: {C.PRI}; background: transparent;"
-            f" border: 1px solid {C.BORDER_B}; border-radius: 4px; padding: 0 14px; }}"
-            f"QPushButton:hover {{ color: {C.TEXT}; border-color: {C.PRI}; }}")
-
-        def _padrao():
-            voltar_ao_padrao()
-            for w in campos.values():
-                w.blockSignals(True)
-                w.setText("")
-                w.blockSignals(False)
-            self.aplicar_nomes()
-        padrao_btn.clicked.connect(_padrao)
-        linha_b = QHBoxLayout()
-        linha_b.addWidget(padrao_btn)
-        linha_b.addStretch()
-        lay.addLayout(linha_b)
-        lay.addStretch()
-        return pag
 
     def _show_setup(self):
         if self._overlay is not None:
@@ -7913,19 +5988,15 @@ class MainWindow(QMainWindow):
         self._log.append_log(f"SIS: Inicializado. SO={os_name.upper()}. NIA online.")
 
     def _abrir_cadastro_chaves(self):
-        from core.config_apis_ui import ConfigAPIsDialog
-        dlg = ConfigAPIsDialog(self)
-        dlg.setFont(_fx(9))
-        dlg.setStyleSheet(
-            f"QDialog, QGroupBox, QScrollArea, QWidget {{ background: {C.BG}; color: {C.TEXT}; }}"
-            f"QLineEdit, QComboBox {{ border: 1px solid {C.BORDER}; padding: 5px; }}"
-            f"QPushButton {{ border: 1px solid {C.BORDER}; border-radius: 5px; padding: 5px 8px; }}"
-            f"QPushButton:hover {{ border-color: {C.PRI}; color: {C.PRI}; }}"
-            f"QTabWidget::pane {{ border: 1px solid {C.BORDER}; }}"
-            f"QTabBar::tab {{ background: {C.BG}; color: {C.TEXT}; padding: 8px 18px; }}"
-            f"QTabBar::tab:selected {{ border-bottom: 2px solid {C.PRI}; }}"
-        )
-        dlg.exec()
+        """Entrada antiga do cadastro de chaves: abre a página compartilhada.
+
+        O diálogo próprio deixou de existir na etapa 2. A aba CHAVE da
+        engrenagem clássica passa a abrir a mesma página de "Provedores e
+        modelos" do dashboard, sem duplicar formulários. A primeira execução
+        continua no overlay de configuração e usa apenas a validação
+        assíncrona compartilhada.
+        """
+        return self._abrir_dashboard_config("provedores")
 
 
 class _RootShim:
@@ -8006,6 +6077,14 @@ class NiaUI:
     @on_remote_clicked.setter
     def on_remote_clicked(self, cb):
         self._win.on_remote_clicked = cb
+
+    @property
+    def on_revoke_devices(self):
+        return getattr(self._win, "on_revoke_devices", None)
+
+    @on_revoke_devices.setter
+    def on_revoke_devices(self, cb):
+        self._win.on_revoke_devices = cb
 
     @property
     def on_whatsapp_clicked(self):

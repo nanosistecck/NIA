@@ -26,8 +26,10 @@ from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QGuiApplication
-from PyQt6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                             QScrollArea, QSpinBox, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QButtonGroup, QCheckBox, QFrame, QGridLayout,
+                             QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                             QSizePolicy, QSpinBox, QVBoxLayout,
+                             QWidget)
 
 from core import secretaria as SEC
 
@@ -480,227 +482,280 @@ def pagina(janela) -> QWidget:
     cfg = SEC.carregar()
     casca = getattr(janela, "_ui", None) or _casca
 
+    # A página é filha do dashboard: usa a paleta, a tipografia e o QSS já
+    # compartilhados por Aparência, Geral e Integrações. Nada de cor/fonte
+    # própria; os estados são visíveis pelo objeto e pela propriedade "estado".
     def _mudou(mudancas: dict) -> None:
         _mudar(casca, mudancas)
         _atualizar_estado()
 
-    externa = QWidget()
-    lay_ext = QVBoxLayout(externa)
-    lay_ext.setContentsMargins(0, 0, 0, 0)
-    rolagem = QScrollArea()
-    rolagem.setWidgetResizable(True)
-    rolagem.setFrameShape(QFrame.Shape.NoFrame)
-    rolagem.setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }")
-    lay_ext.addWidget(rolagem)
+    # Sem QScrollArea interno: a página já vive dentro da área rolável do
+    # dashboard, como Aparência e Geral. Evita barra dupla e altura colapsada.
     pag = QWidget()
-    rolagem.setWidget(pag)
+    pag.setObjectName("PageContent")
+    pag.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     lay = QVBoxLayout(pag)
-    lay.setContentsMargins(0, 8, 8, 8)
-    lay.setSpacing(8)
+    lay.setContentsMargins(0, 4, 0, 4)
+    lay.setSpacing(12)
+    externa = pag
 
-    def _rot(texto: str, tam: float = 8, cor: str = "TEXT_DIM", negrito: bool = False) -> QLabel:
+    def _cartao(titulo: str, subtitulo: str = "") -> QFrame:
+        cartao = QFrame()
+        cartao.setObjectName("GlassCard")
+        cartao.setSizePolicy(QSizePolicy.Policy.Expanding,
+                             QSizePolicy.Policy.Preferred)
+        caixa = QVBoxLayout(cartao)
+        caixa.setContentsMargins(18, 14, 18, 14)
+        caixa.setSpacing(10)
+        titulo_lbl = QLabel(titulo, cartao)
+        titulo_lbl.setObjectName("CardTitle")
+        titulo_lbl.setWordWrap(True)
+        caixa.addWidget(titulo_lbl)
+        if subtitulo:
+            sub = QLabel(subtitulo, cartao)
+            sub.setObjectName("CardSubtitle")
+            sub.setWordWrap(True)
+            caixa.addWidget(sub)
+        corpo = QVBoxLayout()
+        corpo.setSpacing(10)
+        caixa.addLayout(corpo)
+        cartao.body = corpo
+        lay.addWidget(cartao)
+        return cartao
+
+    def _rot(texto: str, papel: str = "Hint") -> QLabel:
         lab = QLabel(texto)
+        lab.setObjectName(papel)
         lab.setWordWrap(True)
-        lab.setFont(_fx(tam, QFont.Weight.Bold if negrito else None))
-        lab.setStyleSheet(f"color: {_c(cor)}; background: transparent;")
         return lab
 
-    lay.addWidget(_rot(_t("SECRETÁRIA DO WHATSAPP  ·  ela atende as suas ligações e responde as suas mensagens",
-                          "WHATSAPP ASSISTANT  ·  she answers your calls and replies to your messages"), 9, "PRI", True))
-    lay.addWidget(_rot(_t("Quando alguém te liga no WhatsApp, ela atende com a voz que você escolher, conversa ao vivo, "
-                          "te pergunta o que precisar e anota o recado. Quem ligou e o que ficou combinado aparecem "
-                          "escritos no chat do NIA (ele não fala nada em voz alta). Ela sempre se apresenta como "
-                          "assistente virtual.",
-                          "When someone calls you on WhatsApp, she answers with the voice you choose, talks live, asks "
-                          "you whatever she needs and takes a message. Who called and what was agreed show up written "
-                          "in the NIA chat (NIA says nothing out loud). She always introduces herself as a "
-                          "virtual assistant.")))
-    lay.addWidget(_rot(_t("LIGAÇÕES", "CALLS"), 8, "PRI", True))
+    def _botao_dash(texto: str, papel: str = "Secondary",
+                    checkable: bool = False) -> QPushButton:
+        b = QPushButton(texto)
+        b.setObjectName(papel)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setMinimumHeight(34)
+        b.setCheckable(checkable)
+        return b
 
-    # -- liga / desliga + estado
+    def _estado(lab: QLabel, texto: str, estado: str = "info") -> None:
+        lab.setText(texto)
+        lab.setProperty("estado", estado)
+        lab.style().unpolish(lab)
+        lab.style().polish(lab)
+
+    def _alternar_botao(botao: QPushButton, ligado: bool) -> None:
+        botao.setProperty("ligado", "true" if ligado else "false")
+        botao.blockSignals(True)
+        botao.setChecked(bool(ligado))
+        botao.blockSignals(False)
+        botao.style().unpolish(botao)
+        botao.style().polish(botao)
+
+    # -- cartão de ligações --------------------------------------------------
+    cartao_lig = _cartao(
+        _t("LIGAÇÕES", "CALLS"),
+        _t("Quando alguém te liga no WhatsApp, ela atende com a voz que você "
+           "escolher, conversa ao vivo, pergunta o que precisar e anota o recado. "
+           "Quem ligou e o que ficou combinado aparecem no chat do NIA; ela "
+           "sempre se apresenta como assistente virtual.",
+           "When someone calls you on WhatsApp, she answers with the voice you "
+           "choose, talks live, asks what she needs and takes the message. Who "
+           "called and what was agreed show up in the NIA chat; she always "
+           "introduces herself as a virtual assistant."))
     linha = QHBoxLayout()
-    b_liga = _botao("")
-    b_liga.setFixedHeight(34)
-    estado_lab = _rot("", 8, "TEXT_MED")
+    linha.setSpacing(8)
+    b_liga = _botao_dash("", "Toggle", checkable=True)
+    b_liga.setAccessibleName(_t("Atender ligações", "Answer calls"))
+    estado_lab = _rot("", "Status")
 
     def _pintar_liga() -> None:
-        ligada = SEC.carregar().get("ligada")
-        b_liga.setText(_t("ATENDENDO LIGAÇÕES  ·  clique para desligar", "ANSWERING CALLS  ·  click to turn off") if ligada
-                       else _t("LIGAÇÕES DESLIGADAS  ·  clique para ligar", "CALLS OFF  ·  click to turn on"))
-        cor = _c("GREEN", "#00ff88") if ligada else _c("TEXT_DIM")
-        b_liga.setStyleSheet(
-            f"QPushButton {{ color: {cor}; background: {'rgba(0,255,136,0.08)' if ligada else 'transparent'};"
-            f" border: 1px solid {cor}; border-radius: 4px; padding: 0 16px; }}"
-            f"QPushButton:hover {{ color: {_c('TEXT')}; border-color: {_c('TEXT')}; }}")
+        ligada = bool(SEC.carregar().get("ligada"))
+        b_liga.setText(_t("ATENDENDO LIGAÇÕES  ·  clique para desligar",
+                          "ANSWERING CALLS  ·  click to turn off") if ligada
+                       else _t("LIGAÇÕES DESLIGADAS  ·  clique para ligar",
+                               "CALLS OFF  ·  click to turn on"))
+        _alternar_botao(b_liga, ligada)
 
     def _atualizar_estado() -> None:
         _pintar_liga()
         if not SEC.carregar().get("ligada"):
-            estado_lab.setText(_t("Desligada: ninguém atende as ligações por você.", "Off: nobody answers calls for you."))
+            _estado(estado_lab,
+                    _t("Desligada: ninguém atende as ligações por você.",
+                       "Off: nobody answers calls for you."), "info")
         elif not SEC.motor_rodando():
-            estado_lab.setText(_t("Ligando...", "Starting..."))
+            _estado(estado_lab, _t("Ligando...", "Starting..."), "warning")
         elif _ultimo_login == "conectado":
-            estado_lab.setText(_t("Pronta: as ligações estão conectadas.", "Ready: calls are connected."))
+            _estado(estado_lab,
+                    _t("Pronta: as ligações estão conectadas.",
+                       "Ready: calls are connected."), "success")
         elif _ultimo_login == "qr":
-            estado_lab.setText(_t("Falta conectar as ligações: clique em CONECTAR WHATSAPP e leia o segundo código.",
-                                  "Calls are not connected yet: click CONNECT WHATSAPP and scan the second code."))
+            _estado(estado_lab,
+                    _t("Falta conectar as ligações: clique em CONECTAR "
+                       "WHATSAPP e leia o segundo código.",
+                       "Calls are not connected yet: click CONNECT WHATSAPP "
+                       "and scan the second code."), "warning")
         else:
-            estado_lab.setText(_t("Ligando...", "Starting..."))
+            _estado(estado_lab, _t("Ligando...", "Starting..."), "warning")
 
     def _alternar() -> None:
         _mudou({"ligada": not SEC.carregar().get("ligada")})
 
     b_liga.clicked.connect(_alternar)
     linha.addWidget(b_liga)
-    b_ver = _botao(_t("ABRIR O WHATSAPP DELA", "OPEN HER WHATSAPP"))
+    b_ver = _botao_dash(_t("ABRIR O WHATSAPP DELA", "OPEN HER WHATSAPP"))
     b_ver.clicked.connect(lambda: _acao("mostrar"))
     linha.addWidget(b_ver)
     linha.addStretch()
-    lay.addLayout(linha)
-    lay.addWidget(estado_lab)
+    cartao_lig.body.addLayout(linha)
+    cartao_lig.body.addWidget(estado_lab)
     relogio = QTimer(pag)
     relogio.timeout.connect(_atualizar_estado)
     relogio.start(1500)
     _atualizar_estado()
 
-    # -- v1.0.40: as MENSAGENS (a secretaria no chat, core/secretaria_chat.py)
-    lay.addWidget(_rot(_t("MENSAGENS  ·  ela responde quem te manda mensagem no WhatsApp (texto e áudio)",
-                          "MESSAGES  ·  she replies to whoever messages you on WhatsApp (text and audio)"), 8, "PRI", True))
-    lay.addWidget(_rot(_t("Usa as mesmas informações das ligações e a voz escolhida mais abaixo, e ouve os áudios que "
-                          "mandarem. Nunca responde grupo e fica quieta na conversa em que você mesmo escreveu nos "
-                          "últimos 30 minutos. Usa o WhatsApp do botão CONECTAR WHATSAPP. Tudo fica salvo na pasta "
-                          "dela, em \"mensagens\".",
-                          "She uses the same information as the calls and the voice chosen below, and listens to the "
-                          "audio people send. She never replies in groups and stays quiet in a chat where you wrote "
-                          "yourself in the last 30 minutes. She uses the WhatsApp from the CONNECT WHATSAPP button. "
-                          "Everything is saved in her folder, under \"mensagens\".")))
+    # -- cartão de mensagens -------------------------------------------------
+    cartao_chat = _cartao(
+        _t("MENSAGENS", "MESSAGES"),
+        _t("Ela responde quem te manda mensagem no WhatsApp, por texto ou áudio, "
+           "usando as mesmas informações das ligações. Nunca responde grupo e "
+           "fica quieta na conversa em que você escreveu nos últimos 30 minutos.",
+           "She replies to whoever messages you on WhatsApp, by text or audio, "
+           "using the same information as for calls. She never replies in a "
+           "group and stays quiet in a chat where you wrote in the last 30 "
+           "minutes."))
     linha_chat = QHBoxLayout()
-    b_chat = _botao("")
-    b_chat.setFixedHeight(34)
-    estado_chat = _rot("", 8, "TEXT_MED")
+    linha_chat.setSpacing(8)
+    b_chat = _botao_dash("", "Toggle", checkable=True)
+    b_chat.setAccessibleName(_t("Responder mensagens", "Reply to messages"))
+    estado_chat = _rot("", "Status")
     botoes_fmt: dict[str, QPushButton] = {}
+    grupo_fmt = QButtonGroup(pag)
+    grupo_fmt.setExclusive(True)
 
     def _pintar_chat() -> None:
         c = SEC.carregar()
         ligado = bool(c.get("chat_ligado"))
-        b_chat.setText(_t("RESPONDENDO MENSAGENS  ·  clique para desligar", "REPLYING TO MESSAGES  ·  click to turn off")
-                       if ligado else _t("MENSAGENS DESLIGADAS  ·  clique para ligar", "MESSAGES OFF  ·  click to turn on"))
-        cor = _c("GREEN", "#00ff88") if ligado else _c("TEXT_DIM")
-        b_chat.setStyleSheet(
-            f"QPushButton {{ color: {cor}; background: {'rgba(0,255,136,0.08)' if ligado else 'transparent'};"
-            f" border: 1px solid {cor}; border-radius: 4px; padding: 0 16px; }}"
-            f"QPushButton:hover {{ color: {_c('TEXT')}; border-color: {_c('TEXT')}; }}")
+        b_chat.setText(_t("RESPONDENDO MENSAGENS  ·  clique para desligar",
+                          "REPLYING TO MESSAGES  ·  click to turn off")
+                       if ligado else
+                       _t("MENSAGENS DESLIGADAS  ·  clique para ligar",
+                          "MESSAGES OFF  ·  click to turn on"))
+        _alternar_botao(b_chat, ligado)
         atual = str(c.get("chat_formato") or "texto")
         for chave, b in botoes_fmt.items():
-            ativo = chave == atual
-            b.setStyleSheet(
-                f"QPushButton {{ padding: 5px 10px; border: 1px solid {_c('PRI') if ativo else _c('BORDER')};"
-                f" border-radius: 4px; background: {_c('PRI_GHO') if ativo else 'transparent'};"
-                f" color: {_c('TEXT') if ativo else _c('TEXT_MED')}; }}")
+            b.blockSignals(True)
+            b.setChecked(chave == atual)
+            b.blockSignals(False)
         if not ligado:
-            estado_chat.setText(_t("Desligada: ninguém responde as mensagens por você.",
-                                   "Off: nobody replies to messages for you."))
+            _estado(estado_chat,
+                    _t("Desligada: ninguém responde as mensagens por você.",
+                       "Off: nobody replies to messages for you."), "info")
         elif whatsapp_conectado():
-            estado_chat.setText(_t("Pronta: respondendo as mensagens  ·  ", "Ready: replying to messages  ·  ")
-                                + SEC.formatos_chat().get(atual, ("", ""))[1])
+            _estado(estado_chat,
+                    _t("Pronta: respondendo as mensagens  ·  ",
+                       "Ready: replying to messages  ·  ")
+                    + SEC.formatos_chat().get(atual, ("", ""))[1], "success")
         else:
-            estado_chat.setText(_t("Falta conectar o WhatsApp: clique em CONECTAR WHATSAPP.",
-                                   "WhatsApp is not connected: click CONNECT WHATSAPP."))
+            _estado(estado_chat,
+                    _t("Falta conectar o WhatsApp: clique em CONECTAR WHATSAPP.",
+                       "WhatsApp is not connected: click CONNECT WHATSAPP."),
+                    "warning")
 
-    b_chat.clicked.connect(lambda: (_mudou({"chat_ligado": not SEC.carregar().get("chat_ligado")}), _pintar_chat()))
+    b_chat.clicked.connect(
+        lambda: (_mudou({"chat_ligado": not SEC.carregar().get("chat_ligado")}),
+                 _pintar_chat()))
     linha_chat.addWidget(b_chat)
     linha_chat.addStretch()
-    lay.addLayout(linha_chat)
+    cartao_chat.body.addLayout(linha_chat)
+
     linha_fmt = QHBoxLayout()
-    linha_fmt.setSpacing(6)
-    lay_fmt_rot = _rot(_t("Responder com:", "Reply with:"), 8, "TEXT_MED")
-    linha_fmt.addWidget(lay_fmt_rot)
+    linha_fmt.setSpacing(8)
+    linha_fmt.addWidget(_rot(_t("Responder com:", "Reply with:"), "FieldLabel"))
     for chave, (rotulo, explica) in SEC.formatos_chat().items():
-        b = QPushButton(rotulo)
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setFont(_fx(8))
+        b = _botao_dash(rotulo, "Segment", checkable=True)
         b.setToolTip(explica)
-        b.clicked.connect(lambda _=False, k=chave: (_mudou({"chat_formato": k}), _pintar_chat()))
+        b.clicked.connect(
+            lambda _=False, k=chave: (_mudou({"chat_formato": k}), _pintar_chat()))
         botoes_fmt[chave] = b
+        grupo_fmt.addButton(b)
         linha_fmt.addWidget(b)
     linha_fmt.addStretch()
-    lay.addLayout(linha_fmt)
-    lay.addWidget(estado_chat)
-    cx_audio = QCheckBox(_t("Ouvir os áudios que mandarem e responder (desligado: ela só te avisa que chegou áudio)",
-                            "Listen to the audio people send and reply (off: she only tells you an audio arrived)"))
-    cx_audio.setFont(_fx(8))
-    cx_audio.setStyleSheet(f"QCheckBox {{ color: {_c('TEXT_MED')}; background: transparent; }}")
+    cartao_chat.body.addLayout(linha_fmt)
+    cartao_chat.body.addWidget(estado_chat)
+    cx_audio = QCheckBox(
+        _t("Ouvir os áudios que mandarem e responder (desligado: ela só te avisa que chegou áudio)",
+           "Listen to the audio people send and reply (off: she only tells you an audio arrived)"))
     cx_audio.setChecked(bool(cfg.get("chat_ouvir_audios", True)))
     cx_audio.toggled.connect(lambda v: _mudou({"chat_ouvir_audios": bool(v)}))
-    lay.addWidget(cx_audio)
+    cartao_chat.body.addWidget(cx_audio)
     relogio.timeout.connect(_pintar_chat)
     _pintar_chat()
 
-    # -- como ela atende
-    lay.addWidget(_rot(_t("COMO ELA ATENDE", "HOW SHE ANSWERS"), 8, "PRI", True))
+    # -- como ela atende -----------------------------------------------------
+    cartao_modo = _cartao(_t("COMO ELA ATENDE", "HOW SHE ANSWERS"))
     botoes_modo: dict[str, QPushButton] = {}
+    grupo_modo = QButtonGroup(pag)
+    grupo_modo.setExclusive(True)
 
     def _realcar_modo(atual: str) -> None:
         for chave, b in botoes_modo.items():
-            ativo = chave == atual
-            b.setStyleSheet(
-                f"QPushButton {{ text-align: left; padding: 6px 10px; border: 1px solid {_c('PRI') if ativo else _c('BORDER')};"
-                f" border-radius: 4px; background: {_c('PRI_GHO') if ativo else 'transparent'};"
-                f" color: {_c('TEXT') if ativo else _c('TEXT_MED')}; }}")
+            b.blockSignals(True)
+            b.setChecked(chave == atual)
+            b.blockSignals(False)
 
     for chave, texto in SEC.modos().items():
-        b = QPushButton(texto)
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setFont(_fx(8))
-        b.clicked.connect(lambda _=False, k=chave: (_mudou({"modo": k}), _realcar_modo(k)))
+        b = _botao_dash(texto, "Segment", checkable=True)
+        b.clicked.connect(
+            lambda _=False, k=chave: (_mudou({"modo": k}), _realcar_modo(k)))
         botoes_modo[chave] = b
-        lay.addWidget(b)
+        grupo_modo.addButton(b)
+        cartao_modo.body.addWidget(b)
     _realcar_modo(cfg.get("modo", "perguntar"))
 
-    # -- a voz
-    lay.addWidget(_rot(_t("A VOZ DELA", "HER VOICE"), 8, "PRI", True))
+    # -- a voz ---------------------------------------------------------------
+    cartao_voz = _cartao(_t("A VOZ DELA", "HER VOICE"))
     grade_voz = QGridLayout()
-    grade_voz.setHorizontalSpacing(6)
-    grade_voz.setVerticalSpacing(6)
+    grade_voz.setHorizontalSpacing(8)
+    grade_voz.setVerticalSpacing(8)
     botoes_voz: dict[str, QPushButton] = {}
+    grupo_voz = QButtonGroup(pag)
+    grupo_voz.setExclusive(True)
 
     def _realcar_voz(atual: str) -> None:
         for chave, b in botoes_voz.items():
-            ativo = chave == atual
-            b.setStyleSheet(
-                f"QPushButton {{ padding: 5px 8px; border: 1px solid {_c('PRI') if ativo else _c('BORDER')};"
-                f" border-radius: 4px; background: {_c('PRI_GHO') if ativo else 'transparent'};"
-                f" color: {_c('TEXT') if ativo else _c('TEXT_MED')}; }}")
+            b.blockSignals(True)
+            b.setChecked(chave == atual)
+            b.blockSignals(False)
 
     for i, (chave, nome, _timbre) in enumerate(SEC.vozes()):
-        b = QPushButton(nome)
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setFont(_fx(8))
-        b.clicked.connect(lambda _=False, k=chave: (_mudou({"voz": k}), _realcar_voz(k)))
+        b = _botao_dash(nome, "Segment", checkable=True)
+        b.clicked.connect(
+            lambda _=False, k=chave: (_mudou({"voz": k}), _realcar_voz(k)))
         botoes_voz[chave] = b
+        grupo_voz.addButton(b)
         grade_voz.addWidget(b, i // 4, i % 4)
-    lay.addLayout(grade_voz)
+    cartao_voz.body.addLayout(grade_voz)
     _realcar_voz(str(cfg.get("voz") or "leda"))
 
-    # -- o recado do momento
-    lay.addWidget(_rot(_t("O QUE ELA DIZ SOBRE VOCÊ AGORA", "WHAT SHE SAYS ABOUT YOU RIGHT NOW"), 8, "PRI", True))
+    # -- o recado do momento -------------------------------------------------
+    cartao_sit = _cartao(_t("O QUE ELA DIZ SOBRE VOCÊ AGORA",
+                            "WHAT SHE SAYS ABOUT YOU RIGHT NOW"))
     campo_sit = QLineEdit(str(cfg.get("situacao") or ""))
-    campo_sit.setFont(_fx(8))
-    campo_sit.setPlaceholderText(_t("ex.: estou em reunião até as 16h   (vazio = 'ocupado, sem previsão')",
-                                    "e.g.: I'm in a meeting until 4 pm   (empty = 'busy, no forecast')"))
-    estilo_campo = (f"QLineEdit {{ color: {_c('TEXT')}; background: transparent; border: 1px solid {_c('BORDER_B')};"
-                    f" border-radius: 4px; padding: 4px 6px; }} QLineEdit:focus {{ border-color: {_c('PRI')}; }}")
-    campo_sit.setStyleSheet(estilo_campo)
-    campo_sit.editingFinished.connect(lambda: _mudou({"situacao": campo_sit.text().strip()}))
-    lay.addWidget(campo_sit)
+    campo_sit.setAccessibleName(_t("Situação atual", "Current situation"))
+    campo_sit.setPlaceholderText(
+        _t("ex.: estou em reunião até as 16h   (vazio = 'ocupado, sem previsão')",
+           "e.g.: I'm in a meeting until 4 pm   (empty = 'busy, no forecast')"))
+    campo_sit.editingFinished.connect(
+        lambda: _mudou({"situacao": campo_sit.text().strip()}))
+    cartao_sit.body.addWidget(_rot(_t("Situação", "Situation"), "FieldLabel"))
+    cartao_sit.body.addWidget(campo_sit)
 
-    # -- tempos e escolhas
-    lay.addWidget(_rot(_t("TEMPOS E ESCOLHAS", "TIMES AND CHOICES"), 8, "PRI", True))
+    # -- tempos e escolhas ---------------------------------------------------
+    cartao_tempos = _cartao(_t("TEMPOS E ESCOLHAS", "TIMES AND CHOICES"))
     grade = QGridLayout()
-    grade.setHorizontalSpacing(10)
-    grade.setVerticalSpacing(4)
-    estilo_spin = (f"QSpinBox {{ color: {_c('TEXT')}; background: transparent; border: 1px solid {_c('BORDER_B')};"
-                   f" border-radius: 4px; padding: 2px 4px; }}")
+    grade.setHorizontalSpacing(12)
+    grade.setVerticalSpacing(8)
     numeros = [
         ("espera_decisao_s", _t("Esperar a minha decisão por (segundos)", "Wait for my decision for (seconds)"), 4, 40),
         ("espera_toques_s", _t("Deixar tocar antes de ela atender sozinha (segundos)",
@@ -708,26 +763,25 @@ def pagina(janela) -> QWidget:
         ("espera_resposta_dono_s", _t("Esperar a minha resposta numa pergunta (segundos)",
                                       "Wait for my answer to a question (seconds)"), 10, 60),
         ("duracao_max_min", _t("Duração máxima da ligação dela (minutos)", "Maximum length of her call (minutes)"), 1, 15),
-        # v1.0.40: o chat
         ("chat_espera_s", _t("Mensagens: esperar a pessoa terminar de mandar (segundos)",
                              "Messages: wait for the person to finish sending (seconds)"), 3, 60),
         ("chat_espera_dono_s", _t("Mensagens no modo ME PERGUNTA: esperar eu responder primeiro (segundos)",
                                   "Messages in ASK ME mode: wait for me to reply first (seconds)"), 15, 900),
     ]
     for i, (chave, texto, minimo, maximo) in enumerate(numeros):
-        grade.addWidget(_rot(texto), i, 0)
+        rotulo = _rot(texto, "FieldLabel")
+        grade.addWidget(rotulo, i, 0)
         sp = QSpinBox()
         sp.setRange(minimo, maximo)
         try:
             sp.setValue(int(cfg.get(chave) or SEC.PADRAO[chave]))
         except (TypeError, ValueError):
             sp.setValue(int(SEC.PADRAO[chave]))
-        sp.setFont(_fx(8))
-        sp.setStyleSheet(estilo_spin)
-        sp.setFixedWidth(70)
+        sp.setAccessibleName(texto)
+        sp.setFixedWidth(90)
         sp.valueChanged.connect(lambda v, k=chave: _mudou({k: int(v)}))
         grade.addWidget(sp, i, 1)
-    lay.addLayout(grade)
+    cartao_tempos.body.addLayout(grade)
     marcas = [
         ("atender_se_nao_responder", _t("Se eu não decidir a tempo, ela atende", "If I don't decide in time, she answers")),
         ("consultar_dono", _t("Ela pode me perguntar coisas no meio da ligação (só no modo ME PERGUNTA)",
@@ -741,65 +795,72 @@ def pagina(janela) -> QWidget:
     ]
     for chave, texto in marcas:
         cx = QCheckBox(texto)
-        cx.setFont(_fx(8))
-        cx.setStyleSheet(f"QCheckBox {{ color: {_c('TEXT_MED')}; background: transparent; }}")
         cx.setChecked(bool(cfg.get(chave, SEC.PADRAO[chave])))
         cx.toggled.connect(lambda v, k=chave: _mudou({k: bool(v)}))
-        lay.addWidget(cx)
+        cartao_tempos.body.addWidget(cx)
 
-    # -- listas
-    lay.addWidget(_rot(_t("CONTATOS ESPECIAIS  ·  nomes como estão no seu WhatsApp, separados por vírgula",
-                          "SPECIAL CONTACTS  ·  names as they are in your WhatsApp, separated by commas"), 8, "PRI", True))
+    # -- contatos especiais --------------------------------------------------
+    cartao_contatos = _cartao(
+        _t("CONTATOS ESPECIAIS", "SPECIAL CONTACTS"),
+        _t("Nomes como estão no seu WhatsApp, separados por vírgula.",
+           "Names as they are in your WhatsApp, separated by commas."))
     for chave, texto, dica in (
         ("nunca_atender_sozinha", _t("Só me avisar (ela nunca atende sozinha):", "Just tell me (she never answers by herself):"),
          _t("ex.: Mãe, Amor, Chefe", "e.g.: Mom, Honey, Boss")),
-        ("sempre_recusar", _t("Sempre recusar:", "Always decline:"), _t("ex.: Telemarketing, 0800", "e.g.: Telemarketing, 1-800")),
+        ("sempre_recusar", _t("Sempre recusar:", "Always decline:"),
+         _t("ex.: Telemarketing, 0800", "e.g.: Telemarketing, 1-800")),
     ):
-        lay.addWidget(_rot(texto))
+        cartao_contatos.body.addWidget(_rot(texto, "FieldLabel"))
         campo = QLineEdit(", ".join(cfg.get(chave) or []))
-        campo.setFont(_fx(8))
         campo.setPlaceholderText(dica)
-        campo.setStyleSheet(estilo_campo)
-        campo.editingFinished.connect(lambda c=campo, k=chave: _mudou(
-            {k: [s.strip() for s in c.text().split(",") if s.strip()]}))
-        lay.addWidget(campo)
-    lay.addWidget(_rot(_t("Mensagem ao recusar (vai pelo WhatsApp do NIA, se ele estiver conectado):",
-                          "Message when declining (sent through NIA's WhatsApp, if it is connected):")))
+        campo.editingFinished.connect(
+            lambda c=campo, k=chave: _mudou(
+                {k: [s.strip() for s in c.text().split(",") if s.strip()]}))
+        cartao_contatos.body.addWidget(campo)
+    cartao_contatos.body.addWidget(_rot(
+        _t("Mensagem ao recusar (vai pelo WhatsApp do NIA, se ele estiver conectado):",
+           "Message when declining (sent through NIA's WhatsApp, if it is connected):"),
+        "FieldLabel"))
     campo_msg = QLineEdit(str(cfg.get("mensagem_recusa") or ""))
-    campo_msg.setFont(_fx(8))
-    campo_msg.setStyleSheet(estilo_campo)
-    campo_msg.editingFinished.connect(lambda: _mudou({"mensagem_recusa": campo_msg.text().strip()}))
-    lay.addWidget(campo_msg)
+    campo_msg.editingFinished.connect(
+        lambda: _mudou({"mensagem_recusa": campo_msg.text().strip()}))
+    cartao_contatos.body.addWidget(campo_msg)
 
-    # -- o que ela sabe
-    lay.addWidget(_rot(_t("O QUE ELA SABE SOBRE VOCÊ", "WHAT SHE KNOWS ABOUT YOU"), 8, "PRI", True))
-    lay.addWidget(_rot(_t("Ela só fala o que estiver nos arquivos .txt da pasta \"NIA Secretaria\" (em Documentos): "
-                          "horário, serviços, preços, o que dizer para cada pessoa. No modo 100% AUTOMÁTICA ela responde "
-                          "SÓ por eles e, o que não estiver lá, vira recado. Ela lê os arquivos de novo a cada ligação: "
-                          "mudou o TXT, já vale na próxima. Tudo que ela atender fica salvo lá também.",
-                          "She only says what is in the .txt files of the \"NIA Secretaria\" folder (in Documents): "
-                          "hours, services, prices, what to tell each person. In 100% AUTOMATIC mode she answers ONLY "
-                          "from them, and whatever is not there becomes a message. She reads the files again on every "
-                          "call: change the TXT and it counts on the next one. Everything she answers is saved there too.")))
-    arquivos_lab = _rot("", 8, "TEXT_MED")
+    # -- o que ela sabe ------------------------------------------------------
+    cartao_info = _cartao(
+        _t("O QUE ELA SABE SOBRE VOCÊ", "WHAT SHE KNOWS ABOUT YOU"),
+        _t("Ela só fala o que estiver nos arquivos .txt da pasta \"NIA Secretaria\" "
+           "(em Documentos): horário, serviços, preços, o que dizer para cada "
+           "pessoa. Mudar o TXT já vale na próxima ligação.",
+           "She only says what is in the .txt files of the \"NIA Secretaria\" "
+           "folder (in Documents): hours, services, prices, what to tell each "
+           "person. Changing the TXT counts on the next call."))
+    arquivos_lab = _rot("", "Status")
 
     def _mostrar_arquivos() -> None:
         try:
             nomes = SEC.arquivos_da_base()
         except Exception:
             nomes = []
-        arquivos_lab.setText((_t("Arquivos que ela usa: ", "Files she uses: ") + ", ".join(nomes)) if nomes
-                             else _t("Ainda não tem nenhum arquivo: clique em EDITAR AS INFORMAÇÕES ou ADICIONAR ARQUIVO.",
-                                     "No files yet: click EDIT THE INFORMATION or ADD FILE."))
+        _estado(arquivos_lab,
+                (_t("Arquivos que ela usa: ", "Files she uses: ") + ", ".join(nomes))
+                if nomes else
+                _t("Ainda não tem nenhum arquivo: clique em EDITAR AS "
+                   "INFORMAÇÕES ou ADICIONAR ARQUIVO.",
+                   "No files yet: click EDIT THE INFORMATION or ADD FILE."),
+                "success" if nomes else "info")
 
     linha_add = QHBoxLayout()
-    b_add = _botao(_t("ADICIONAR ARQUIVO (TXT)", "ADD FILE (TXT)"))
+    linha_add.setSpacing(8)
+    b_add = _botao_dash(_t("ADICIONAR ARQUIVO (TXT)", "ADD FILE (TXT)"))
 
     def _adicionar() -> None:
         from PyQt6.QtWidgets import QFileDialog  # noqa: PLC0415
         escolhidos, _f = QFileDialog.getOpenFileNames(
-            pag, _t("Arquivos com as informações para a secretária", "Files with information for the assistant"),
-            str(Path.home()), _t("Textos (*.txt *.md *.csv)", "Text files (*.txt *.md *.csv)"))
+            pag, _t("Arquivos com as informações para a secretária",
+                    "Files with information for the assistant"),
+            str(Path.home()), _t("Textos (*.txt *.md *.csv)",
+                                 "Text files (*.txt *.md *.csv)"))
         novos = []
         for caminho in escolhidos:
             try:
@@ -808,16 +869,21 @@ def pagina(janela) -> QWidget:
                 print(f"[secretaria_tela] adicionar {caminho}: {exc}")
         _mostrar_arquivos()
         if novos:
-            arquivos_lab.setText(arquivos_lab.text() + _t("   ✓ adicionado: ", "   ✓ added: ") + ", ".join(novos))
+            _estado(arquivos_lab,
+                    arquivos_lab.text()
+                    + _t("   ✓ adicionado: ", "   ✓ added: ") + ", ".join(novos),
+                    "success")
 
     b_add.clicked.connect(_adicionar)
     linha_add.addWidget(b_add)
     linha_add.addStretch()
-    lay.addLayout(linha_add)
-    lay.addWidget(arquivos_lab)
+    cartao_info.body.addLayout(linha_add)
+    cartao_info.body.addWidget(arquivos_lab)
     _mostrar_arquivos()
     linha2 = QHBoxLayout()
-    b_info = _botao(_t("EDITAR AS INFORMAÇÕES (TXT)", "EDIT THE INFORMATION (TXT)"))
+    linha2.setSpacing(8)
+    b_info = _botao_dash(_t("EDITAR AS INFORMAÇÕES (TXT)",
+                            "EDIT THE INFORMATION (TXT)"))
 
     def _editar() -> None:
         try:
@@ -828,7 +894,8 @@ def pagina(janela) -> QWidget:
 
     b_info.clicked.connect(_editar)
     linha2.addWidget(b_info)
-    b_pasta = _botao(_t("ABRIR A PASTA (RECADOS E LIGAÇÕES)", "OPEN THE FOLDER (MESSAGES AND CALLS)"))
+    b_pasta = _botao_dash(_t("ABRIR A PASTA (RECADOS E LIGAÇÕES)",
+                             "OPEN THE FOLDER (MESSAGES AND CALLS)"))
 
     def _pasta() -> None:
         try:
@@ -840,19 +907,17 @@ def pagina(janela) -> QWidget:
     b_pasta.clicked.connect(_pasta)
     linha2.addWidget(b_pasta)
     linha2.addStretch()
-    lay.addLayout(linha2)
+    cartao_info.body.addLayout(linha2)
     recados = SEC.ultimos_recados(3)
     if recados:
-        lay.addWidget(_rot(_t("Últimos recados:", "Latest messages:"), 8, "TEXT_MED", True))
+        cartao_info.body.addWidget(_rot(_t("Últimos recados:", "Latest messages:"),
+                                        "FieldLabel"))
         for r in recados:
-            lay.addWidget(_rot("•  " + r))
+            cartao_info.body.addWidget(_rot("•  " + r))
     lay.addStretch()
     return externa
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# O PEDACO DA SECRETARIA DENTRO DA JANELA "CONECTAR WHATSAPP" (05/11/2026)
-# ─────────────────────────────────────────────────────────────────────────────
 def secao_no_whatsapp(abrir_opcoes=None) -> QWidget:
     """Liga/desliga, como ela atende e o estado das ligacoes, no mesmo lugar do WhatsApp.
 

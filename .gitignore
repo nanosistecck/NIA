@@ -18,7 +18,7 @@ memory/diario.jsonl
 config/*
 !config/__init__.py
 !config/api_keys.example.json
-!config/api_keys.json
+config/api_keys.json
 !config/llm_routing.json
 !config/nia.ico
 
@@ -39,6 +39,4 @@ whatsapp_bridge/mark_xlviii_whatsapp_db.json
 # Sistema operacional
 .DS_Store
 Thumbs.db
-config/api_keys.json
 memory/long_term.json
-config/api_keys.json

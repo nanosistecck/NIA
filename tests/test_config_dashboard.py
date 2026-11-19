@@ -1151,6 +1151,72 @@ def test_falha_ao_aplicar_dock_mantem_gravacao_e_avisa(
         janela.close()
 
 
+def test_secretaria_segue_padroes_visuais_do_dashboard(
+        app, tmp_path, config_isolada, apis_isoladas, monkeypatch):
+    from PyQt6.QtWidgets import QFrame, QPushButton, QScrollArea
+    monkeypatch.setenv('NIA_SECRETARIA_CONFIG', str(tmp_path / 'secretaria.json'))
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('integracoes')
+        janela.mostrar_integracao('secretaria')
+        app.processEvents()
+        painel = janela._secretaria_widget
+        cartoes = [f for f in painel.findChildren(QFrame)
+                   if f.objectName() == 'GlassCard']
+        assert len(cartoes) >= 6
+        assert not painel.findChildren(QScrollArea)  # sem rolagem dupla
+        assert any(b.objectName() == 'Toggle' for b in painel.findChildren(QPushButton))
+        assert any(b.objectName() == 'Segment' and b.isCheckable()
+                   for b in painel.findChildren(QPushButton))
+        codigo = __import__('pathlib').Path('core/secretaria_tela.py').read_text(
+            encoding='utf-8')
+        inicio = codigo.index('def pagina(janela) -> QWidget:')
+        fim = codigo.index('def secao_no_whatsapp', inicio)
+        funcao = codigo[inicio:fim]
+        assert 'setStyleSheet' not in funcao
+        assert '_c(' not in funcao and '_fx(' not in funcao
+
+        janela.escolher_tema('claro' if janela.tema == 'escuro' else 'escuro')
+        app.processEvents()
+        QTest.qWait(30)
+        app.processEvents()
+        assert janela.pagina_atual == 5
+        assert janela._stack_integracoes.currentWidget() is janela._area_secretaria
+    finally:
+        janela.close()
+
+
+def test_secretaria_mantem_acoes_apos_refatoracao_visual(
+        app, tmp_path, config_isolada, apis_isoladas, monkeypatch):
+    from PyQt6.QtWidgets import QPushButton
+    import core.secretaria as SEC
+    import core.secretaria_tela as sec_tela
+    monkeypatch.setenv('NIA_SECRETARIA_CONFIG', str(tmp_path / 'secretaria.json'))
+    monkeypatch.setattr(sec_tela, '_casca', None)
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('integracoes')
+        janela.mostrar_integracao('secretaria')
+        app.processEvents()
+        painel = janela._secretaria_widget
+        liga = next(b for b in painel.findChildren(QPushButton)
+                    if b.accessibleName() == 'Atender ligações')
+        liga.click()
+        assert SEC.carregar()['ligada'] is True
+        assert liga.property('ligado') == 'true'
+        liga.click()
+        assert SEC.carregar()['ligada'] is False
+
+        segmentos = [b for b in painel.findChildren(QPushButton)
+                     if b.objectName() == 'Segment' and b.isCheckable()]
+        assert segmentos
+        segmentos[-1].click()
+        app.processEvents()
+        assert len({b.text() for b in segmentos}) > 1
+    finally:
+        janela.close()
+
+
 def test_busca_por_secretaria_foca_controle_do_painel(
         app, tmp_path, config_isolada, apis_isoladas):
     janela, _, _ = criar_janela(app, tmp_path)

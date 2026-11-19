@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""A fala do JARVIS pela API da OpenAI — as vozes do ChatGPT.
+"""A fala do NIA pela API da OpenAI — as vozes do ChatGPT.
 
 Por que existe (31/08/2026)
 ---------------------------
@@ -14,7 +14,7 @@ MEDIDO nesta maquina, mesma frase:
 
 O ganho vem de LER A RESPOSTA ENQUANTO ELA CHEGA. O endpoint devolve o audio em
 fluxo; pedindo `response_format: pcm` sai PCM 16 bits, mono, 24 kHz — exatamente
-o formato que a fila de audio do JARVIS ja espera, sem conversao nenhuma. O
+o formato que a fila de audio do NIA ja espera, sem conversao nenhuma. O
 primeiro pedaco toca enquanto o resto ainda esta sendo gerado.
 
 Modelo: `gpt-4o-mini-tts`, o mais barato da familia de fala.
@@ -26,8 +26,6 @@ import http.client
 import json
 import ssl
 import threading
-import urllib.request
-from pathlib import Path
 
 from core.velocidade_fala import VELOCIDADE, Acelerador
 
@@ -49,10 +47,10 @@ class Conexao:
         conexao viva ............... 0,65 s   (0,57  0,68  0,66  0,71  0,64)
 
     Quase metade — e, o que importa tanto quanto, sem os picos de 1,5 e 2,1 s.
-    O pico era o que fazia o JARVIS parecer travado de vez em quando; a media
+    O pico era o que fazia o NIA parecer travado de vez em quando; a media
     escondia isso.
 
-    Uma so, com trava: o JARVIS fala uma frase por vez, e duas threads usando o
+    Uma so, com trava: o NIA fala uma frase por vez, e duas threads usando o
     mesmo cano ao mesmo tempo embaralhariam as respostas. A trava e segurada
     ate o audio TERMINAR de ser lido, porque a conexao so serve de novo depois
     que o corpo anterior saiu inteiro.
@@ -100,7 +98,7 @@ class Conexao:
                 cls._con = cls._abrir()
                 return True
             except Exception as exc:
-                print(f"[JARVIS] nao aqueci a conexao da voz: {str(exc)[:90]}")
+                print(f"[NIA] nao aqueci a conexao da voz: {str(exc)[:90]}")
                 cls._con = None
                 return False
 
@@ -162,13 +160,12 @@ MODELO = "gpt-4o-mini-tts"
 #
 # Se ele falhar por qualquer motivo, a fala cai sozinha no modelo de leitura, que
 # e mais barato e sempre esteve funcionando. O cliente nunca fica mudo.
-URL_NATURAL = "https://api.openai.com/v1/chat/completions"
 MODELO_NATURAL = "gpt-audio-mini"
 
 # As vozes do ChatGPT, conferidas uma a uma nesta chave em 31/08/2026 — as treze
 # responderam. A descricao e para o cliente escolher de ouvido, na engrenagem.
 VOZES = {
-    "onyx":    "Masculina, grave e firme. A mais parecida com o JARVIS.",
+    "onyx":    "Masculina, grave e firme. A mais parecida com o NIA.",
     "ash":     "Masculina, seca e direta.",
     "echo":    "Masculina, clara e neutra.",
     "verse":   "Masculina, expressiva, com mais emocao.",
@@ -241,7 +238,7 @@ ESTILO_POR_JEITO = {
 
 
 class VozOpenAI:
-    """Fala pela API da OpenAI. Mesmo contrato das outras vozes do JARVIS."""
+    """Fala pela API da OpenAI. Mesmo contrato das outras vozes do NIA."""
 
     def __init__(self, voz: str = "onyx", chave: str | None = None,
                  jeito: str = "", natural: bool = False, ponte=None) -> None:
@@ -256,7 +253,7 @@ class VozOpenAI:
         #   "sua CPU esta em doze por cento"  -> essa saiu certa
         #   "pronto, chefe. Bloco de notas aberto"  -> certa
         # Ou seja: em texto curto ela le, em texto de conversa ela RESPONDE no
-        # lugar do JARVIS. O dono ouve uma coisa e o chat mostra outra — e o
+        # lugar do NIA. O dono ouve uma coisa e o chat mostra outra — e o
         # que ele ouve nem e a resposta certa.
         #
         # Isso nao e questao de estilo, e ERRO DE CONTEUDO. Entre soar um pouco
@@ -275,8 +272,9 @@ class VozOpenAI:
         # No PC do dono existe chave local e a fala vai direto. No PC do cliente
         # nao existe chave nenhuma — de proposito — e a fala vai pela VPS, que
         # tem a chave. Os dois caminhos entregam o mesmo PCM 24 kHz, entao o
-        # resto do JARVIS nao percebe diferenca.
+        # resto do NIA nao percebe diferenca.
         self.ponte = ponte
+        self._chave_gerenciada = not bool(chave)
         self.chave = (chave or self._chave_do_config() or "").strip()
         if not self.chave and self.ponte is None:
             raise RuntimeError("Sem chave da OpenAI e sem ponte para falar")
@@ -316,12 +314,38 @@ class VozOpenAI:
 
     @staticmethod
     def _chave_do_config() -> str:
-        caminho = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
+        from core.llm_router import resolver
+        return resolver("openai") or ""
+
+    def _anotar_sucesso(self) -> None:
+        """A fala saiu: limpa o castigo da chave que produziu o audio."""
         try:
-            return str(json.loads(caminho.read_text(encoding="utf-8"))
-                       .get("openai_api_key") or "")
+            from core.llm_router import anotar_sucesso  # noqa: PLC0415
+            anotar_sucesso("openai", self.chave)
         except Exception:
-            return ""
+            pass
+
+    def _trocar_chave(self, exc: Exception) -> bool:
+        """Cota estourada ou chave recusada? Poe no castigo e pega a proxima."""
+        try:
+            from core import llm_router as _lr  # noqa: PLC0415
+        except Exception:
+            return False
+        tipo = _lr.anotar_falha("openai", str(exc), self.chave)
+        if tipo not in (_lr.T_QUOTA, _lr.T_INVALIDA):
+            return False
+        nova = _lr.proxima_chave("openai", self.chave)
+        if not nova:
+            return False
+        self.chave = nova
+        # A conexao reaproveitada nao guarda a chave (ela vai no cabecalho de
+        # cada pedido), mas depois de um 4xx ela ja foi descartada. Fechar aqui
+        # garante que a proxima fala comece limpa.
+        try:
+            Conexao._descartar()
+        except Exception:
+            pass
+        return True
 
     def _corpo_leitura(self, texto: str) -> bytes:
         corpo = json.dumps({
@@ -344,6 +368,10 @@ class VozOpenAI:
         return corpo
 
     def _cabecalho(self) -> dict:
+        if self._chave_gerenciada:
+            self.chave = self._chave_do_config()
+            if not self.chave:
+                raise RuntimeError('Chave OpenAI pausada, excluída ou indisponível')
         return {"Authorization": f"Bearer {self.chave}",
                 "Content-Type": "application/json"}
 
@@ -427,11 +455,15 @@ class VozOpenAI:
         """Manda o texto e devolve o audio em pedacos, conforme ele chega.
 
         Sincrono de proposito: quem chama e uma thread do modo local, e o laco
-        de eventos do JARVIS esta ocupado com microfone e alto-falante.
+        de eventos do NIA esta ocupado com microfone e alto-falante.
         """
         texto = str(texto or "").strip()
         if not texto:
             return
+        if self._chave_gerenciada:
+            self.chave = self._chave_do_config()
+            if not self.chave and self.ponte is None:
+                raise RuntimeError('Chave OpenAI pausada, excluída ou indisponível')
         self.ultima_transcricao = ""
         # SEM CHAVE AQUI: quem fala e a VPS. E o caso de todo cliente.
         if not self.chave:
@@ -448,6 +480,15 @@ class VozOpenAI:
             if not segundos:
                 raise RuntimeError("a ponte de voz nao devolveu audio")
             return
+        # Marca se ja saiu audio: e o que impede repetir a frase ao trocar de
+        # chave depois de meia fala entregue.
+        falou = {"sim": False}
+
+        def _conta(raw):
+            if raw:
+                falou["sim"] = True
+            on_chunk(raw)
+
         if self.natural:
             entregar, fechar = self._acelerando(on_chunk)
             try:
@@ -456,13 +497,33 @@ class VozOpenAI:
                 # Nunca deixar o dono no silencio por causa disto: cai na
                 # leitura, que e mais barata e sempre funcionou.
                 saiu = False
-                print(f"[JARVIS] voz natural falhou ({str(exc)[:90]}); indo na leitura")
+                print(f"[NIA] voz natural falhou ({str(exc)[:90]}); indo na leitura")
             finally:
                 fechar()
             if saiu:
+                self._anotar_sucesso()
                 return
-        if not self._fala_leitura(texto, on_chunk, timeout):
-            raise RuntimeError("a API de fala nao devolveu audio")
+            # A reserva de leitura so tenta a chave nova se a natural nao falou
+            # nada; se ja saiu audio, repetir faria o dono ouvir duas vezes.
+            if falou["sim"]:
+                return
+        # A CHAVE DA VEZ PODE ESTAR ESGOTADA (18/11/2026).
+        #
+        # `self.chave` era lida UMA vez, na construcao, e nunca mais: com 429
+        # (ou chave recusada) o NIA ficava sem essa voz ate alguem reiniciar,
+        # mesmo tendo outra chave cadastrada. Agora a falha entra no pool e a
+        # frase e repetida UMA vez com a proxima chave — so se ainda nao saiu
+        # audio nenhum.
+        try:
+            if not self._fala_leitura(texto, _conta, timeout):
+                raise RuntimeError("a API de fala nao devolveu audio")
+        except Exception as exc:
+            if falou["sim"] or not self._trocar_chave(exc):
+                raise
+            print(f"[NIA] voz OpenAI trocou de chave ({str(exc)[:80]})")
+            if not self._fala_leitura(texto, _conta, timeout):
+                raise RuntimeError("a API de fala nao devolveu audio (chave nova)")
+        self._anotar_sucesso()
 
     async def pcm(self, texto: str) -> bytes:
         """PCM inteiro, para quem precisa do audio de uma vez."""

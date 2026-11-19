@@ -2,14 +2,14 @@ import os as _os
 import sys as _sys_inicio
 
 
-# ── LINUX: SEMPRE PELO LANCADOR DO JARVIS (26/09/2026) ─────────────────────
+# ── LINUX: SEMPRE PELO LANCADOR DO NIA (26/09/2026) ─────────────────────
 #
 # O cliente do Big Linux abria pelo terminal com `python3 .../app/main.py` (uma
 # IA de fora mandou ele fazer assim). Era o Python do SISTEMA: sem o
-# faster_whisper e as outras bibliotecas do venv, e sem o cadeado do jarvis.sh.
-# Com o atalho ja aberto subiam DOIS JARVIS, que brigavam pela porta 8000, pelo
+# faster_whisper e as outras bibliotecas do venv, e sem o cadeado do nia.sh.
+# Com o atalho ja aberto subiam DOIS NIA, que brigavam pela porta 8000, pelo
 # relay ("dispositivo duplicado") e pelo WhatsApp (401, deslogado).
-# Aberto fora do venv, ele se entrega ao jarvis.sh, que faz tudo do jeito certo.
+# Aberto fora do venv, ele se entrega ao nia.sh, que faz tudo do jeito certo.
 def _linux_pelo_lancador() -> None:
     if not _sys_inicio.platform.startswith("linux"):
         return
@@ -17,12 +17,15 @@ def _linux_pelo_lancador() -> None:
         app = _os.path.dirname(_os.path.abspath(__file__))
         raiz = _os.path.dirname(app)
         venv = _os.path.join(raiz, "venv")
-        lancador = _os.path.join(raiz, "jarvis.sh")
+        # Instalacoes antigas ainda tem o lancador com o nome antigo.
+        lancador = next((_os.path.join(raiz, n) for n in ("nia.sh", "jarvis.sh")
+                         if _os.path.isfile(_os.path.join(raiz, n))),
+                        _os.path.join(raiz, "nia.sh"))
         if not (_os.path.isdir(venv) and _os.path.isfile(lancador)):
             return
         if _os.path.realpath(_sys_inicio.prefix) == _os.path.realpath(venv):
             return
-        print("[JARVIS] aberto fora do Python dele; abrindo pelo jarvis.sh")
+        print("[NIA] aberto fora do Python dele; abrindo pelo nia.sh")
         _os.execv("/bin/bash", ["bash", lancador])
     except Exception:
         pass
@@ -46,7 +49,7 @@ _warnings.simplefilter("ignore")
 # ── O TORCH NAO ENTRA (22/10/2026, v1.0.35) ───────────────────────────────
 #
 # Pedido do Diego: "diminui o consumo de CPU e RAM o maximo que puder". O
-# JARVIS nao usa o torch para nada, mas o `ctranslate2` (motor do ouvido) faz
+# NIA nao usa o torch para nada, mas o `ctranslate2` (motor do ouvido) faz
 # `try: import torch` nos conversores dele — e com o torch na pasta, ele
 # entrava em toda abertura. Medido no ouvido sozinho: +165 MB de RAM e +1,8 s
 # de arranque, sem mudar uma palavra da transcricao. `None` em `sys.modules`
@@ -56,7 +59,7 @@ _sys_inicio.modules.setdefault("torch", None)
 
 # ── UM `print` NUNCA PODE DERRUBAR UMA TAREFA (05/09/2026) ─────────────────
 #
-# O JARVIS roda no `pythonw.exe`. Dependendo de como ele foi aberto, a saida de
+# O NIA roda no `pythonw.exe`. Dependendo de como ele foi aberto, a saida de
 # texto ou nao existe ou fica presa na tabela cp1252 do Windows — e ai
 # `print("[Vision] ⚠️ ...")` levanta UnicodeEncodeError. O emoji esta em quase
 # toda mensagem de erro do projeto, sempre DENTRO de um `except`, entao o
@@ -135,7 +138,7 @@ import sys
 #
 # Ja tentei `sys.setswitchinterval(0.0005)` para acabar com o picote da voz
 # durante uma pesquisa. Em teste isolado parecia otimo (7 cortes -> 0). No
-# JARVIS de verdade, que roda com ~37 threads, o efeito foi o oposto: trocar
+# NIA de verdade, que roda com ~37 threads, o efeito foi o oposto: trocar
 # de tarefa 10x mais vezes por segundo atrapalhou a conexao de rede e as
 # respostas passaram a demorar MINUTOS. O cliente perguntava a hora e recebia
 # a resposta quatro minutos depois, com a hora ja errada.
@@ -150,7 +153,7 @@ import sounddevice as sd
 from core.preguica import Preguicoso as _Preguicoso, aquecer as _aquecer_imports
 genai = _Preguicoso("google.genai")
 types = _Preguicoso("google.genai.types")
-from ui import JarvisUI
+from ui import NiaUI
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
@@ -204,7 +207,7 @@ def get_base_dir():
 
 
 BASE_DIR        = get_base_dir()
-_TEST_API_CONFIG = _os.environ.get("JARVIS_API_CONFIG", "").strip()
+_TEST_API_CONFIG = _os.environ.get("NIA_API_CONFIG", "").strip()
 API_CONFIG_PATH = Path(_TEST_API_CONFIG) if _TEST_API_CONFIG else BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
 VOICE_DIAG_PATH = BASE_DIR / "logs" / "voice_session.log"
@@ -219,7 +222,7 @@ MIC_CHUNK_SIZE      = 640    # desfeito 13:35: 1024 nao trouxe ganho medido
 
 # Modelo do reconhecimento de fala local. Era "base" (0,5 s) e trocou para
 # "small" (1,7 s) em 30/08/2026 por causa de um prejuizo real: o `base` ouviu
-# "O Jarvis" como "O Tiaves" e o cerebro foi PESQUISAR "Tiaves" na internet,
+# "O Nia" como "O Tiaves" e o cerebro foi PESQUISAR "Tiaves" na internet,
 # gastando mais de 80 s num trabalho do servidor por causa de uma palavra
 # inventada. Um segundo a mais por fala sai muito mais barato que isso.
 _MODELO_WHISPER = "small"          # reserva, quando nao houver placa
@@ -227,7 +230,7 @@ _MODELO_WHISPER = "small"          # reserva, quando nao houver placa
 # OUVIDO NA PLACA DE VIDEO (30/08/2026).
 #
 # O `small` no processador levava 1,59 s por frase e confundia palavra comum:
-# "Bom dia JARVIS" virou "Bom dia, Visp" e "Corinthians" virou "Gorinjuez". O
+# "Bom dia NIA" virou "Bom dia, Visp" e "Corinthians" virou "Gorinjuez". O
 # `large-v3` na RTX 3080 leva 0,39 s — quatro vezes mais rapido E mais certeiro,
 # que e o que importa com microfone ruim.
 _MODELO_WHISPER_GPU = "large-v3"
@@ -309,10 +312,10 @@ def _abrir_whisper():
         try:
             modelo = WhisperModel(_MODELO_WHISPER_GPU, device="cuda",
                                   compute_type="float16")
-            print(f"[JARVIS] ouvido: {_MODELO_WHISPER_GPU} na placa de video")
+            print(f"[NIA] ouvido: {_MODELO_WHISPER_GPU} na placa de video")
             return modelo, True
         except Exception as exc:
-            print(f"[JARVIS] placa recusou o ouvido ({str(exc)[:90]}); indo de processador")
+            print(f"[NIA] placa recusou o ouvido ({str(exc)[:90]}); indo de processador")
     # MODELO QUE VEM NO INSTALADOR. Sem isto o cliente baixa 464 MB do
     # HuggingFace na primeira fala — e fica sem ouvido se a internet falhar
     # justo ali. `models/whisper-small` e empacotado junto com o app.
@@ -325,7 +328,7 @@ def _abrir_whisper():
     _nucleos = max(4, (_os.cpu_count() or 8) // 2)
     modelo = WhisperModel(alvo, device="cpu", compute_type="int8",
                           cpu_threads=_nucleos)
-    print(f"[JARVIS] ouvido: {_MODELO_WHISPER} no processador"
+    print(f"[NIA] ouvido: {_MODELO_WHISPER} no processador"
           + (" (modelo local)" if alvo != _MODELO_WHISPER else ""))
     return modelo, False
 
@@ -348,7 +351,7 @@ def _abrir_whisper():
 # da voz escolhida e o `config/vocabulario.txt` daquela maquina. Ver
 # `_nomes_do_usuario`.
 _NOMES_CERTOS = [
-    "JARVIS", "Codex", "WhatsApp", "YouTube", "Chrome", "Spotify", "Steam",
+    "NIA", "Codex", "WhatsApp", "YouTube", "Chrome", "Spotify", "Steam",
     "Windows", "Netflix", "Instagram", "Facebook", "TikTok", "Discord",
     "Telegram", "Google",
 ]
@@ -423,8 +426,8 @@ _VOCABULARIO_GERAL = ("Falamos sobre Bloco de Notas, Chrome, YouTube, WhatsApp, 
                       "Spotify, Google, Instagram, Discord.")
 
 
-def _montar_vocabulario(nome: str = "JARVIS") -> str:
-    nome = str(nome or "").strip() or "JARVIS"
+def _montar_vocabulario(nome: str = "NIA") -> str:
+    nome = str(nome or "").strip() or "NIA"
     extra = ""
     try:
         extra = (Path(__file__).resolve().parent / "config" / "vocabulario.txt"
@@ -433,9 +436,9 @@ def _montar_vocabulario(nome: str = "JARVIS") -> str:
         pass
     # AS OUTRAS VOZES TAMBEM (24/10/2026). Desde o "chama a Leda" (v1.0.35) o
     # dono fala o nome de OUTRA voz, e so o da voz de agora estava aqui. No
-    # registro: com a Orus falando, "chama o JARVIS" saiu "chama o Jabez"; com
+    # registro: com a Orus falando, "chama o NIA" saiu "chama o Jabez"; com
     # Leda, Fenrir e Sulafat saiu "Javes" seis vezes e "os diabos" uma; com o
-    # JARVIS, "Leida". Apelido entra no lugar do nome de fabrica.
+    # NIA, "Leida". Apelido entra no lugar do nome de fabrica.
     equipe = ""
     try:
         from core.personas import PERSONAGENS, nome_da_ia  # noqa: PLC0415
@@ -520,7 +523,7 @@ def _e_alucinacao_de_silencio(texto: str) -> bool:
     """A transcricao inteira e uma frase de fim de legenda?
 
     So bate quando e a frase TODA. "Obrigado por assistir" sozinho e
-    alucinacao; "obrigado, JARVIS, por assistir minha tela" nao entra na lista
+    alucinacao; "obrigado, NIA, por assistir minha tela" nao entra na lista
     e passa.
     """
     import unicodedata as _u
@@ -535,8 +538,8 @@ def _e_outra_escrita(texto: str) -> bool:
     """Tem letra fora do alfabeto latino (japones, coreano, chines, cirilico)?
 
     22/09/2026, cliente DESKTOP-3FKP5JF: risada, "hum" e o rabo da voz do
-    JARVIS na caixa voltavam da ponte como 'うん。', '웃으', 'Как за?' e
-    '這是大夫' — mesmo com o idioma fixo em pt na VPS. O JARVIS respondia a
+    NIA na caixa voltavam da ponte como 'うん。', '웃으', 'Как за?' e
+    '這是大夫' — mesmo com o idioma fixo em pt na VPS. O NIA respondia a
     isso e, para o cliente, parecia que nao tinha ouvido a pergunta dele.
     O dono fala portugues: letra de outra escrita nunca e fala dele.
     """
@@ -549,9 +552,9 @@ def _e_outra_escrita(texto: str) -> bool:
 #
 # Cliente do Canada (idioma "en"). Mesmo com o ouvido da VPS fixo em ingles,
 # som fraco ou de longe voltava como 'Ja paslėzorywa', 'Ik ben formal',
-# 'Sí que estaba aquí', 'Ja, auch...' — e o JARVIS respondia a isso. O dono
+# 'Sí que estaba aquí', 'Ja, auch...' — e o NIA respondia a isso. O dono
 # fala ingles: frase com acento, ou feita de palavras de outra lingua sem
-# nenhuma do ingles, nao e ele falando com o JARVIS.
+# nenhuma do ingles, nao e ele falando com o NIA.
 _PALAVRAS_EN = frozenset("""
 i i'm im you your yours the an is are am was were be been can could would will
 should do does did don't dont what whats what's how why when where who which hey
@@ -559,7 +562,7 @@ hello hi ok okay yes yeah yep no nope not it it's its this that that's there her
 me my mine we our they them he she his her to of in on at for with and or but so
 if then now please thank thanks sorry good great fine nice see say tell show open
 close turn stop start go get give make let let's lets want need like know think
-look find search play jarvis sir morning evening night afternoon bye goodbye oh
+look find search play nia sir morning evening night afternoon bye goodbye oh
 well right just more some any all one two time today tomorrow weather music
 computer screen volume up down off google chrome firefox spotify youtube
 whatsapp netflix discord telegram steam
@@ -573,7 +576,7 @@ und auch bin ist das der die salut oui merci je suis bonjour mais avec
 
 
 def _e_outra_lingua(texto: str) -> bool:
-    """Com o JARVIS em ingles, a transcricao veio em outra lingua?"""
+    """Com o NIA em ingles, a transcricao veio em outra lingua?"""
     try:
         if not _em_ingles():
             return False
@@ -615,8 +618,8 @@ def _e_eco_do_vocabulario(texto: str) -> bool:
         return True
     palavras = alvo.split()
     # O NOME DA VOZ SOZINHO E CHAMADO, NAO ECO (14/09/2026). O nome esta no
-    # vocabulario, entao "JARVIS." ou "Leda." dito sozinho caia aqui e sumia:
-    # no log do cliente, "JARVIS." com sem_fala 0,02 nunca chegou. O eco de
+    # vocabulario, entao "NIA." ou "Leda." dito sozinho caia aqui e sumia:
+    # no log do cliente, "NIA." com sem_fala 0,02 nunca chegou. O eco de
     # verdade continua barrado pelas peneiras de confianca do whisper.
     if alvo in globals().get("_NOMES_ASSISTENTE", ()):
         return False
@@ -661,11 +664,11 @@ def _e_eco_do_vocabulario(texto: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # Defeito achado em 05/09/2026, com o Diego usando a voz Sulafat: ele pediu
-# tres vezes "abre minha pasta de download" e as tres vezes o JARVIS abriu o
+# tres vezes "abre minha pasta de download" e as tres vezes o NIA abriu o
 # EXPLORADOR DE ARQUIVOS, gastando 6,5 s de rede em cada uma.
 #
 # A causa nao estava no abrir de pasta: estava no NOME. Os atalhos rapidos
-# (`_RE_ABRIR`, `_RE_FECHAR`, `_PARAR_PC`) so conheciam "jarvis" e "friday".
+# (`_RE_ABRIR`, `_RE_FECHAR`, `_PARAR_PC`) so conheciam "nia" e "friday".
 # Com a voz Sulafat escolhida, "Sulafat, abre minha pasta de download" nao
 # casava com atalho nenhum, caia no cerebro, e o modelo escolhia a ferramenta
 # errada. Ou seja: TODO atalho rapido morria em silencio para quem trocasse a
@@ -677,7 +680,7 @@ def _e_eco_do_vocabulario(texto: str) -> bool:
 # entrava junto com o nome da pasta e nao achava caminho nenhum.
 
 def _nomes_do_assistente() -> set:
-    nomes = {"jarvis", "friday"}
+    nomes = {"nia", "friday"}
     try:
         from core.personas import NOME_DA_VOZ, apelidos  # noqa: PLC0415
         # APELIDOS (22/10/2026): a Leda que virou Roberta atende pelos DOIS
@@ -753,9 +756,9 @@ def _refazer_nomes_do_assistente(classe=None) -> None:
 #
 # Pelo som, "horus" e "orus" sao a MESMA palavra (o "h" do comeco nao soa), e
 # "aorus" fica a 0,89 de semelhanca. E o mesmo motor de som do corretor de fala.
-# ── IDIOMA DO JARVIS (24/09/2026) ─────────────────────────────────────────
+# ── IDIOMA DO NIA (24/09/2026) ─────────────────────────────────────────
 # Portugues por padrao. O cliente do Canada recebe `config/idioma.json` com
-# {"idioma": "en"} e ai tudo que o JARVIS fala e ouve passa a ser ingles.
+# {"idioma": "en"} e ai tudo que o NIA fala e ouve passa a ser ingles.
 # Ver `core/idioma.py`.
 try:
     from core.idioma import (em_ingles as _em_ingles, com_idioma as _com_idioma,
@@ -778,10 +781,10 @@ except Exception:      # pragma: no cover
         return "pt"
 
 # ── SEGUNDO PLANO (01/11/2026, v1.0.37) ──────────────────────────────────
-# Botao/tecla F9: o JARVIS sai da tela e fica so no icone perto do relogio, sem
+# Botao/tecla F9: o NIA sai da tela e fica so no icone perto do relogio, sem
 # ouvir, responder nem executar nada. A marca e esta; quem a liga e a janela
 # (ui.py). Aqui ela fecha o microfone, cala a voz e barra toda acao nova. Ver
-# `core/segundo_plano.py` e `JarvisLive._mudou_segundo_plano`.
+# `core/segundo_plano.py` e `NiaLive._mudou_segundo_plano`.
 try:
     from core.segundo_plano import EVENTO as _SEGUNDO_PLANO
 except Exception:      # pragma: no cover
@@ -794,7 +797,7 @@ try:
 except Exception:      # pragma: no cover
     _som_da_palavra = None
 
-# Enfeite que costuma vir GRUDADO no nome: "o Jarvis", "oi Leda", "ei Orus".
+# Enfeite que costuma vir GRUDADO no nome: "o Nia", "oi Leda", "ei Orus".
 _ENFEITE_DO_NOME = {"o", "a", "oi", "ei", "ai", "opa", "olha", "psiu"}
 
 
@@ -905,7 +908,7 @@ atexit.register(lambda: _voice_diag("programa_encerrou", "saida normal do proces
 # ── QUANDO NEM O GANCHO DE EXCECAO PEGA (05/09/2026) ─────────────────────
 #
 # Os tres ganchos acima cobrem o que o Python consegue ver. Em 05/09 o
-# JARVIS morreu no meio de um pedido de site e nao deixou NADA: nem excecao,
+# NIA morreu no meio de um pedido de site e nao deixou NADA: nem excecao,
 # nem linha de saida, nem registro de falha do Windows. Isso e assinatura de
 # queda NATIVA — dentro do Qt, do driver de audio ou de uma biblioteca em C —
 # e nesse caso o interpretador nem chega a rodar o `excepthook`.
@@ -921,7 +924,7 @@ try:
     # Fica aberto de proposito: o `faulthandler` escreve nele durante a
     # queda, e um arquivo fechado nao serviria de nada nessa hora.
     _FLUXO_QUEDA = open(_ARQ_QUEDA, "a", encoding="utf-8", buffering=1)
-    _FLUXO_QUEDA.write(chr(10) + "=== JARVIS aberto em "
+    _FLUXO_QUEDA.write(chr(10) + "=== NIA aberto em "
                        + datetime.now().isoformat(timespec="seconds") + chr(10))
     _fh.enable(file=_FLUXO_QUEDA, all_threads=True)
 except Exception as _exc_fh:
@@ -957,7 +960,7 @@ def _nome_falante(ui) -> str:
     """O nome com que ele assina no chat — o da VOZ escolhida.
 
     Com a voz Nova ele se chama Nova, com a Lia se chama Lia. Assinar
-    "Jarvis" com a voz da Nova falando e o tipo de detalhe que denuncia que
+    "Nia" com a voz da Nova falando e o tipo de detalhe que denuncia que
     o nome esta escrito na pedra em algum lugar.
     """
     # NOMES DA TELA (17/10/2026): o nome que o cliente escolheu na aba NOMES
@@ -972,9 +975,9 @@ def _nome_falante(ui) -> str:
     try:
         from core.personas import nome_da_ia  # noqa: PLC0415
         escolha = getattr(ui, "persona_atual", None) or {}
-        return nome_da_ia(escolha.get("personagem", "")) or "JARVIS"
+        return nome_da_ia(escolha.get("personagem", "")) or "NIA"
     except Exception:
-        return "JARVIS"
+        return "NIA"
 
 
 def _texto_do_erro(exc: BaseException, _fundo: int = 0) -> str:
@@ -997,7 +1000,35 @@ def _texto_do_erro(exc: BaseException, _fundo: int = 0) -> str:
             partes.append(_texto_do_erro(causa, _fundo + 1))
     return " | ".join(partes)
 
+_roteador_llm = None
+
+
+def _get_roteador_llm():
+    """Router com pool de chaves (FASE 4).
+
+    O roteador e UNICO no processo (`llm_router._global()`), que se refaz quando
+    o banco/config mudam — cadastrar chave na tela nao exige reiniciar.
+    """
+    global _roteador_llm
+    if _roteador_llm is None:
+        try:
+            from core.llm_router import carregar_router
+            _roteador_llm = carregar_router()
+        except Exception:
+            _roteador_llm = None
+    return _roteador_llm
+
+
 def _get_api_key() -> str:
+    # FASE 4: com o Router no ar, prefere a chave ATIVA do POOL; cai no arquivo (legado).
+    roteador = _get_roteador_llm()
+    if roteador is not None:
+        try:
+            chave = roteador.chave_ativa("gemini")
+            if chave:
+                return chave
+        except Exception:
+            pass
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data.get("gemini_api_key") or data.get("GEMINI_API_KEY") or data.get("google_api_key") or ""
@@ -1008,7 +1039,7 @@ def _load_system_prompt() -> str:
         return PROMPT_PATH.read_text(encoding="utf-8")
     except Exception:
         return (
-            "You are JARVIS, Tony Stark's AI assistant. "
+            "You are NIA, Tony Stark's AI assistant. "
             "Be concise, direct, and always use the provided tools to complete tasks. "
             "Never simulate or guess results — always call the appropriate tool."
         )
@@ -1373,7 +1404,7 @@ def _vision_command_action(value: str) -> str | None:
     return None
 
 # Ferramentas que rodam no servidor e demoram de verdade. O texto é o que
-# aparece no painel para o cliente não achar que o JARVIS travou. Medido em
+# aparece no painel para o cliente não achar que o NIA travou. Medido em
 # 30/08: um pedido de imagem levou 75,7 s do pedido até a resposta.
 # QUANTO CADA TRABALHO DEMORA DE VERDADE (05/09/2026, cronometrado pelo Diego).
 #
@@ -1399,7 +1430,7 @@ _TAREFAS_DEMORADAS = {
     "codex_remote": "Trabalhando nisso no servidor — costuma levar de 1 a 2 minutos. Já te aviso quando ficar pronto.",
     # `editar_imagem` faltava aqui (achado em 30/08/2026). Ela chama o MESMO
     # `remote_codex_job` do `codex_remote` e demora o mesmo tanto — medido 92 s.
-    # Sem estar nesta lista, o cliente pedia a edicao e o JARVIS nao avisava
+    # Sem estar nesta lista, o cliente pedia a edicao e o NIA nao avisava
     # nada: ficava mudo por um minuto e meio e parecia travado.
     "editar_imagem": "Editando a imagem no servidor — costuma levar de 1 a 2 minutos. Já te aviso quando ficar pronta.",
     "buscar_leads": "Buscando os contatos — isso leva de 3 a 5 minutos.",
@@ -1459,7 +1490,7 @@ def _tool_task_state(tool_name: str, args: dict) -> str:
         "flight_finder": "BUSCANDO VOOS",
         "system_status": "LENDO SISTEMA",
         "whatsapp_bridge": "WHATSAPP",
-        "shutdown_jarvis": "DESLIGANDO",
+        "shutdown_nia": "DESLIGANDO",
     }
     if tool_name == "file_controller":
         file_states = {
@@ -1921,7 +1952,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Creation tool for customer-facing websites and image files. "
             "Use this for any request to create or update a website/project or to create an image. "
-            # O cliente perguntou "JARVIS, voce consegue criar imagens?" e o
+            # O cliente perguntou "NIA, voce consegue criar imagens?" e o
             # modelo COMECOU a criar uma imagem em vez de responder. Pergunta
             # sobre capacidade nao e pedido de trabalho — e o trabalho custa
             # um minuto e um lugar na fila do servidor.
@@ -1938,7 +1969,7 @@ TOOL_DECLARATIONS = [
             "It returns a real verified file to the user's Desktop. "
             "Never claim success unless the tool returns a verified file path. "
             # Sem isto o cliente fica ~1 minuto no silencio absoluto e conclui
-            # que o JARVIS travou. Medido em 30/08: 75,7 s calado gerando uma
+            # que o NIA travou. Medido em 30/08: 75,7 s calado gerando uma
             # imagem que ele mesmo elogiou depois. Avisar NAO e mentir dizendo
             # "vou fazer" — a chamada acontece no MESMO turno, logo a seguir.
             "ANTES de chamar esta ferramenta, e SEMPRE no mesmo turno em que a chama, "
@@ -1961,14 +1992,14 @@ TOOL_DECLARATIONS = [
     {
         "name": "cowork",
         "description": (
-            "JARVIS COWORK: o programador do JARVIS. Trabalha numa PASTA DE PROJETO do usuario: cria e "
+            "NIA COWORK: o programador do NIA. Trabalha numa PASTA DE PROJETO do usuario: cria e "
             "modifica aplicativos, jogos, sistemas, sites e programas de verdade, testa no PC, olha a tela "
             "e corrige sozinho. Use quando o usuario pedir para programar/criar/modificar um app, jogo, "
             "sistema ou programa no projeto, falar 'cowork', ou reclamar de algo do projeto (cor errada, "
             "bug, erro). acao='pedido' com o pedido COMPLETO nas palavras do usuario; acao='pasta' para "
             "abrir/escolher a pasta do projeto (pasta=nome ou caminho, opcional); 'rodar' abre o projeto; "
             "'desfazer' volta a ultima mudanca; 'parar' cancela o trabalho. O trabalho roda em segundo "
-            "plano e o JARVIS avisa sozinho quando termina: so repita ao usuario a frase que a ferramenta "
+            "plano e o NIA avisa sozinho quando termina: so repita ao usuario a frase que a ferramenta "
             "devolver. Nao use para perguntas sobre o que voce sabe fazer: responda."
         ),
         "parameters": {
@@ -2004,7 +2035,7 @@ TOOL_DECLARATIONS = [
             "isso e autorizacao: chame a ferramenta imediatamente com uma descricao criativa sua, "
             "sem fazer mais perguntas. "
             "Leva de um a tres minutos e a imagem editada e salva e aberta no computador. Se nenhuma "
-            "imagem estiver carregada, peca ao usuario para arrastar a foto para a janela do JARVIS. "
+            "imagem estiver carregada, peca ao usuario para arrastar a foto para a janela do NIA. "
             "Nao afirme que ficou pronta antes de a ferramenta responder."
         ),
         "parameters": {
@@ -2031,7 +2062,7 @@ TOOL_DECLARATIONS = [
             "USE SEMPRE que o dono pedir qualquer mudanca num VIDEO (o que ele arrastou para a "
             "janela, selecionou na pasta ou citou pelo nome). Foto e editar_imagem, nao esta. "
             "Passe em `pedido` TUDO o que ele pediu, com as palavras dele. O trabalho roda em "
-            "segundo plano, o JARVIS avisa falando quando fica pronto e o original nunca e "
+            "segundo plano, o NIA avisa falando quando fica pronto e o original nunca e "
             "alterado. Perguntou do andamento: acao=status. Mandou parar: acao=cancelar. "
             "PERGUNTA NAO E PEDIDO: 'voce edita video?' se responde, sem chamar a ferramenta. "
             "Depois do 'Pronto, o video ficou pronto', elogio ('ficou top', 'ficou bom') e "
@@ -2041,7 +2072,7 @@ TOOL_DECLARATIONS = [
             "type": "OBJECT",
             "properties": {
                 "pedido": {"type": "STRING", "description": "O que fazer no video, completo, com as palavras do dono."},
-                "video":  {"type": "STRING", "description": "Caminho ou nome do video, so se ele citou; vazio = o da janela do JARVIS ou o selecionado na pasta."},
+                "video":  {"type": "STRING", "description": "Caminho ou nome do video, so se ele citou; vazio = o da janela do NIA ou o selecionado na pasta."},
                 "acao":   {"type": "STRING", "description": "editar (padrao) | status | cancelar"},
             },
             "required": []
@@ -2087,12 +2118,12 @@ TOOL_DECLARATIONS = [
     {
         "name": "globo",
         "description": (
-            "Opens and controls the JARVIS 3D Earth globe window: satellite view of every country, city, "
+            "Opens and controls the NIA 3D Earth globe window: satellite view of every country, city, "
             "neighborhood and street, Street View, Google Maps and distance between places. "
             "Use when the user says: abre o globo, mostra o Japao no globo, vai na capital de tal pais, "
             "vai no bairro tal, entra no street view, qual a distancia de A ate B no mapa, me leva para tal lugar. "
             "When the place needs thinking (o maior pais da Africa), work out the real name and pass it in lugar. "
-            "acao=passeio is the guided walk: JARVIS walks along the street in Street View and explains the landmarks "
+            "acao=passeio is the guided walk: NIA walks along the street in Street View and explains the landmarks "
             "by himself until the user says stop. WHENEVER the user asks to walk, andar, passear, percorrer, to show "
             "or explain pontos, lugares or pontos turisticos of a place (vai mostrando alguns pontos), use "
             "acao=passeio with lugar, NEVER acao=ir or acao=abrir. acao=abrir only opens the window: whenever a place "
@@ -2225,11 +2256,11 @@ TOOL_DECLARATIONS = [
         }
     },
     {
-        "name": "shutdown_jarvis",
+        "name": "shutdown_nia",
         "description": (
             "Shuts down the assistant completely. "
             "Call this when the user expresses intent to end the conversation, "
-            "close the assistant, say goodbye, or stop Jarvis. "
+            "close the assistant, say goodbye, or stop Nia. "
             "The user can say this in ANY language."
         ),
         "parameters": {
@@ -2362,7 +2393,7 @@ TOOL_DECLARATIONS = [
         "name": "desenhar_na_tela",
         "description": (
             "DESENHA de verdade num editor de imagem (Paint, e tambem Photoshop/GIMP/Krita) quando o dono disser 'desenha', 'faz um desenho', 'desenha uma casa no Paint', 'rabisca um gato', 'ilustra'. "
-            "O JARVIS abre o Paint sozinho, deixa a folha do tamanho da janela e desenha peca por peca com as ferramentas de verdade (retangulo, oval, triangulo, estrela, lapis), com cor de contorno, cor de dentro e espessura. NAO precisa de computer use. "
+            "O NIA abre o Paint sozinho, deixa a folha do tamanho da janela e desenha peca por peca com as ferramentas de verdade (retangulo, oval, triangulo, estrela, lapis), com cor de contorno, cor de dentro e espessura. NAO precisa de computer use. "
             "Se o dono tiver mandado uma FOTO e falar nela ('desenha essa foto', 'usa essa imagem como referencia'), passe `referencia` (ou deixe vazio que ele pega a imagem do quadro de arquivo): a foto vira desenho. "
             "Se ele pedir para desenhar EM CIMA da foto ('poe um chapeu nessa foto'), a foto e aberta no Paint e o desenho vai por cima. "
             "NAO use para gerar arquivo de imagem por IA (isso e editar_imagem) nem para clicar na tela (isso e usar_computador)."
@@ -2381,7 +2412,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "desfazer",
         "description": (
-            "Desfaz a ULTIMA acao do JARVIS que tem volta: uma organizacao de pasta (os arquivos voltam ao lugar) ou uma exclusao (o item e restaurado da Lixeira para onde estava). "
+            "Desfaz a ULTIMA acao do NIA que tem volta: uma organizacao de pasta (os arquivos voltam ao lugar) ou uma exclusao (o item e restaurado da Lixeira para onde estava). "
             "Chame quando o dono disser desfaz, volta como estava, restaura o que voce excluiu, poe de volta."
         ),
         "parameters": {"type": "OBJECT", "properties": {}, "required": []}
@@ -2430,14 +2461,14 @@ class _TrocouParaGemini(Exception):
     """
 
 
-class JarvisLive:
+class NiaLive:
 
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui: NiaUI):
         self.ui             = ui
         self.session              = None
         # Vigia da conexao: guarda desde quando existe um pedido do usuario sem
         # nenhuma resposta do servidor. Serve para perceber a conexao que
-        # "morre em pe" — o JARVIS continua aberto, mas nao responde mais.
+        # "morre em pe" — o NIA continua aberto, mas nao responde mais.
         self._aguardando_desde    = None
         self._ultima_resposta     = 0.0
         # True quando a proxima fala deve juntar folga antes de comecar.
@@ -2493,7 +2524,7 @@ class JarvisLive:
         self._adiantado_voz      = -1.0
         self._adiantado_pronto   = threading.Event()
         # Ultima vez que o portao reconheceu voz. Enquanto for recente, o
-        # microfone manda TUDO, como no JARVIS original.
+        # microfone manda TUDO, como no NIA original.
         self._ultima_voz_detectada = 0.0
         self._preroll       = []    # blocos guardados antes da voz comecar
         self._nivel_pico    = 0.0   # maior volume ja visto (para conferir o limiar)
@@ -2525,7 +2556,7 @@ class JarvisLive:
         self._ultimo_fechamento_em = 0.0
         # Quando o servidor CONFIRMOU (transcreveu) que ouviu fala do cliente.
         self._servidor_ouviu_em = 0.0
-        # O que o cliente falou ENQUANTO o JARVIS falava, para entregar depois.
+        # O que o cliente falou ENQUANTO o NIA falava, para entregar depois.
         self._fala_guardada = []
         self._fala_guardada_bytes = 0
         # Medicao do ritmo de chegada do audio do modelo (ver ritmo_audio).
@@ -2548,19 +2579,19 @@ class JarvisLive:
         self._blocos_altos   = 0      # blocos seguidos com som forte
         self._edicao_em_curso = False # ja existe uma edicao de imagem rodando
         # Cronometro da resposta: do fim da fala do cliente ate a primeira
-        # palavra do JARVIS. E o unico jeito de saber se a demora e do servidor
+        # palavra do NIA. E o unico jeito de saber se a demora e do servidor
         # ou nossa.
         self._falou_em       = 0.0
         self._esperando_voz  = False
         # Via exclusiva para tocar o som.
         #
-        # Tudo o que o JARVIS faz em segundo plano — pesquisar na internet, ler
+        # Tudo o que o NIA faz em segundo plano — pesquisar na internet, ler
         # arquivo, WhatsApp, gerar imagem — dividia as MESMAS threads que a voz
         # usa para sair pela caixa de som. Uma pesquisa demorada segurava a vez
         # e a voz travava no meio da frase. Com uma fila so dela, a fala nunca
         # espera por outra tarefa.
         self._audio_executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="jarvis-audio"
+            max_workers=1, thread_name_prefix="nia-audio"
         )
         self.audio_in_queue       = None
         self.out_queue            = None
@@ -2610,7 +2641,7 @@ class JarvisLive:
         # da propria frase (ou uma repeticao do dono) nao religar o computer use.
         self._parou_pc_em = 0.0
         # "Ativar computador": DOIS relogios. `_pc_liberado_ate` diz que o dono
-        # autorizou o JARVIS a mexer no computador (vale 2 min, e renova a cada
+        # autorizou o NIA a mexer no computador (vale 2 min, e renova a cada
         # tarefa); `_esperando_tarefa_pc_ate` e a janela curta em que a PROXIMA
         # frase e a tarefa. Sem o primeiro, NADA liga o computer use — nem a
         # rede de fala, nem o modelo. Regra do Diego em 04/09/2026.
@@ -2661,7 +2692,7 @@ class JarvisLive:
         #
         # Ligado, isto poe a conexao na **v1alpha** (endpoint de previa) para
         # ganhar `affective_dialog` e `proactive_audio`. O proativo ja tinha sido
-        # desligado por deixar o JARVIS mudo de proposito; sobrou o afetivo, que
+        # desligado por deixar o NIA mudo de proposito; sobrou o afetivo, que
         # so muda o tom da voz e nao vale trocar o endpoint estavel por ele.
         # A v1beta e o que o Diego usava antes de hoje, com latencias de 1,7 a
         # 12,2 s — a mesma faixa de agora. Nao ha evidencia a favor da v1alpha.
@@ -2750,7 +2781,7 @@ class JarvisLive:
                 break
 
     # ── Portão de silêncio ────────────────────────────────────────────────────
-    # Sintoma que isto resolve: o cliente falava e o JARVIS não respondia, mas
+    # Sintoma que isto resolve: o cliente falava e o NIA não respondia, mas
     # respondia normalmente pelo chat. Parecia defeito do microfone.
     #
     # Causa: o microfone mandava áudio para o servidor de voz 100% do tempo —
@@ -2821,7 +2852,7 @@ class JarvisLive:
     # de uma fala em português. Modelo nenhum responde a um fragmento assim.
     # 3,0 s cobre a pausa de quem está pensando e ainda fecha o turno rápido.
     # ERA 3,0 s e e o MAIOR custo da espera do Diego: depois que ele cala, o
-    # JARVIS aguarda esse tempo para concluir que a frase acabou. Somado ao
+    # NIA aguarda esse tempo para concluir que a frase acabou. Somado ao
     # whisper (1,6 s), dava os "5 segundos ate aparecer no chat".
     #
     # Os 3 s vinham do caminho da Gemini, onde fechar cedo partia a frase ao
@@ -2859,14 +2890,14 @@ class JarvisLive:
     # blocos; fala dura dezenas. Exigir 5 seguidos derruba o pico sem perder o
     # comeco da frase (5 blocos = 0,2 s, e o pre-roll recupera o que veio antes).
     # BAIXOU PARA 3 em 30/08/2026: o Diego reclamou que palavra curta ("sim",
-    # "nao", "JARVIS") nao chegava. 5 blocos sao 0,2 s de som sustentado, e uma
+    # "nao", "NIA") nao chegava. 5 blocos sao 0,2 s de som sustentado, e uma
     # palavra dessas nao sustenta tanto. Com o ouvido na placa custando 0,4 s,
     # sai barato abrir mais cedo e deixar o whisper descartar o que for ruido —
     # ele devolve vazio para barulho, e o `local_vazio` registra.
     _BLOCOS_PARA_ABRIR = 3
 
     # Quanto tempo sem NENHUMA voz detectada antes de o programa parar de
-    # enviar o silêncio da sala. Abaixo disto o comportamento é o do JARVIS
+    # enviar o silêncio da sala. Abaixo disto o comportamento é o do NIA
     # original: manda tudo, sem cortar nada — que é o único jeito de o servidor
     # entender o fim da frase, manter a conexão aquecida e transcrever direito.
     # Acima disto não há conversa para estragar, e economizar cota passa a
@@ -2889,7 +2920,7 @@ class JarvisLive:
     # DESLIGADO. O portão cortava o silêncio para economizar cota, e economizava
     # mesmo (93%). Mas ele picotava a fala: o servidor passou a receber pedaços
     # curtos demais e devolvia <noise> em vez das palavras — o cliente falava e
-    # o JARVIS não entendia nada. O JARVIS original manda o áudio inteiro e
+    # o NIA não entendia nada. O NIA original manda o áudio inteiro e
     # deixa o servidor decidir, e é assim que ele funciona. Cota não vale nada
     # se ele não escuta. Os contadores continuam ligados para medir.
     # LIGADO de novo, agora com 2 s de folga. Sem ele o microfone manda o
@@ -2903,7 +2934,7 @@ class JarvisLive:
     # manda TUDO, exatamente como o original. O que ele faz de diferente e parar
     # de enviar quando **nao ha ninguem na sala**.
     #
-    # Com ele desligado, o JARVIS mandava a sala calada 24 horas por dia. A cota
+    # Com ele desligado, o NIA mandava a sala calada 24 horas por dia. A cota
     # do Live e cobrada por SEGUNDO DE AUDIO — entao silencio virou a maior
     # despesa do dia, e a conta bateu no sintoma medido:
     #
@@ -2938,7 +2969,7 @@ class JarvisLive:
         agora = time.monotonic()
         limiar = max(self._ruido_fundo * self._fator_ruido, self._PISO_DE_VOZ)
 
-        # CHIADO ACIMA DO PISO (17/09/2026, cliente DESKTOP-HDU4A58: "o JARVIS
+        # CHIADO ACIMA DO PISO (17/09/2026, cliente DESKTOP-HDU4A58: "o NIA
         # nao escuta nada").
         #
         # O ruido da sala so e aprendido com bloco ABAIXO do limiar, e o limiar
@@ -2996,7 +3027,7 @@ class JarvisLive:
             # voz no meio e fica faltando o final". Com rabicho fixo de 1,5 s,
             # uma pausa de quem esta pensando no meio de uma explicacao fecha o
             # turno e o resto da frase vira outro turno — ou se perde, porque o
-            # JARVIS ja comecou a responder.
+            # NIA ja comecou a responder.
             #
             # Pedido curto ("abre o bloco de notas") continua fechando em 1,5 s,
             # que e o que mantem a resposta rapida. Depois de ~4 s falando ele
@@ -3037,11 +3068,11 @@ class JarvisLive:
             if self._ruido_fundo * self._FATOR_DO_CHIADO < self._PISO_DE_VOZ:
                 self._fator_ruido = self._FATOR_DO_RUIDO
 
-        # ── CONVERSA EM ANDAMENTO: manda TUDO, como o JARVIS original ────────
+        # ── CONVERSA EM ANDAMENTO: manda TUDO, como o NIA original ────────
         #
         # Esta é a diferença central entre o nosso fluxo de conversa e o do
         # Mark-LI, e foi ela que quebrou tudo. O original não tem portão nenhum:
-        # o `callback` dele enfileira TODO bloco enquanto o JARVIS não está
+        # o `callback` dele enfileira TODO bloco enquanto o NIA não está
         # falando. O nosso cortava 93% do áudio, e isso estragava três coisas
         # ao mesmo tempo:
         #   1. o servidor nunca recebia o silêncio de que precisa para decidir
@@ -3110,7 +3141,7 @@ class JarvisLive:
             dropped += 1
         self._dropped_mic_chunks += dropped
         print(
-            f"[JARVIS] ⚠️ Mic backlog reduced: {dropped} stale chunks discarded "
+            f"[NIA] ⚠️ Mic backlog reduced: {dropped} stale chunks discarded "
             f"(total={self._dropped_mic_chunks})"
         )
 
@@ -3256,8 +3287,8 @@ class JarvisLive:
             from core.voz_local import VozLocal as _VL
             self.ui.write_log("VOZES: " + ", ".join(_VL.nomes()))
             self.ui.write_log(
-                "Ouvir uma: /voz jarvis_forte: bom dia chefe   |   "
-                "Adotar: /vozpadrao jarvis_forte")
+                "Ouvir uma: /voz nia_forte: bom dia chefe   |   "
+                "Adotar: /vozpadrao nia_forte")
             return
         if _low.startswith("/vozpadrao "):
             from core.voz_local import VozLocal as _VL
@@ -3315,7 +3346,7 @@ class JarvisLive:
 
         if not self._loop or not self.session:
             # Antes a mensagem sumia sem aviso e o cliente ficava achando que
-            # o JARVIS o estava ignorando. Agora ele avisa e marca o problema,
+            # o NIA o estava ignorando. Agora ele avisa e marca o problema,
             # para o vigia reconectar.
             _voice_diag("texto_descartado", "sem sessao ativa")
             try:
@@ -3476,7 +3507,7 @@ class JarvisLive:
         args = {
             "kind": "image_edit",
             "description": pedido,
-            "project_name": "JarvisImagem",
+            "project_name": "NiaImagem",
         }
         try:
             self.ui.write_log("SIS: Comecei a editar a imagem.")
@@ -3598,7 +3629,7 @@ class JarvisLive:
         nome = str(ev.get("nome") or t("alguém", "someone"))
         log = self._log_secretaria
         if tipo == "qr":
-            # O QR Code do WhatsApp dela aparece no cartao do JARVIS (o navegador interno fica escondido).
+            # O QR Code do WhatsApp dela aparece no cartao do NIA (o navegador interno fica escondido).
             self._tela_secretaria({"estado": "qr", "img": ev.get("img")})
             return
         if tipo == "login":
@@ -3628,7 +3659,7 @@ class JarvisLive:
             self._sec_chamada = {"id": ev.get("id"), "nome": nome,
                                  "ate": time.monotonic() + max(25.0, float(auto or 0) + 20.0)}
             log(t(f"[Secretária] {nome} está ligando no WhatsApp.", f"[Assistant] {nome} is calling on WhatsApp."))
-            # v1.0.40 (11/11, pedido do Diego): o JARVIS NAO FALA mais nada quando alguem liga ou manda
+            # v1.0.40 (11/11, pedido do Diego): o NIA NAO FALA mais nada quando alguem liga ou manda
             # mensagem (antes: "Fulano esta' ligando no WhatsApp. Eu atendo, voce atende ou recuso?", o resumo
             # no fim da ligacao, os recados do chat). Fica so' o cartao com os botoes e a linha no chat; o
             # dono ainda decide pela voz ("atende", "recusa") se quiser.
@@ -3640,7 +3671,7 @@ class JarvisLive:
                 self._sec_em_ligacao = {"id": ev.get("id"), "nome": nome}
                 log(t(f"[Secretária] Atendi a ligação de {nome} (voz {ev.get('voz') or ''}).",
                       f"[Assistant] I answered the call from {nome} (voice {ev.get('voz') or ''})."))
-                # OUVIR NO PC (05/11): a voz dela sai na caixa; o JARVIS fica mudo ate' acabar,
+                # OUVIR NO PC (05/11): a voz dela sai na caixa; o NIA fica mudo ate' acabar,
                 # senao o microfone pega a ligacao e ele responde a conversa dela.
                 if _sec.carregar().get("ouvir_no_pc") and not self.ui.muted:
                     self._sec_mutou = True
@@ -3648,7 +3679,7 @@ class JarvisLive:
             else:
                 self._sec_em_ligacao = None
                 log(t(f"[Secretária] Você está na ligação com {nome}.", f"[Assistant] You are on the call with {nome}."))
-                # O dono fala pelo PC: o JARVIS para de ouvir a sala ate a ligacao acabar,
+                # O dono fala pelo PC: o NIA para de ouvir a sala ate a ligacao acabar,
                 # senao ele responderia a conversa com quem ligou.
                 if not self.ui.muted:
                     self._sec_mutou = True
@@ -3686,7 +3717,7 @@ class JarvisLive:
             self._sec_pergunta = None
             self._sec_chamada = None
             if ev.get("quem") == "secretaria":
-                # Passou para o dono: ele continua na ligacao pelo PC, o JARVIS segue mudo ate' o fim dela.
+                # Passou para o dono: ele continua na ligacao pelo PC, o NIA segue mudo ate' o fim dela.
                 if not ev.get("transferida"):
                     self._devolver_ouvido_da_secretaria()
                 resumo = str(ev.get("resumo") or "").strip()
@@ -3711,9 +3742,9 @@ class JarvisLive:
                 self._tela_secretaria({"estado": "fim", "nome": nome, "resumo": resumo, "arquivo": ev.get("arquivo"),
                                        "recados": recados, "compromissos": compromissos,
                                        "retornar": ev.get("retornar"), "urgente": ev.get("urgente"),
-                                       "sub": t(f"Durou {dur // 60} min {dur % 60} s. Ficou salvo na pasta JARVIS Secretaria.",
-                                                f"Lasted {dur // 60} min {dur % 60} s. Saved in the JARVIS Secretaria folder.")})
-                # Sem voz (v1.0.40): o resumo fica no balao verde e no cartao; o JARVIS nao fala.
+                                       "sub": t(f"Durou {dur // 60} min {dur % 60} s. Ficou salvo na pasta NIA Secretaria.",
+                                                f"Lasted {dur // 60} min {dur % 60} s. Saved in the NIA Secretaria folder.")})
+                # Sem voz (v1.0.40): o resumo fica no balao verde e no cartao; o NIA nao fala.
             else:
                 log(t(f"[Secretária] A ligação com {nome} terminou.", f"[Assistant] The call with {nome} has ended."))
                 self._tela_secretaria({"estado": "esconder"})
@@ -3754,9 +3785,9 @@ class JarvisLive:
     def _evento_chat_secretaria(self, ev: dict) -> None:
         """Um evento da SECRETARIA NO CHAT (v1.0.40; linha dela, nunca o Qt).
 
-        Como nas ligacoes: a conversa inteira NAO vem para o chat do JARVIS (fica em
-        Documentos\\JARVIS Secretaria\\mensagens); aqui so' uma linha por resposta e o RECADO em destaque.
-        O JARVIS NAO FALA nada disso (11/11, pedido do Diego): fica tudo escrito."""
+        Como nas ligacoes: a conversa inteira NAO vem para o chat do NIA (fica em
+        Documentos\\NIA Secretaria\\mensagens); aqui so' uma linha por resposta e o RECADO em destaque.
+        O NIA NAO FALA nada disso (11/11, pedido do Diego): fica tudo escrito."""
         t = self._sec_t
         tipo = ev.get("tipo")
         nome = str(ev.get("nome") or t("alguém", "someone"))
@@ -3810,7 +3841,7 @@ class JarvisLive:
 
     @staticmethod
     def _sec_t(pt: str, en: str) -> str:
-        """A frase da secretaria na lingua do JARVIS (v1.0.39: o cliente do Canada usa em ingles)."""
+        """A frase da secretaria na lingua do NIA (v1.0.39: o cliente do Canada usa em ingles)."""
         try:
             from core.idioma import em_ingles  # noqa: PLC0415
             return en if em_ingles() else pt
@@ -3823,13 +3854,13 @@ class JarvisLive:
             self._tela_secretaria({"estado": "mudo", "valor": False})
 
     def _mensagem_de_recusa(self, nome: str, msg: str) -> None:
-        """'Recusa e manda que estou ocupado': o texto vai pelo WhatsApp do JARVIS."""
+        """'Recusa e manda que estou ocupado': o texto vai pelo WhatsApp do NIA."""
         try:
             from actions.whatsapp_bridge import get_status  # noqa: PLC0415
             st = get_status() or {}
             if not st.get("connected"):
-                self._log_secretaria(self._sec_t("[Secretária] Não mandei a mensagem: o WhatsApp do JARVIS não está conectado.",
-                                                 "[Assistant] I didn't send the message: JARVIS's WhatsApp is not connected."))
+                self._log_secretaria(self._sec_t("[Secretária] Não mandei a mensagem: o WhatsApp do NIA não está conectado.",
+                                                 "[Assistant] I didn't send the message: NIA's WhatsApp is not connected."))
                 return
             r = whatsapp_action(parameters={"action": "send_text", "target": nome, "message": msg}, player=self.ui)
             self._log_secretaria(self._sec_t(f"[Secretária] Mensagem para {nome}: {msg} ({str(r)[:80]})",
@@ -3880,7 +3911,7 @@ class JarvisLive:
                 alvo = dict(e or {"id": p.get("id")})
                 threading.Thread(target=self._decisao_secretaria, args=(alvo, acao), daemon=True).start()
                 return True
-            # v1.0.40: o JARVIS nao le mais a pergunta em voz alta; fala solta do dono (outro assunto)
+            # v1.0.40: o NIA nao le mais a pergunta em voz alta; fala solta do dono (outro assunto)
             # nao vira resposta. Vale "responde que sim", "fala pra ela que..."; senao, o cartao.
             resposta = _sec.resposta_para_ela(texto)
             if resposta:
@@ -4072,7 +4103,7 @@ class JarvisLive:
     def _rede_do_globo(self, texto: str) -> bool:
         """O GLOBO POR VOZ EM TEMPO REAL (02/11/2026, pedido do Diego).
 
-        "Jarvis, vai na capital do Japao", "agora o Chile", "entra no Street View".
+        "Nia, vai na capital do Japao", "agora o Chile", "entra no Street View".
         A frase vira comando aqui mesmo, sem ir ao cerebro: o globo comeca a andar
         assim que a fala e' transcrita. O que nao for para o globo devolve False e
         segue o caminho normal. A regra de cada frase esta em core/globo_voz.py.
@@ -4188,7 +4219,7 @@ class JarvisLive:
         chamou nao deve mandar a frase para o cerebro depois.
 
         Roda numa thread propria porque `vision_control(start)` espera ate 8 s
-        pela camera; segurar a janela do JARVIS por 8 s pareceria travamento.
+        pela camera; segurar a janela do NIA por 8 s pareceria travamento.
         """
         acao = _vision_command_action(texto)
         if not acao:
@@ -4241,7 +4272,7 @@ class JarvisLive:
     # LIGAM o computer use. Em 03/09/2026 (no Bob) o dono mandou parar e viu o
     # mouse continuar andando: o gatilho de ligar casava com "computer user" e
     # comecava tarefa nova. Aqui o par (verbo de parar + mencao ao computador) e
-    # reconhecido ANTES, e vale mesmo com o JARVIS parado. Exige os dois juntos de
+    # reconhecido ANTES, e vale mesmo com o NIA parado. Exige os dois juntos de
     # proposito: "para" sozinho e preposicao ("pesquisa para mim no YouTube").
     _PARAR_COMPUTER_USE = re.compile(
         # O WHISPER NAO ESCREVE "computer user". Em 03/09/2026 ele transcreveu
@@ -4265,10 +4296,10 @@ class JarvisLive:
         # Em ingles (24/09/2026): "stop using the computer", "cancel computer use".
         r"|(\b(stop|cancel|quit|end|pause)\b[^.!?]{0,30}?"
         r"\b(comp\w*\s*us\w*|using the computer|the computer)\b)", re.I)
-    # ── "ATIVAR COMPUTADOR": a UNICA porta do computer use no JARVIS ─────────
+    # ── "ATIVAR COMPUTADOR": a UNICA porta do computer use no NIA ─────────
     #
     # Regra fechada com o Diego em 04/09/2026. No Bob a palavra e "Bob,
-    # ativar"; aqui e "ativar computador" — o dono fala isso, o JARVIS pergunta o
+    # ativar"; aqui e "ativar computador" — o dono fala isso, o NIA pergunta o
     # que fazer, e a PROXIMA frase e a tarefa. Falar tudo junto ("ativar
     # computador, abre a pasta de fotos") tambem vale.
     #
@@ -4279,7 +4310,7 @@ class JarvisLive:
     # nao ha frase inocente que caia aqui.
     #
     # As grafias que o Whisper inventa entram todas: "ativar o computador",
-    # "ativa computador", "JARVIS, ativar computador", "ativar computer use",
+    # "ativa computador", "NIA, ativar computador", "ativar computer use",
     # "ativar o PC".
     # "ATIVE E AGUARDE" NAO E TAREFA (08/10/2026). No registro do dia o ouvido
     # entendeu "Va computador", o cerebro chamou a ferramenta com "Ative o
@@ -4306,7 +4337,7 @@ class JarvisLive:
     # Defeito real, 05/09/2026, gravando video com o cliente. O Diego disse:
     #   "NAO quero que voce ATIVE O COMPUTADOR, eu quero que voce EXPLIQUE
     #    pra rapaziadinha o poder que voce tem"
-    # ...e o JARVIS minimizou a janela e comecou a usar o computador. A frase
+    # ...e o NIA minimizou a janela e comecou a usar o computador. A frase
     # tem as palavras do gatilho, e o gatilho nao enxergava a NEGACAO nem a
     # diferenca entre PEDIR e FALAR SOBRE.
     #
@@ -4348,8 +4379,8 @@ class JarvisLive:
         r"do que (voce|vc) e capaz|no que (voce|vc) ajuda|"
         r"explain|describe|tell me about|what can you do|how does it work)\b", re.I)
 
-    # CORRECAO NO MEIO DO CAMINHO. O dono esta vendo a tela: se o JARVIS foi para o
-    # lugar errado, ele fala e o JARVIS CORRIGE sem parar e sem recomecar. Vale so
+    # CORRECAO NO MEIO DO CAMINHO. O dono esta vendo a tela: se o NIA foi para o
+    # lugar errado, ele fala e o NIA CORRIGE sem parar e sem recomecar. Vale so
     # enquanto o computer use roda; frase que nao casa aqui continua sendo
     # conversa normal ("o que e um orcamento?" no meio da tarefa, que aconteceu
     # no teste de 03/09, tem de continuar sendo respondida como pergunta).
@@ -4416,7 +4447,7 @@ class JarvisLive:
     # *"voce sabe desenhar o que, por exemplo?"* — e ouviu de volta "para eu
     # desenhar eu preciso mexer no seu computador, diga ativar computador". Ele
     # nao tinha mandado desenhar nada: estava PERGUNTANDO. A regra que ele deu:
-    # *"o JARVIS precisa entender o que e uma pergunta e o que e pra realmente
+    # *"o NIA precisa entender o que e uma pergunta e o que e pra realmente
     # fazer"*.
     #
     # O `_FALAR_SOBRE_PC` ja pegava "o que voce sabe fazer", mas nao pega
@@ -4523,7 +4554,7 @@ class JarvisLive:
         r"\b(nao|não|nunca|jamais|nem)\b\s+(?:\w+\s+){0,2}?"
         r"(desenh|dezenh|rabisc|ilustr)", re.I)
     _COMECA_DESENHANDO = re.compile(
-        r"^\s*(?:(?:jarvis|algieba|ei|oi|ola|olá|por favor|pf|entao|então|"
+        r"^\s*(?:(?:nia|algieba|ei|oi|ola|olá|por favor|pf|entao|então|"
         r"cara|mano|agora|ai|aí)[,\s]+)*(?:me\s+|nos\s+)?"
         r"(desenh|dezenh|rabisc|ilustr|faz um desenho|faca um desenho|"
         r"faça um desenho)", re.I)
@@ -4563,8 +4594,8 @@ class JarvisLive:
     #    quanto da em reais, convertendo enquanto eu digito"
     #
     # Ali "digitar" descreve o que o PROGRAMA vai fazer com o usuario, nao uma
-    # ordem para o JARVIS teclar. Mesmo assim o atalho trocava `create_file`
-    # por `digitar_na_tela`, e o JARVIS saia digitando o programa inteiro na
+    # ordem para o NIA teclar. Mesmo assim o atalho trocava `create_file`
+    # por `digitar_na_tela`, e o NIA saia digitando o programa inteiro na
     # janela que estivesse na frente, em vez de salvar o arquivo.
     #
     # A conta: quem digita e o DONO ("eu digitar", "enquanto eu digito", "ao
@@ -4583,7 +4614,7 @@ class JarvisLive:
 
     # ── A WEBCAM DO PROPRIO COMPUTADOR (04/09/2026) ───────────────────────
     #
-    # "JARVIS, abre a minha webcam" falhou TRES vezes seguidas no teste, e sempre
+    # "NIA, abre a minha webcam" falhou TRES vezes seguidas no teste, e sempre
     # por causa da escolha de ferramenta — nunca por causa da webcam:
     #   1a vez  o modelo chamou `vision_control` (que e o mouse por gestos) e
     #           inventou a acao -> "Acao invalida para Vision Control";
@@ -4709,7 +4740,7 @@ class JarvisLive:
         self._responder_curto("Webcam aberta, chefe.")
         return True
 
-    # ── COWORK: O PROGRAMADOR DO JARVIS (05/10/2026) ───────────────────────
+    # ── COWORK: O PROGRAMADOR DO NIA (05/10/2026) ───────────────────────
     #
     # O dono abre uma pasta de projeto (botao COWORK ou "abre o cowork na pasta
     # X") e pede: "faz um jogo da cobrinha", "a cor do botao esta errada". O
@@ -4880,7 +4911,7 @@ class JarvisLive:
             return "Não entendi qual pasta. Pode clicar no botão COWORK e escolher na janela."
         criar = bool(re.search(r"\b(?:cria|criar|crie|nova|novo)\b", frase))
         if not pasta.exists() and not criar:
-            # nao existe na Area de Trabalho: tenta em Documentos\JARVIS Cowork
+            # nao existe na Area de Trabalho: tenta em Documentos\NIA Cowork
             alt = cw.pasta_de_projetos() / pasta.name
             if alt.is_dir():
                 pasta = alt
@@ -5088,7 +5119,7 @@ class JarvisLive:
         _voice_diag("site_local", str(texto)[:80])
         self._site_em_andamento = True
         args = {"kind": "site", "description": str(texto).strip(),
-                "project_name": "JarvisSite"}
+                "project_name": "NiaSite"}
 
         def _trabalho():
             try:
@@ -5100,7 +5131,7 @@ class JarvisLive:
             self._responder_curto(str(r))
 
         # Numa thread: o site leva de 6 a 8 minutos no servidor, e segurar o
-        # turno aqui deixaria o JARVIS surdo o tempo todo. O aviso "vou montar
+        # turno aqui deixaria o NIA surdo o tempo todo. O aviso "vou montar
         # o site, leva tantos minutos" sai la dentro, logo no comeco.
         threading.Thread(target=_trabalho, daemon=True, name="criar-site").start()
         return True
@@ -5121,7 +5152,7 @@ class JarvisLive:
     # A PORTA E ESTREITA DE PROPOSITO: frase curta, comecando com verbo de
     # abrir, e nada de "e" emendando outra tarefa ("abre o bloco de notas E
     # digita um script" e tarefa encadeada, tem de ir para o cerebro).
-    # O VOCATIVO VEM DE MUITOS JEITOS (05/09/2026). O Whisper escreve "O JARVIS,
+    # O VOCATIVO VEM DE MUITOS JEITOS (05/09/2026). O Whisper escreve "O NIA,
     # abre meu gerenciador de tarefas" — com artigo na frente — e a regra,
     # ancorada em "ted" puro, nao pegava: o pedido ia para o cerebro e custava
     # 11 s em vez de sair na hora. Agora aceita "o/oi/ei ted", "pode",
@@ -5438,7 +5469,7 @@ class JarvisLive:
     #
     # O QUE SE PERDE, escrito para quem vier depois nao achar que foi descuido:
     # o modelo nao escreve mais essa resposta, entao ela nao improvisa e nao
-    # emenda no assunto anterior. Os moldes abaixo carregam o jeito do JARVIS —
+    # emenda no assunto anterior. Os moldes abaixo carregam o jeito do NIA —
     # "chefe" e uma pitada de humor — mas sao seis, nao infinitos.
     #
     # A PORTA E ESTREITA DE PROPOSITO. So passa pergunta CURTA que e SO sobre
@@ -5494,16 +5525,16 @@ class JarvisLive:
                             for ch in t).split())
         # O CHAMADO NA FRENTE NAO E A PERGUNTA (03/09/2026).
         #
-        # "O JARVIS, que horas sao?" foi direto para o modelo e custou 3,4 s: a
+        # "O NIA, que horas sao?" foi direto para o modelo e custou 3,4 s: a
         # regex e ancorada no comeco e o vocativo estava na frente dela. O meu
-        # teste tinha o nome no FIM ("que horas sao agora JARVIS"), que passava —
+        # teste tinha o nome no FIM ("que horas sao agora NIA"), que passava —
         # e por isso nao pegou.
         #
         # A lista e curta de proposito: so interjeicao de chamado e os nomes
         # dele. "fala" e "escuta" ficam DE FORA porque sao parte da pergunta em
         # "me fala a hora" — tirar elas quebraria o caso que ja funcionava.
         # Os nomes saem de `_NOMES_ASSISTENTE`, que vem do `core.personas`: a
-        # lista escrita a mao aqui so tinha jarvis/friday/ted e deixava a
+        # lista escrita a mao aqui so tinha nia/friday/ted e deixava a
         # pergunta ir para o modelo quando a voz escolhida era outra.
         # As interjeicoes de aprovacao entraram em 05/09/2026: "Perfeito, e que
         # dia e hoje?" ia para o modelo por causa da primeira palavra. Todas
@@ -5533,7 +5564,7 @@ class JarvisLive:
                 return False
             return bool(self._RE_SO_RELOGIO.search(frase))
 
-        # HORA E DIA NA MESMA PERGUNTA (24/10/2026). "O JARVIS, que horas e
+        # HORA E DIA NA MESMA PERGUNTA (24/10/2026). "O NIA, que horas e
         # agora e que dia e hoje?" tem 9 palavras, passou do teto de 7 e foi
         # para a conversa ao vivo — que respondeu "duas e quarenta e cinco da
         # manha, domingo, dia 25" as 23h45 de sabado: o horario de Londres,
@@ -5713,13 +5744,13 @@ class JarvisLive:
                     or time.monotonic() < self._esperando_tarefa_pc_ate):
                 _voice_diag("computer_user_so_falando", t[:80])
                 # Se ele estava esperando a tarefa, desiste da espera: quem
-                # pergunta o que o JARVIS faz nao esta mandando fazer nada.
+                # pergunta o que o NIA faz nao esta mandando fazer nada.
                 self._esperando_tarefa_pc_ate = 0.0
             return False
 
         # ── "ATIVAR COMPUTADOR": a UNICA porta do computer use ─────────────
         #
-        # O Diego fechou assim em 04/09/2026: o dono fala a palavra, o JARVIS
+        # O Diego fechou assim em 04/09/2026: o dono fala a palavra, o NIA
         # pergunta o que fazer, e a PROXIMA frase e a tarefa. Sem passar por
         # aqui, nada mexe no computador — nem a rede de fala, nem o modelo.
         if not self._usando_pc and self._ATIVAR_PC.search(t):
@@ -5767,11 +5798,11 @@ class JarvisLive:
         # A frase logo depois do "ativar computador" e a tarefa — MAS SO SE FOR
         # UMA TAREFA (07/09/2026).
         #
-        # Defeito que o Diego viu: ele disse "ativar computador", o JARVIS
+        # Defeito que o Diego viu: ele disse "ativar computador", o NIA
         # perguntou o que fazer, e o ouvido transcreveu um ruido como "Atma".
-        # Uma palavra solta virou tarefa: o JARVIS minimizou a janela, avisou
+        # Uma palavra solta virou tarefa: o NIA minimizou a janela, avisou
         # "nao mexa no mouse", rodou o laco, perguntou "o que voce quer que eu
-        # faca no JARVIS?" e desistiu 56 s depois. *"Eu nao tinha nem passado a
+        # faca no NIA?" e desistiu 56 s depois. *"Eu nao tinha nem passado a
         # tarefa pra ele."*
         #
         # Agora, se o que chegar nao tiver cara de tarefa, ele PEDE DE NOVO e
@@ -5839,7 +5870,7 @@ class JarvisLive:
 
         # ── DESENHAR TAMBEM DEPENDE DA PORTA (07/09/2026) ────────────────
         #
-        # Regra do Diego, depois de ver o JARVIS desenhar um palhaco so porque
+        # Regra do Diego, depois de ver o NIA desenhar um palhaco so porque
         # ele perguntou se sabia desenhar: *"ele so deve desenhar quando eu
         # ativar o computador... ele nao pode desenhar so por palavras"*. E
         # coerente: desenhar toma o mouse por mais de um minuto, igual ao
@@ -5915,7 +5946,7 @@ class JarvisLive:
         """
         t = str(texto or "").strip()
         # PERGUNTA NAO E TAREFA (08/09/2026). A regra de "tres palavras ja
-        # bastam" mandava "que horas sao?" para o olhar-e-clicar — o JARVIS
+        # bastam" mandava "que horas sao?" para o olhar-e-clicar — o NIA
         # tomava a tela para responder uma pergunta que ele sabe de cabeca.
         # O `_e_pergunta` so acusa quando NAO ha verbo de tarefa na frase,
         # entao "abre a pasta de fotos pra mim?" continua sendo tarefa.
@@ -6371,7 +6402,7 @@ class JarvisLive:
             # mesma pedra do `_olhar_e_clicar` (03/09).
             if self._openrouter is None:
                 from core.cerebro_openrouter import CerebroOpenRouter  # noqa: PLC0415
-                self._openrouter = CerebroOpenRouter()
+                self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
             self._openrouter.ponte = getattr(self.ui, "_codex_relay", None)
             self._openrouter.falar = self._falar_local
             argumentos = ({"melhorar": True, "critica": pedido} if melhorar
@@ -6406,7 +6437,7 @@ class JarvisLive:
                 pass
             if self._openrouter is None:
                 from core.cerebro_openrouter import CerebroOpenRouter  # noqa: PLC0415
-                self._openrouter = CerebroOpenRouter()
+                self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
             self._openrouter.ponte = getattr(self.ui, "_codex_relay", None)
             self._openrouter.falar = self._falar_local
             r = digitar_na_tela({"pedido": pedido}, player=self.ui,
@@ -6590,19 +6621,19 @@ class JarvisLive:
             self._pergunta_pendente = False
             self._pergunta_sim_nao = False
 
-    # Quanto tempo o microfone continua fechado DEPOIS que o JARVIS termina de
+    # Quanto tempo o microfone continua fechado DEPOIS que o NIA termina de
     # falar. Não é capricho: a caixa de som guarda som já entregue (medido:
     # 0,243 s de reserva) e a sala ainda devolve o eco. Se o microfone abrir
-    # nesse instante, ele capta a própria voz do JARVIS, manda para o servidor,
+    # nesse instante, ele capta a própria voz do NIA, manda para o servidor,
     # e o servidor entende "o cliente está falando" e CANCELA a resposta —
     # foi o que o registro mostrou, 3 cancelamentos em 6 segundos.
     # Expira sozinho pelo relógio: não é uma trava que pode ficar presa.
     # ERA 0,45 s e nao bastava no modo local: a caixa de som ainda estava
     # devolvendo o fim da fala quando o microfone reabria, e o whisper
-    # transcrevia a propria voz do JARVIS como se fosse o dono ("Tudinho", que
+    # transcrevia a propria voz do NIA como se fosse o dono ("Tudinho", que
     # o Diego nunca disse). Um segundo cobre o eco da sala sem comer o comeco
     # da resposta dele — a pessoa leva mais que isso para reagir.
-    # 1,0 s era demais: o Diego emendava a fala logo depois de o JARVIS calar e
+    # 1,0 s era demais: o Diego emendava a fala logo depois de o NIA calar e
     # a frase inteira caia nesse buraco — ele repetia e so entao era ouvido.
     # 0,35 s cobre o rabo do som na caixa; o resto do eco ja e barrado pelo piso
     # de voz (750) e pela trava `_is_speaking` durante a fala.
@@ -6622,7 +6653,7 @@ class JarvisLive:
             self.ui.set_state("LISTENING")
 
     def interrupt(self) -> None:
-        """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
+        """Stop NIA mid-speech: drain queued audio and open mic immediately."""
         self._interrupted = True
         q = self.audio_in_queue
         if q:
@@ -6634,7 +6665,7 @@ class JarvisLive:
                 except Exception:
                     break
             if drained:
-                print(f"[JARVIS] ✋ Interrupted — {drained} audio chunks discarded")
+                print(f"[NIA] ✋ Interrupted — {drained} audio chunks discarded")
         self.set_speaking(False)
         # Aqui foi o CLIENTE que mandou calar a boca: abrir o microfone na hora
         # é justamente o que ele quer. A guarda anti-eco não vale neste caminho,
@@ -6659,7 +6690,7 @@ class JarvisLive:
     # espera a camera soltar, e fechar as vozes espera o Google ate 1 s.
     def _mudou_segundo_plano(self, ligado: bool) -> None:
         # SECRETARIA (05/11/2026): em segundo plano o dono esta fora — ela atende sem
-        # perguntar a ele. O que ela atendeu fica nos baloes do chat (v1.0.40: o JARVIS
+        # perguntar a ele. O que ela atendeu fica nos baloes do chat (v1.0.40: o NIA
         # nao fala mais o resumo na volta, pedido do Diego em 11/11).
         try:
             if getattr(self, "_secretaria", None) is not None and self._secretaria.rodando():
@@ -6686,7 +6717,7 @@ class JarvisLive:
                     pass
             return
 
-        # O globo some junto: em segundo plano o JARVIS nao faz nada, e os 500 MB dele voltam.
+        # O globo some junto: em segundo plano o NIA nao faz nada, e os 500 MB dele voltam.
         try:
             from core import globo as _globo  # noqa: PLC0415
             threading.Thread(target=_globo.fechar, daemon=True, name="globo-fechar").start()
@@ -6763,7 +6794,7 @@ class JarvisLive:
             return
         # GATILHO DE TESTE DA CONVERSA PELO CODEX (30/08/2026, ideia do Diego).
         #
-        # Digitar "/codex <pergunta>" na caixa do JARVIS manda a pergunta para o
+        # Digitar "/codex <pergunta>" na caixa do NIA manda a pergunta para o
         # Codex na VPS em vez da Gemini, e escreve a resposta de volta no chat
         # com o tempo que levou. Serve para MEDIR se vale a pena trocar o
         # cerebro: a Gemini responde em 1 a 4 s quando esta boa, e um trabalho no
@@ -6802,13 +6833,13 @@ class JarvisLive:
         _voice_diag("so_com_nome", "ligado" if self._so_com_nome else "desligado")
 
     def _nomes_que_acordam(self) -> list[str]:
-        """Como o dono pode chamar: o nome da voz de agora, e sempre "jarvis".
+        """Como o dono pode chamar: o nome da voz de agora, e sempre "nia".
 
         "Vale para todas as vozes" foi o pedido — mas com a voz Lia escolhida o
-        dono continua dizendo "Jarvis" por costume. Entao os dois valem: o nome
+        dono continua dizendo "Nia" por costume. Entao os dois valem: o nome
         proprio da voz e o nome da casa.
         """
-        nomes = ["jarvis"]
+        nomes = ["nia"]
         try:
             from core.personas import nome_da_ia, nome_original  # noqa: PLC0415
             _pg = (getattr(self.ui, "persona_atual", None) or {}).get("personagem", "")
@@ -6835,14 +6866,15 @@ class JarvisLive:
           janela aberta ........ passa tudo e RENOVA os 30 s
           janela fechada ....... so passa se o nome estiver na frase
 
-        O nome e TIRADO do texto quando ele abre a conversa: "Jarvis, que horas
+        O nome e TIRADO do texto quando ele abre a conversa: "Nia, que horas
         sao" tem de chegar no cerebro como "que horas sao". Sem isso o modelo
         gasta a resposta cumprimentando de volta.
 
         A comparacao e por PALAVRA INTEIRA, sem acento. O whisper escreve
-        "Jarvis", "Járvis", "JARVIS," e as vezes "Jarves" — as tres primeiras o
-        `_limpo_para_nome` resolve; a quarta cai na semelhanca do
-        `_corrigir_nomes`, que ja roda antes daqui.
+        "Nia", "Nia!", "NIA," e as vezes "Nía" — as tres primeiras o
+        `_limpo_para_nome` resolve; a ultima cai na semelhanca do
+        `_corrigir_nomes`, que ja roda antes daqui. (Antes da troca de nome
+        o ouvido escrevia "Jarvis", "Járvis", "JARVIS," e "Jarves".)
         """
         import time as _t  # noqa: PLC0415
         if not self._so_com_nome:
@@ -6863,16 +6895,16 @@ class JarvisLive:
         # A primeira versao so cortava o nome quando ele estava nas tres
         # primeiras palavras; no resto dos casos mandava a frase INTEIRA. Mas o
         # whisper entrega o trecho todo de uma vez, e no teste do Diego a frase
-        # foi um paragrafo inteiro terminando em "...por exemplo, o JARVIS." O
+        # foi um paragrafo inteiro terminando em "...por exemplo, o NIA." O
         # nome estava la, o portao abriu, e o paragrafo — que era ele
         # EXPLICANDO a funcao, nao pedindo nada — foi para o cerebro. Resultado:
-        # o JARVIS disparou o `usar_computador` e comecou a clicar na tela.
+        # o NIA disparou o `usar_computador` e comecou a clicar na tela.
         #
         # A regra que ele pediu e literal: "ele so pode responder a partir do
-        # momento que eu chamar Jarvis". Entao corta na PRIMEIRA ocorrencia do
+        # momento que eu chamar Nia". Entao corta na PRIMEIRA ocorrencia do
         # nome e joga fora tudo que veio antes, sempre.
         #
-        # O preco: com o portao fechado, "manda um zap falando do jarvis" fica
+        # O preco: com o portao fechado, "manda um zap falando do nia" fica
         # sem nada depois do nome e vira chamado. Sai barato — dentro dos 30 s
         # a frase passa inteira e intacta, que e onde as conversas de verdade
         # acontecem.
@@ -6902,10 +6934,10 @@ class JarvisLive:
 
     # ── CHAMAR OUTRA VOZ PELA VOZ (22/10/2026, v1.0.35) ─────────────────────
     #
-    # Pedido de cliente, nas palavras do Diego: "estou com a voz Jarvis e falo
-    # 'o Jarvis, eu quero falar com a Leda, chama ela ai'. O Jarvis: 'ta bom,
+    # Pedido de cliente, nas palavras do Diego: "estou com a voz Nia e falo
+    # 'o Nia, eu quero falar com a Leda, chama ela ai'. O Nia: 'ta bom,
     # senhor, vou chamar ela'; faz uma animacao que saiu, da chamada, e entrou a
-    # Leda: 'Ola, chefe, estou aqui. O Jarvis falou que o senhor me chamou? Em
+    # Leda: 'Ola, chefe, estou aqui. O Nia falou que o senhor me chamou? Em
     # que posso lhe ajudar?'".
     #
     # Local, sem cerebro: o verbo de chamar + o nome de OUTRA voz (de fabrica
@@ -6938,10 +6970,10 @@ class JarvisLive:
                 continue
             r = SequenceMatcher(None, palavra, nome).ratio()
             # PELO SOM, so nos nomes compridos ("leda" e "seda" soam iguais).
-            # Primeiro teste do Diego (22/10/2026): "chama o Javes ai" — o
-            # ouvido escreveu "Javes". Pela letra da 0,73 com "jarvis"; pelo
-            # som ("javis" x "jarvis") da 0,91. "Jervis" e "Harvis" tambem
-            # passam; "Jarbas" (nome de gente) fica de fora, 0,67.
+            # O nome da casa ("nia") e curto e nao entra nesta comparacao:
+            # ele e reconhecido pela palavra exata em `_limpo_para_nome`.
+            # Historico: antes da troca, "Javes" casava com "jarvis" por som
+            # (0,91) e "Jarbas" (nome de gente) ficava de fora, 0,67.
             if len(nome) >= 5 and som_p:
                 r_som = SequenceMatcher(None, som_p, _som_da_palavra(nome)).ratio()
                 if r_som >= 0.80:
@@ -7147,7 +7179,7 @@ class JarvisLive:
                     return
                 from core.cerebro_openrouter import CerebroOpenRouter
                 if self._openrouter is None:
-                    self._openrouter = CerebroOpenRouter()
+                    self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
                     self._openrouter.executor = self._executar_ferramenta_local
                     self._openrouter.ferramentas = CerebroOpenRouter.converter_ferramentas(
                         TOOL_DECLARATIONS)
@@ -7261,7 +7293,7 @@ class JarvisLive:
         # a boca agora e o `narrador_pc`, dentro da propria ferramenta, com o
         # aviso completo ("nao mexa no mouse nem no teclado, pode demorar
         # alguns minutos, fale 'para' para me interromper"). Anunciar aqui
-        # tambem faria o JARVIS falar duas frases coladas, uma por cima da outra.
+        # tambem faria o NIA falar duas frases coladas, uma por cima da outra.
     }
 
     # O que ele diz ANTES de sair pesquisando. Sorteado para nao virar tique —
@@ -7321,10 +7353,10 @@ class JarvisLive:
         import time as _t
         args = args or {}
         # SEGUNDO PLANO: o cerebro que ainda estava pensando quando o dono
-        # escondeu o JARVIS nao executa a ferramenta que decidiu.
+        # escondeu o NIA nao executa a ferramenta que decidiu.
         if _SEGUNDO_PLANO.is_set():
             _voice_diag("segundo_plano", f"ferramenta barrada: {nome}")
-            return "Nada foi feito: o JARVIS esta em segundo plano."
+            return "Nada foi feito: o NIA esta em segundo plano."
         _voice_diag("ferr_local_inicio", f"{nome} {str(args)[:80]}")
         t0 = _t.monotonic()
         # Marca de envio de WhatsApp: so vale para a fala que vier logo
@@ -7507,7 +7539,7 @@ class JarvisLive:
             self._aquecer_boca()
             from core.cerebro_openrouter import CerebroOpenRouter
             if self._openrouter is None:
-                self._openrouter = CerebroOpenRouter()
+                self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
                 self._openrouter.executor = self._executar_ferramenta_local
                 self._openrouter.ferramentas = CerebroOpenRouter.converter_ferramentas(
                     TOOL_DECLARATIONS)
@@ -7556,7 +7588,7 @@ class JarvisLive:
     # ── A SAUDACAO DE ABERTURA (05/09/2026, pedido do Diego) ──────────────
     #
     # Ela entrou no lugar de dois recados de tecnico que apareciam no chat
-    # ("JARVIS pronto — modo local, sem Gemini" e "whisper, Kokoro e cerebro
+    # ("NIA pronto — modo local, sem Gemini" e "whisper, Kokoro e cerebro
     # prontos"). Quem abre a conversa agora e ele, falando.
     #
     # Tres cuidados que a frase carrega:
@@ -7568,7 +7600,7 @@ class JarvisLive:
     #      de cerebro, reconexao) e o dono nao pode ser cumprimentado duas
     #      vezes seguidas.
     #
-    # O NOME E O DA VOZ ESCOLHIDA, nao "JARVIS" na pedra: com a voz Nova ele se
+    # O NOME E O DA VOZ ESCOLHIDA, nao "NIA" na pedra: com a voz Nova ele se
     # chama Nova, e se apresentar com o nome errado na PRIMEIRA frase do dia e
     # o pior lugar possivel para errar isso.
     #
@@ -7611,9 +7643,9 @@ class JarvisLive:
             import random as _r  # noqa: PLC0415
             try:
                 from core.personas import nome_da_ia  # noqa: PLC0415
-                nome = nome_da_ia(escolha.get("personagem", "")) or "JARVIS"
+                nome = nome_da_ia(escolha.get("personagem", "")) or "NIA"
             except Exception:
-                nome = "JARVIS"
+                nome = "NIA"
             hora = datetime.now().hour
             faixa = "manha" if 5 <= hora < 12 else ("tarde" if 12 <= hora < 18 else "noite")
             _tabela = self._SAUDACOES_EN if _em_ingles() else self._SAUDACOES
@@ -7633,7 +7665,7 @@ class JarvisLive:
     # dele, e o resto (cerebro e tudo mais) com o Codex la na VPS; a voz tem de
     # ser o free (2.5) para responder o mais rapido possivel".
     #
-    # Medido: a chave gratis so abriu mais 2 sessoes ao vivo com o JARVIS de pe
+    # Medido: a chave gratis so abriu mais 2 sessoes ao vivo com o NIA de pe
     # (3a em diante: "exceeded your current quota"). Ficam DUAS sessoes, sem
     # espelho: a `GeminiConversa` CONVERSA (a frase do dono vai crua e ela
     # responde falando — 1,1 a 1,6 s ate o 1o som) e a da `VozCharon` LE o
@@ -7728,12 +7760,23 @@ class JarvisLive:
         except Exception:
             nome_agora = ""
         if (m is None or m.voz != ch.voz or m.jeito != ch.jeito
-                or getattr(m, "_nome_jarvis", nome_agora) != nome_agora):
+                or getattr(m, "chave_morta", False)
+                or getattr(m, "_nome_nia", nome_agora) != nome_agora):
             from core.gemini_voice import GeminiConversa  # noqa: PLC0415
             velho = m
             m = GeminiConversa(ch.voz, ch.jeito, self._instrucao_voz)
-            m._nome_jarvis = nome_agora
+            m._nome_nia = nome_agora
             self._voz_unica = m
+            if getattr(velho, "chave_morta", False):
+                # A chave da conversa estourou (cota/recusada). A conexao nova
+                # nasce chamando `resolver()`, que ja devolve a proxima chave
+                # do pool (18/11/2026). Sem isto, ter duas chaves nao mudava
+                # nada para quem conversa por voz.
+                try:
+                    _voice_diag("voz_unica_trocou_de_chave",
+                                "chave anterior recusada; conexao refeita no pool")
+                except Exception:
+                    pass
             if velho is not None:
                 # Fecha a sessao antiga: a chave gratis tem poucas vagas.
                 try:
@@ -7751,7 +7794,7 @@ class JarvisLive:
         escolha = getattr(self.ui, "persona_atual", None) or {}
         jeito = (PERSONALIDADES.get(escolha.get("personalidade") or "")
                  or PERSONALIDADES[PERSONALIDADE_PADRAO])
-        nome = nome_da_ia(escolha.get("personagem", "")) or "JARVIS"
+        nome = nome_da_ia(escolha.get("personagem", "")) or "NIA"
         try:
             from core.dono import resumo_para_prompt  # noqa: PLC0415
             dono = resumo_para_prompt()
@@ -7787,7 +7830,7 @@ class JarvisLive:
         ]
         # CHAMAR OUTRA VOZ (22/10/2026). Quando o atalho nao pega a frase (o
         # ouvido errou o verbo), ela caia aqui e a voz respondia "voce sabe que
-        # eu nao chamo ninguem" — mentira: chamar e um recurso do JARVIS.
+        # eu nao chamo ninguem" — mentira: chamar e um recurso do NIA.
         try:
             from core.personas import PERSONAGENS as _PGS, nome_da_ia as _nda  # noqa: PLC0415
             _outras = ", ".join(_nda(k) for k in _PGS if _nda(k) != nome)
@@ -7890,7 +7933,7 @@ class JarvisLive:
 
         Por que vale: medido no log de 05/09, o primeiro som sai em 6,1 s com a
         conexao fria e em 1,2 a 2,0 s com ela ja de pe. O aperto de mao e o
-        mesmo custo que a memoria [[jarvis-latencia-medida]] ja tinha achado nas
+        mesmo custo que a memoria [[nia-latencia-medida]] ja tinha achado nas
         vozes de estudio; aqui ele estava sobrando na Gemini.
 
         Nao levanta nada: aquecer e cortesia, e a fala sobe a conexao sozinha
@@ -8231,7 +8274,7 @@ class JarvisLive:
 
     def _falar_local(self, texto: str, ao_primeiro_som=None,
                      nao_pode_calar: bool = False) -> None:
-        """Fala pela fila normal de audio do JARVIS.
+        """Fala pela fila normal de audio do NIA.
 
         `nao_pode_calar=True`: esta frase NAO pode virar texto mudo no chat.
         Vale para o aviso de abertura do computer use — "vou mexer no
@@ -8386,7 +8429,7 @@ class JarvisLive:
                     # Fecha o microfone JA, e vai empurrando o prazo a cada
                     # pedaco. Antes eu so fechava depois que TODO o audio
                     # chegava — e durante a fala o microfone ficava aberto,
-                    # gravando a propria voz do JARVIS. Foi assim que apareceu
+                    # gravando a propria voz do NIA. Foi assim que apareceu
                     # um "Tudinho" que o Diego nunca disse.
                     self._mic_fechado_ate = max(
                         self._mic_fechado_ate,
@@ -8397,7 +8440,7 @@ class JarvisLive:
                             self.audio_in_queue.put_nowait, raw[pos: pos + 2400])
 
                 # Uma fala por vez na sessao (ver `_trava_boca`). O teto evita
-                # que uma gravacao presa deixe o JARVIS mudo: passado dele,
+                # que uma gravacao presa deixe o NIA mudo: passado dele,
                 # fala assim mesmo, como era antes.
                 _trava = self._trava_boca()
                 _pegou = _trava.acquire(timeout=25)
@@ -8483,6 +8526,23 @@ class JarvisLive:
                         self.ui.write_log(f"{_nome_falante(self.ui)}: {texto}")
                         self.ui.write_log("SIS: a voz engasgou neste turno; "
                                           "a resposta ficou escrita.")
+                        # CHAVE RECUSADA NAO E ENGASGO (18/11/2026)
+                        #
+                        # Em 18/11 a voz ficou muda e o chat so dizia "engasgou":
+                        # o dono procurou defeito na voz quando o problema era
+                        # uma chave que o Google recusava com 401. A frase
+                        # abaixo aponta o caminho certo, sem juridiquês.
+                        _erro = str(exc).lower()
+                        if any(_m in _erro for _m in (
+                                "api key not valid", "api_key_invalid",
+                                "unauthenticated", "invalid api key",
+                                "permission_denied", "401")):
+                            self.ui.write_log(
+                                "SIS: o Google recusou a chave do Gemini. Abra "
+                                "Configuracoes > Chaves de API, confira a chave "
+                                "do Google (copiada inteira) e, se continuar "
+                                "recusada, gere outra em "
+                                "https://aistudio.google.com/apikey.")
                     except Exception:
                         pass
                     return
@@ -8651,7 +8711,7 @@ class JarvisLive:
         try:
             from core.cerebro_openrouter import CerebroOpenRouter
             if self._openrouter is None:
-                self._openrouter = CerebroOpenRouter()
+                self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
                 self._openrouter.executor = self._executar_ferramenta_local
                 self._openrouter.ferramentas = CerebroOpenRouter.converter_ferramentas(
                     TOOL_DECLARATIONS)
@@ -8681,7 +8741,7 @@ class JarvisLive:
     def _segunda_opiniao(self, fala_pcm: bytes, motivo: str) -> str:
         """A Gemini do cliente confere a fala DUVIDOSA. So sem placa de video.
 
-        01/10/2026, pedido do Diego para o JARVIS "escutar certo em cada PC".
+        01/10/2026, pedido do Diego para o NIA "escutar certo em cada PC".
         Sem NVIDIA o ouvido e o whisper small, que troca palavra e joga fora fala
         clara de microfone ruim. Ate 30/09 essas maquinas ouviam pela OpenAI do
         servidor; sem ela, a segunda opiniao vem da chave Gemini do proprio
@@ -8781,14 +8841,14 @@ class JarvisLive:
         _pico = float(_np.abs(amostras).max()) if amostras.size else 0.0
         # SOM DE LONGE NAO E O DONO. Televisao, celular tocando video,
         # conversa na sala ao lado: tudo chega fraco no microfone. O dono,
-        # falando com o JARVIS, chega forte. Cortar aqui evita que ele
+        # falando com o NIA, chega forte. Cortar aqui evita que ele
         # responda ao YouTube — foi o que aconteceu em 01/09/2026.
         # O PORTAO AFROUXA QUANDO ELE ACABOU DE PERGUNTAR (04/09/2026).
         #
-        # Defeito real: no meio de uma tarefa o JARVIS perguntou "posso apagar?",
+        # Defeito real: no meio de uma tarefa o NIA perguntou "posso apagar?",
         # o Diego RESPONDEU — e a resposta foi descartada aqui, com pico 0,057
         # contra o piso de 0,09. Do lado dele: "eu respondi as duas vezes" e o
-        # JARVIS parou assim mesmo. O piso existe para ele nao obedecer a
+        # NIA parou assim mesmo. O piso existe para ele nao obedecer a
         # televisao; mas quando ELE fez uma pergunta e esta esperando, o que
         # chega e quase sempre a resposta, mesmo dita mais baixo (a pessoa
         # responde "sim" sem levantar a voz).
@@ -8820,7 +8880,7 @@ class JarvisLive:
         # 0,184). Afastar o microfone 30 cm derruba o pico para a casa dos
         # 0,05 — e a fala boa era jogada fora sem nunca chegar ao ouvido.
         #
-        # Baixar o piso direto NAO servia: ele existe para o JARVIS nao
+        # Baixar o piso direto NAO servia: ele existe para o NIA nao
         # obedecer a televisao, e a TV chega justamente nessa faixa fraca.
         #
         # A saida e nao decidir so pelo VOLUME. Na faixa de resgate (0,045 ate
@@ -9071,7 +9131,7 @@ class JarvisLive:
             # palavra. Ver `_PICO_DE_RESGATE`.
             # PALAVRA SOZINHA DE QUEM FALA BAIXO (14/09/2026). Exigir duas
             # palavras barrava a resposta curta: no log do cliente "Sim.",
-            # "JARVIS.", "Quero." e "Exatamente." vieram com sem_fala 0,02 a
+            # "NIA.", "Quero." e "Exatamente." vieram com sem_fala 0,02 a
             # 0,21 e prob -0,31 a -0,65, e foram recusados. Os fantasmas de uma
             # palavra ali tinham prob -0,98 ("Odys.") e -1,09 ("In."). Palavra
             # sozinha passa quando a confianca e de fala de verdade.
@@ -9212,7 +9272,7 @@ class JarvisLive:
             dur = len(fala_pcm) / 2 / SEND_SAMPLE_RATE
             # Fala curta demais e tosse, porta batendo, "ahn". Nao vale um job.
             # ERA 0,6 s e comia palavra de verdade: "sim", "nao", "para",
-            # "JARVIS" cabem embaixo disso (queixa do Diego em 30/08/2026).
+            # "NIA" cabem embaixo disso (queixa do Diego em 30/08/2026).
             # 0,35 s ainda derruba estalo de teclado e batida de mesa.
             if dur < 0.35:
                 return
@@ -9236,7 +9296,7 @@ class JarvisLive:
             if _r is None:
                 return
             # SEGUNDO PLANO: a fala ja estava no ouvido quando o dono escondeu
-            # o JARVIS. Ela nao vira pedido — nem aparece no chat.
+            # o NIA. Ela nao vira pedido — nem aparece no chat.
             if _SEGUNDO_PLANO.is_set():
                 _voice_diag("segundo_plano", "fala que estava no ouvido descartada")
                 return
@@ -9300,7 +9360,7 @@ class JarvisLive:
                 _voice_diag("corretor_falhou", str(_exc)[:90])
 
             # Guardada para a conferencia do desligamento (ver o ramo
-            # shutdown_jarvis): so desliga se a ordem estiver na fala.
+            # shutdown_nia): so desliga se a ordem estiver na fala.
             self._ultima_fala_do_dono = texto
             self._aprender_audio("fala", _r.get("pico"))
             _voice_diag("local_ouviu",
@@ -9408,7 +9468,7 @@ class JarvisLive:
                 t1 = _t.monotonic()
                 from core.cerebro_openrouter import CerebroOpenRouter
                 if self._openrouter is None:
-                    self._openrouter = CerebroOpenRouter()
+                    self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
                     self._openrouter.executor = self._executar_ferramenta_local
                     self._openrouter.ferramentas = CerebroOpenRouter.converter_ferramentas(
                         TOOL_DECLARATIONS)
@@ -9420,7 +9480,7 @@ class JarvisLive:
                 except Exception as exc_or:
                     # REDE DE SEGURANCA: o OpenRouter gratis tem teto de ~7.866
                     # fichas POR PEDIDO e devolve 402 quando estoura. Antes disso
-                    # o JARVIS simplesmente emudecia com um erro na tela.
+                    # o NIA simplesmente emudecia com um erro na tela.
                     #
                     # O Codex na VPS nao tem teto nenhum — so e lento (12 a 19 s
                     # medidos). Serve exatamente para isto: nao deixar o cliente
@@ -9434,7 +9494,7 @@ class JarvisLive:
                     from actions.codex_remote import remote_codex_job
                     resposta = remote_codex_job(
                         {"kind": "chat", "description": texto,
-                         "project_name": "JarvisChat"}, player=self.ui)
+                         "project_name": "NiaChat"}, player=self.ui)
                     t_pensar = _t.monotonic() - t1
                     if resposta:
                         self._falar_local(
@@ -9473,7 +9533,7 @@ class JarvisLive:
                 t1 = _t.monotonic()
                 from actions.codex_remote import remote_codex_job
                 resposta = remote_codex_job(
-                    {"kind": "chat", "description": texto, "project_name": "JarvisChat"},
+                    {"kind": "chat", "description": texto, "project_name": "NiaChat"},
                     player=self.ui,
                 )
                 t_pensar = _t.monotonic() - t1
@@ -9520,7 +9580,7 @@ class JarvisLive:
             self.ui.write_log(f"VOZ LOCAL: falhou — {type(exc).__name__}: {str(exc)[:140]}")
             return
         dur = len(bruto) / 2 / 24000
-        nome = voz or getattr(self._voz_local, "voz", "jarvis")
+        nome = voz or getattr(self._voz_local, "voz", "nia")
         _voice_diag("voz_local", f"{nome} {dur:.1f}s de fala em {levou:.1f}s")
         self.ui.write_log(f"VOZ LOCAL ({nome}): {dur:.1f}s de fala gerados em {levou:.1f}s")
         # Entra na fila normal, entao respeita o botao de interromper e a caixa
@@ -9538,7 +9598,7 @@ class JarvisLive:
         try:
             from actions.codex_remote import remote_codex_job
             resposta = remote_codex_job(
-                {"kind": "chat", "description": pergunta, "project_name": "JarvisChat"},
+                {"kind": "chat", "description": pergunta, "project_name": "NiaChat"},
                 player=self.ui,
             )
         except Exception as exc:
@@ -9560,7 +9620,7 @@ class JarvisLive:
         mem_str    = format_memory_for_prompt(memory)
         sys_prompt = _load_system_prompt()
         voice_style_prompt = (
-            "\n\n[JARVIS VOICE STYLE]\n"
+            "\n\n[NIA VOICE STYLE]\n"
             "Speak primarily in Brazilian Portuguese with a natural, slightly informal tone. "
             "Use light slang only when it fits; do not overdo it. "
             "Vary greetings and confirmations so you do not sound repetitive. Examples: "
@@ -9613,7 +9673,7 @@ class JarvisLive:
             # acontece: ele vinha de som da sala chegando ao servidor, e isso
             # foi fechado por três correções independentes — o piso do portão
             # subiu para 200 (acima do ventilador medido, 199), a fila de saída
-            # é esvaziada quando o JARVIS começa a falar, e o microfone fica
+            # é esvaziada quando o NIA começa a falar, e o microfone fica
             # fechado mais 0,45 s depois que ele termina. Com o microfone mudo
             # durante a fala dele, o servidor praticamente não tem o que
             # interromper.
@@ -9621,7 +9681,7 @@ class JarvisLive:
             # O que o cliente pediu — "ele só para quando termina ou quando
             # clicam em interromper" — continua valendo por outro caminho, que
             # não custa latência: o que o cliente fala por cima é GUARDADO e só
-            # entregue quando o JARVIS termina (_entregar_fala_guardada), então
+            # entregue quando o NIA termina (_entregar_fala_guardada), então
             # não corta a fala dele; e o botão de interromper continua sendo
             # local, sem depender do servidor.
             # Com o código guardado, a reconexão RETOMA a sessão anterior: o
@@ -9635,7 +9695,7 @@ class JarvisLive:
             session_resumption=types.SessionResumptionConfig(
                 handle=self._codigo_retomada
             ),
-            # SEM realtime_input_config: o JARVIS original não define nada aqui,
+            # SEM realtime_input_config: o NIA original não define nada aqui,
             # e é ele que responde rápido. Toda tentativa nossa de ajustar a
             # detecção de fim de fala piorou — ora ele ficava mudo por minutos,
             # ora recebia a fala picotada e devolvia <noise> em vez das palavras.
@@ -9685,7 +9745,7 @@ class JarvisLive:
             # microfone mandando a sala inteira sem parar, o modelo passa a
             # classificar a fala do dono como conversa de fundo.
             #
-            # O que ele economizava era cota; o que ele custava era o JARVIS
+            # O que ele economizava era cota; o que ele custava era o NIA
             # mudo. Nao compensa. O `affective_dialog` fica, esse so melhora o tom.
             # cfg["proactivity"] = types.ProactivityConfig(proactive_audio=True)
         return types.LiveConnectConfig(**cfg)
@@ -9734,7 +9794,7 @@ class JarvisLive:
             self.ui.write_log(f"{_nome_falante(self.ui)}: {text}")
             if self._dashboard:
                 asyncio.create_task(self._dashboard.broadcast({
-                    "type": "log", "speaker": "jarvis", "text": text,
+                    "type": "log", "speaker": "nia", "text": text,
                     "ts": datetime.now().isoformat(),
                 }))
 
@@ -9763,9 +9823,9 @@ class JarvisLive:
             if self._literal_voice is None:
                 self._literal_voice = VozCharon()
             await self._literal_voice.warm_persistent_session()
-            print("[JARVIS] 🔊 Sessão de confirmação literal pronta")
+            print("[NIA] 🔊 Sessão de confirmação literal pronta")
         except Exception as exc:
-            print(f"[JARVIS] ⚠️ Falha ao pré-aquecer voz literal: {exc}")
+            print(f"[NIA] ⚠️ Falha ao pré-aquecer voz literal: {exc}")
 
     async def _execute_tool(self, fc) -> "types.FunctionResponse":
         name = fc.name
@@ -9776,7 +9836,7 @@ class JarvisLive:
             _voice_diag("segundo_plano", f"ferramenta barrada: {name}")
             return types.FunctionResponse(
                 id=fc.id, name=fc.name,
-                response={"result": "Nada foi feito: o JARVIS esta em segundo plano."})
+                response={"result": "Nada foi feito: o NIA esta em segundo plano."})
         # Qual ferramenta e quanto ela custou. Sem isto, "ferramenta=True" no
         # diagnostico nao diz NADA sobre onde o tempo foi parar — e em 30/08 o
         # Diego levou 34 s entre a pergunta e a resposta com ferramenta no meio.
@@ -9854,7 +9914,7 @@ class JarvisLive:
         # Hora e data vêm SEMPRE do relógio da máquina, nunca da memória do
         # modelo. Sintoma que isto resolve: a hora era escrita uma única vez
         # nas instruções, quando a sessão conectava. O cliente perguntava a
-        # hora às 14:12 e o JARVIS respondia 14:07 — a hora em que a conversa
+        # hora às 14:12 e o NIA respondia 14:07 — a hora em que a conversa
         # havia começado. Parecia que ele estava atrasado; na verdade ele
         # estava lendo um relógio parado.
         if name == "hora_agora":
@@ -9935,7 +9995,7 @@ class JarvisLive:
                     self._pending_manual_save_destination = ""
                     self._pending_manual_save_extension = ""
 
-        print(f"[JARVIS] 🔧 {name}  {args}")
+        print(f"[NIA] 🔧 {name}  {args}")
         if name == "vision_control":
             self._last_vision_tool_at = time.monotonic()
         if name != "save_memory":
@@ -9943,7 +10003,7 @@ class JarvisLive:
 
         # Trabalhos que rodam no servidor levam DE VERDADE um minuto ou mais
         # (criar imagem, criar site, buscar leads). Durante todo esse tempo o
-        # JARVIS fica em silêncio absoluto, e do lado de cá isso é
+        # NIA fica em silêncio absoluto, e do lado de cá isso é
         # indistinguível de ter travado: em 30/08 o cliente cronometrou "parou
         # e só respondeu depois de 1 minuto" — e era a imagem dele sendo
         # gerada, que ele mesmo elogiou depois. Não era defeito nenhum, mas o
@@ -10201,7 +10261,7 @@ class JarvisLive:
                             lambda: remote_codex_job(
                                 {"kind": "chat",
                                  "description": PEDIDO_AO_CODEX + _tarefa,
-                                 "project_name": "JarvisTarefa"},
+                                 "project_name": "NiaTarefa"},
                                 player=self.ui, prazo=30))
                         _cmd = _limpar_resposta(_bruto)
                         _voice_diag("tarefa_comando_por", "codex")
@@ -10235,7 +10295,7 @@ class JarvisLive:
                 # `_execute_tool` promete devolver um `types.FunctionResponse`,
                 # e o motor de voz manda o que voltar daqui direto para o
                 # Google. Uma string solta ali quebra o envio da resposta da
-                # ferramenta, e o sintoma seria o JARVIS emudecer no meio, nao um
+                # ferramenta, e o sintoma seria o NIA emudecer no meio, nao um
                 # "voce precisa ativar antes". Aqui a recusa vira `result` e
                 # segue pelo mesmo fim de sempre. (Achado na revisao, 04/09.)
                 if time.monotonic() > self._pc_liberado_ate:
@@ -10327,7 +10387,7 @@ class JarvisLive:
                     "kind": "image_edit",
                     "description": args.get("description") or "",
                     "imagem": args.get("imagem") or args.get("image") or "",
-                    "project_name": args.get("project_name") or "JarvisImagem",
+                    "project_name": args.get("project_name") or "NiaImagem",
                 }
                 r = await loop.run_in_executor(
                     None,
@@ -10341,7 +10401,7 @@ class JarvisLive:
                 # o trabalho, e o video nunca sai da maquina. A ferramenta volta
                 # em segundos e o render segue em segundo plano, avisando pela
                 # voz no fim. O import fica AQUI DENTRO de proposito: se a peca
-                # nova falhar, so esta ferramenta falha — o JARVIS segue de pe.
+                # nova falhar, so esta ferramenta falha — o NIA segue de pe.
                 from actions.editar_video import editar_video as _editar_video  # noqa: PLC0415
                 _args_video = dict(args)
                 # A rede do video ja manda a frase certa; so o caminho do
@@ -10372,7 +10432,7 @@ class JarvisLive:
                 leads_args = {
                     "kind": "leads",
                     "description": args.get("description") or "",
-                    "project_name": "JarvisLeads",
+                    "project_name": "NiaLeads",
                     "destinos": args.get("destinos") or "",
                     "abrir": args.get("abrir"),
                 }
@@ -10390,7 +10450,7 @@ class JarvisLive:
                     remote_args = {
                         "kind": "site",
                         "description": args.get("description") or "",
-                        "project_name": args.get("project_name") or "JarvisProjeto",
+                        "project_name": args.get("project_name") or "NiaProjeto",
                     }
                     r = await loop.run_in_executor(
                         None,
@@ -10469,19 +10529,19 @@ class JarvisLive:
                 r = await loop.run_in_executor(None, get_system_status)
                 result = str(r)
 
-            elif name == "shutdown_jarvis":
+            elif name == "shutdown_nia":
                 # SO COM ORDEM CLARA.
                 #
                 # Em 01/09/2026 um ruido virou "E voce pode sair daqui" e o
-                # modelo desligou o JARVIS no meio do trabalho. Fechar e a unica
+                # modelo desligou o NIA no meio do trabalho. Fechar e a unica
                 # coisa que o dono nao consegue desfazer falando — depois disso
                 # o microfone nem existe mais. Entao a ordem tem de estar na
                 # fala dele, escrita, nao na interpretacao do modelo.
                 _ORDENS_DE_DESLIGAR = (
                     "desliga", "desligar", "desligue", "encerra", "encerrar",
                     "encerre", "fecha o programa", "fechar o programa",
-                    "fecha voce", "pode fechar", "sai do ar", "tchau jarvis",
-                    "ate amanha jarvis", "boa noite jarvis, pode desligar",
+                    "fecha voce", "pode fechar", "sai do ar", "tchau nia",
+                    "ate amanha nia", "boa noite nia, pode desligar",
                 )
                 import unicodedata as _u2
                 _fala = _u2.normalize("NFD", str(
@@ -10490,7 +10550,7 @@ class JarvisLive:
                 if not any(o in _fala for o in _ORDENS_DE_DESLIGAR):
                     _voice_diag("desligamento_recusado", f"fala: {_fala[:60]!r}")
                     result = ("Voce quer mesmo que eu desligue? Se quiser, fala "
-                              "'desliga o JARVIS' que eu fecho.")
+                              "'desliga o NIA' que eu fecho.")
                     self.ui.write_log("SIS: pedido de desligar sem ordem clara — perguntei antes.")
                 else:
                     self.ui.write_log("SYS: Shutdown requested.")
@@ -10499,7 +10559,7 @@ class JarvisLive:
                         import time
                         time.sleep(1)
                         # O mesmo fecho da janela: a ponte do WhatsApp e os
-                        # processos do JARVIS vao junto (01/10/2026).
+                        # processos do NIA vao junto (01/10/2026).
                         _encerrar_tudo("pedido por voz")
                     threading.Thread(target=_shutdown, daemon=True).start()
 
@@ -10518,7 +10578,7 @@ class JarvisLive:
         if name == "whatsapp_bridge" and self._prepare_whatsapp_literal_confirmation(args, str(result)):
             response_payload.update({"silent": True, "literal_confirmation": True})
 
-        print(f"[JARVIS] 📤 {name} → {str(result)[:80]}")
+        print(f"[NIA] 📤 {name} → {str(result)[:80]}")
         return types.FunctionResponse(
             id=fc.id, name=name,
             response=response_payload
@@ -10569,7 +10629,7 @@ class JarvisLive:
         self._prepare_whatsapp_literal_confirmation(batch_args, str(result))
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
-        print(f"[JARVIS] 📦 {len(parsed)} chamadas WhatsApp consolidadas em um lote")
+        print(f"[NIA] 📦 {len(parsed)} chamadas WhatsApp consolidadas em um lote")
 
         responses: list[types.FunctionResponse] = []
         for index, (fc, _args, _to, _message) in enumerate(parsed):
@@ -10594,13 +10654,13 @@ class JarvisLive:
     # E nunca dois empurrões seguidos: foi a rajada que travou o servidor.
     _INTERVALO_FECHAMENTO_S = 20.0
 
-    # Teto do que guardamos da fala do cliente enquanto o JARVIS fala:
+    # Teto do que guardamos da fala do cliente enquanto o NIA fala:
     # 10 s a 16 kHz, 16 bits, mono.
     _GUARDAR_FALA_MAX_BYTES = 16000 * 2 * 10
 
     # DESLIGADO em 30/08, no mesmo dia em que foi criado, porque FAZ MAL.
     #
-    # A ideia era boa: o que o cliente fala por cima do JARVIS não deveria ser
+    # A ideia era boa: o que o cliente fala por cima do NIA não deveria ser
     # jogado fora. Mas a entrega chega ao servidor no exato instante em que ele
     # está começando a responder, e ele lê aquilo como "o cliente voltou a
     # falar" — e CANCELA a própria resposta. O registro mostrou a correlação em
@@ -10608,16 +10668,16 @@ class JarvisLive:
     #     01:44:10.101  fala_guardada_entregue 2.0s
     #     01:44:11.690  servidor_interrompeu
     # Ou seja: para não perder a fala do cliente, eu passei a perder a resposta
-    # do JARVIS. Troca ruim.
+    # do NIA. Troca ruim.
     #
-    # O comportamento volta a ser o do JARVIS original: microfone mudo enquanto
+    # O comportamento volta a ser o do NIA original: microfone mudo enquanto
     # ele fala, e pronto. Se um dia for reativado, a entrega precisa esperar o
     # turno inteiro terminar (turn_complete + fila de voz vazia), não só o
     # `_is_speaking` cair.
     _GUARDAR_FALA_POR_CIMA = False
 
     def _entregar_fala_guardada(self) -> None:
-        """Manda ao servidor o que o cliente falou por cima da fala do JARVIS."""
+        """Manda ao servidor o que o cliente falou por cima da fala do NIA."""
         if not self._GUARDAR_FALA_POR_CIMA:
             if self._fala_guardada:
                 self._fala_guardada = []
@@ -10723,7 +10783,7 @@ class JarvisLive:
         #
         # Isto media `_ultimo_envio_de_voz`, que o `_send_realtime` carimba a
         # CADA bloco que sai. Fazia sentido quando o portao so deixava passar
-        # fala. Depois que o microfone passou a mandar TUDO — como o JARVIS
+        # fala. Depois que o microfone passou a mandar TUDO — como o NIA
         # original, para a deteccao do servidor ter silencio que analisar —
         # esse carimbo virou "o ultimo pedaco de silencio da sala", renovado a
         # cada 40 ms. Ou seja: `parado` nunca chegava aos 5 s e este empurrao
@@ -10733,7 +10793,7 @@ class JarvisLive:
         # `_envio_cobravel` ("bytes enviados virou o silencio da sala") — este
         # ponto ficou para tras.
         #
-        # Sintoma no cliente (Diego, 30/08 12:57): falava e o JARVIS respondia
+        # Sintoma no cliente (Diego, 30/08 12:57): falava e o NIA respondia
         # **5 minutos depois**, enquanto digitar no chat respondia na hora.
         # Registro: `turno=ABERTO fechados=0` a rodada inteira, com
         # `enviado=2552` e `pico=5740` — audio saindo, turno nunca fechado.
@@ -10813,7 +10873,7 @@ class JarvisLive:
             raise
 
     async def _listen_audio(self):
-        print("[JARVIS] 🎤 Mic started")
+        print("[NIA] 🎤 Mic started")
         loop = asyncio.get_event_loop()
 
         def callback(indata, frames, time_info, status):
@@ -10826,9 +10886,9 @@ class JarvisLive:
             # saber que o microfone morreu: ver o vigia logo abaixo.
             self._mic_ultimo_bloco = time.monotonic()
             with self._speaking_lock:
-                jarvis_speaking = self._is_speaking
+                nia_speaking = self._is_speaking
             # AS TRES CONDICOES DO ORIGINAL, e so elas (30/08/2026):
-            #   not jarvis_speaking and not muted and not phone_active
+            #   not nia_speaking and not muted and not phone_active
             # Sairam daqui:
             #  - `_tool_busy`: o original NAO trava o microfone durante ferramenta.
             #    Era a trava que, presa, dava "voz morta, teclado vivo".
@@ -10846,15 +10906,15 @@ class JarvisLive:
             # A trava presa era o defeito antigo ("voz morta, teclado vivo"),
             # mas hoje ela tem rede: o `_vigia_sessao` solta sozinho depois de
             # 90 s e registra `mic_destravado`.
-            if (jarvis_speaking or self._tool_busy or self.ui.muted
+            if (nia_speaking or self._tool_busy or self.ui.muted
                     or self._phone_active):
                 self._mic_bloqueado += 1
-                # O que o cliente fala enquanto o JARVIS fala é descartado —
-                # é o comportamento do JARVIS original, e voltou a ser o nosso.
+                # O que o cliente fala enquanto o NIA fala é descartado —
+                # é o comportamento do NIA original, e voltou a ser o nosso.
                 # Guardar para entregar depois foi tentado em 30/08 e o
                 # registro provou que fazia mal: ver _GUARDAR_FALA_POR_CIMA.
                 # O bloco abaixo só roda se aquela chave for religada.
-                if (self._GUARDAR_FALA_POR_CIMA and jarvis_speaking
+                if (self._GUARDAR_FALA_POR_CIMA and nia_speaking
                         and not self.ui.muted
                         and not self._tool_busy and not self._phone_active):
                     if self._PORTAO_LIGADO:
@@ -10880,7 +10940,7 @@ class JarvisLive:
                 agora_l = time.monotonic()
                 # RABICHO ANTI-ECO (30/08, 17h): eu tinha tirado isto ao igualar
                 # ao Mark-LI, e no modo local ele faz falta — o Kokoro toca pela
-                # caixa e o microfone pega o fim da propria fala do JARVIS, que
+                # caixa e o microfone pega o fim da propria fala do NIA, que
                 # entra no whisper como palavra solta. Meio segundo depois de ele
                 # calar resolve, sem comer o comeco da fala do dono.
                 if agora_l < self._mic_fechado_ate:
@@ -10905,8 +10965,8 @@ class JarvisLive:
                     # cruzar. Tudo o que veio antes disso vive AQUI, e e este
                     # trecho que e colado na frente da fala.
                     #
-                    # Meio segundo era curto e comia o comeco ("Ó Jarvis" virava
-                    # "Jarvis"). Um segundo cobre com folga e custa 32 KB de RAM.
+                    # Meio segundo era curto e comia o comeco ("Ó Nia" virava
+                    # "Nia"). Um segundo cobre com folga e custa 32 KB de RAM.
                     self._pre_local.append(bruto_bloco)
                     if len(self._pre_local) > 25:
                         self._pre_local.pop(0)
@@ -10963,7 +11023,7 @@ class JarvisLive:
                     # ADIVINHAR PELO NOME NAO SERVE — provado em 30/08. Meu
                     # `_melhor_entrada_de_audio` escolhia o "Microfone (Realtek
                     # USB MIC)" pela WASAPI, e ele recusava com "Invalid number
-                    # of channels": o aparelho tem 2 canais na WASAPI e o JARVIS
+                    # of channels": o aparelho tem 2 canais na WASAPI e o NIA
                     # pede 1. Enquanto isso o PADRAO do sistema funcionava.
                     #
                     # Agora quem escolhe e o `escolher_automatico`, que ABRE e
@@ -11022,7 +11082,7 @@ class JarvisLive:
                     _voice_diag("perfil_audio_falhou", str(_exc_perf)[:90])
 
                 with _fluxo:
-                    print("[JARVIS] 🎤 Mic stream open")
+                    print("[NIA] 🎤 Mic stream open")
                     if last_error:
                         self.ui.write_log("SIS: Microfone de volta.")
                     last_error = ""
@@ -11043,7 +11103,7 @@ class JarvisLive:
                         # picote da voz é chute.
                         _antes = time.monotonic()
                         await asyncio.sleep(0.1)
-                        # O JARVIS terminou de falar: entrega agora o que o
+                        # O NIA terminou de falar: entrega agora o que o
                         # cliente disse enquanto ele falava. Ver o callback.
                         self._entregar_fala_guardada()
                         _atraso = time.monotonic() - _antes - 0.1
@@ -11136,17 +11196,17 @@ class JarvisLive:
                 raise
             except Exception as e:
                 error = f"{type(e).__name__}: {e}"
-                print(f"[JARVIS] ❌ Mic: {error}")
+                print(f"[NIA] ❌ Mic: {error}")
                 _voice_diag_exception("microphone_error", e)
                 if error != last_error:
                     self.ui.write_log(
-                        "AVISO: microfone indisponível; tentando novamente sem interromper o JARVIS."
+                        "AVISO: microfone indisponível; tentando novamente sem interromper o NIA."
                     )
                     last_error = error
                 await asyncio.sleep(5)
 
     # ── Vigia da conexão ──────────────────────────────────────────────────────
-    # Sintoma que isto resolve: o JARVIS continuava aberto mas parava de
+    # Sintoma que isto resolve: o NIA continuava aberto mas parava de
     # responder, e só voltava quando o cliente fechava e abria o programa.
     #
     # Causa: quando a conexão com o servidor de voz cai de um jeito silencioso
@@ -11162,7 +11222,7 @@ class JarvisLive:
     # Folgado de proposito. Com a cota da chave no limite, o servico chega a
     # demorar VARIOS MINUTOS para responder — visto ao vivo: 4 minutos. Um
     # limite curto aqui cortaria a resposta que ainda estava a caminho e
-    # prenderia o JARVIS num ciclo de reconexao, pior que o defeito original.
+    # prenderia o NIA num ciclo de reconexao, pior que o defeito original.
     # Sem NADA vindo do servidor DEPOIS de o cliente falar. Eram 360 s, folga
     # posta na epoca em que o microfone mandava audio o tempo todo e o silencio
     # do servidor era normal. Agora so contamos a espera quando realmente
@@ -11268,11 +11328,11 @@ class JarvisLive:
                     self._tool_busy = False
                     self._tool_busy_desde = 0.0
                     _voice_diag("mic_destravado", f"{mudo_ha:.0f}s")
-                    print(f"[JARVIS] Microfone estava mudo ha {mudo_ha:.0f}s — religado.")
+                    print(f"[NIA] Microfone estava mudo ha {mudo_ha:.0f}s — religado.")
 
             # 0b) Marcado como "falando" ha tempo demais sem tocar nada.
             # Enquanto isso durar, o microfone fica mudo — e o cliente acha que
-            # o JARVIS o esta ignorando.
+            # o NIA o esta ignorando.
             try:
                 with self._speaking_lock:
                     falando = self._is_speaking
@@ -11293,7 +11353,7 @@ class JarvisLive:
                 continue   # vigia desarmado: segue vigiando em vez de encerrar
 
             # 2) Conversando por VOZ não existe "pedido" para marcar, e era
-            # justamente aí que o JARVIS ficava mudo sem ninguém perceber: a
+            # justamente aí que o NIA ficava mudo sem ninguém perceber: a
             # conexão morria em silêncio e a regra acima nunca disparava.
             # Com o microfone ligado, o servidor devolve algo com frequência —
             # nem que seja a transcrição do que foi falado. Silêncio total por
@@ -11390,7 +11450,7 @@ class JarvisLive:
         _voice_diag("vigia_teria_reconectado", f"{motivo} {parado:.0f}s (desarmado)")
         return
 
-        print(f"[JARVIS] {motivo}: {parado:.0f}s — reconectando.")
+        print(f"[NIA] {motivo}: {parado:.0f}s — reconectando.")
         _voice_diag("session_watchdog_restart", f"{motivo} {parado:.0f}s")
         try:
             # "Conexão perdida" assustava o cliente e quase sempre era mentira:
@@ -11404,7 +11464,7 @@ class JarvisLive:
         raise ConnectionError("Sem resposta do servidor de voz; reconectando.")
 
     async def _receive_audio(self):
-        print("[JARVIS] 👂 Recv started")
+        print("[NIA] 👂 Recv started")
         out_buf, in_buf = [], []
         turn_had_model_audio = False
         turn_had_tool_call = False
@@ -11416,7 +11476,7 @@ class JarvisLive:
                 # NÃO quando a sessão morre. É por isso que existe o `while
                 # True` em volta: ele reabre o iterador para o turno seguinte.
                 # Em 30/08 eu li errado, tratei o fim do `receive()` como
-                # sessão encerrada, e o JARVIS passou a RECONECTAR A CADA
+                # sessão encerrada, e o NIA passou a RECONECTAR A CADA
                 # RESPOSTA — o que estourou a cota da chave em minutos.
                 recebeu_neste_turno = False
                 async for response in self.session.receive():
@@ -11505,7 +11565,7 @@ class JarvisLive:
                             # A resposta do modelo começou: a fase de ferramenta terminou.
                             # Marcar speaking aqui fecha a pequena janela antes do player
                             # consumir o primeiro bloco e impede eco/novo áudio nesse intervalo.
-                            # O JARVIS vai começar a falar. O microfone para de
+                            # O NIA vai começar a falar. O microfone para de
                             # captar agora, MAS o que já estava na fila de saída
                             # continuaria sendo enviado — inclusive o rabicho de
                             # 2 s de som da sala (ventilador, ar-condicionado,
@@ -11556,7 +11616,7 @@ class JarvisLive:
                             # Registra O QUE o servidor entendeu que ouviu. É a
                             # única forma de saber se ele foi interrompido pela
                             # voz do cliente, pelo ventilador, ou pela PRÓPRIA
-                            # voz do JARVIS voltando pela caixa de som.
+                            # voz do NIA voltando pela caixa de som.
                             _voice_diag(
                                 "servidor_interrompeu",
                                 f"ouviu={(self._current_input_transcript or '(nada transcrito)')[:90]!r}",
@@ -11669,7 +11729,7 @@ class JarvisLive:
                                                      args=(full_out,), daemon=True).start()
                                 if self._dashboard:
                                     asyncio.create_task(self._dashboard.broadcast({
-                                        "type": "log", "speaker": "jarvis",
+                                        "type": "log", "speaker": "nia",
                                         "text": full_out,
                                         "ts": datetime.now().isoformat(),
                                     }))
@@ -11680,7 +11740,7 @@ class JarvisLive:
                             # Pedido de edição de imagem FALADO. Esta rede já
                             # existia para o texto digitado, mas não para a voz
                             # — e o cliente via exatamente isto: pedia para
-                            # editar a foto, o JARVIS respondia "bora, vou
+                            # editar a foto, o NIA respondia "bora, vou
                             # editar, leva um minutinho" e não começava nada,
                             # porque ele só conversou e nunca chamou a
                             # ferramenta. Agora a voz tem a mesma garantia.
@@ -11730,7 +11790,7 @@ class JarvisLive:
                             # fim de mensagens ao servidor.
                             if retry_silent_turn and full_in == self._ultimo_reenvio:
                                 retry_silent_turn = False
-                                print("[JARVIS] Reenvio repetido ignorado.")
+                                print("[NIA] Reenvio repetido ignorado.")
 
                             if retry_silent_turn:
                                 self._ultimo_reenvio = full_in
@@ -11758,7 +11818,7 @@ class JarvisLive:
                                 fn_responses.extend(coalesced)
                             else:
                                 for fc in response.tool_call.function_calls:
-                                    print(f"[JARVIS] 📞 {fc.name}")
+                                    print(f"[NIA] 📞 {fc.name}")
                                     fr = await self._execute_tool(fc)
                                     fn_responses.append(fr)
                             await self.session.send_tool_response(
@@ -11778,7 +11838,7 @@ class JarvisLive:
                             # Antes, ele só voltava a ouvir quando o modelo
                             # respondia com ÁUDIO. Se a resposta viesse só como
                             # texto, ou não viesse, o microfone ficava desligado
-                            # para sempre: o cliente falava e o JARVIS não
+                            # para sempre: o cliente falava e o NIA não
                             # reagia, mas respondia normalmente pelo teclado.
                             # Agora o microfone volta assim que a ferramenta
                             # termina, dê no que der.
@@ -11800,7 +11860,7 @@ class JarvisLive:
                     _voice_diag("receive_vazio", "sessao nao entrega mais nada")
                     raise ConnectionError("Sem resposta do servidor de voz; reconectando.")
         except Exception as e:
-            print(f"[JARVIS] ❌ Recv: {e}")
+            print(f"[NIA] ❌ Recv: {e}")
             _voice_diag_exception("receive_error", e)
             traceback.print_exc()
             raise
@@ -11816,7 +11876,7 @@ class JarvisLive:
     # mesma frase, então não corta a fala no meio.
     # Rede de segurança para quando o servidor não avisa que terminou de falar.
     # NÃO encurtar: com 1,2 s, uma pausa normal no meio da frase era confundida
-    # com o fim da fala. O microfone reabria no meio da resposta, o JARVIS ouvia
+    # com o fim da fala. O microfone reabria no meio da resposta, o NIA ouvia
     # a própria voz pela caixa de som e se interrompia sozinho — o cliente ouvia
     # a voz "travando toda hora". No caminho normal o servidor avisa e a trava
     # sai na hora; este tempo só existe para o caso em que ele não avisa.
@@ -11824,7 +11884,7 @@ class JarvisLive:
 
     # No MODO LOCAL nada avisa que a fala acabou: nao existe o `turn_complete`
     # do servidor da Gemini. Entao a unica saida e este tempo de silencio — e
-    # com 3 s o JARVIS ficava SURDO por tres segundos depois de cada resposta.
+    # com 3 s o NIA ficava SURDO por tres segundos depois de cada resposta.
     #
     # Sintoma exato do Diego (30/08): "falo 'quero sim, pode fazer' e ele nao
     # inicia; falo de novo e ai vai". A primeira frase caia inteira no buraco.
@@ -11888,7 +11948,7 @@ class JarvisLive:
                 else self._FIM_DE_FALA_LOCAL_S)
     # Fôlego antes da primeira palavra. Era 5 pedaços / 0,35 s, feito para
     # tapar os solavancos do áudio que vem pela internet. Quem realmente
-    # resolve isso é a escrita em lote (ver _play_audio), copiada do JARVIS
+    # resolve isso é a escrita em lote (ver _play_audio), copiada do NIA
     # original — que não espera nada e mesmo assim não pica. Manter a espera
     # alta em cima do lote só atrasava o começo de TODA resposta. Sobra um
     # fôlego mínimo, que custa 0,08 s e não se percebe.
@@ -11974,12 +12034,12 @@ class JarvisLive:
         """Escolhe por onde falar, preferindo a via moderna do Windows.
 
         O Python escolhe sozinho a interface MME, que e a mais antiga do
-        Windows e exige pelo menos 90 ms de folga. O JARVIS entrega o som em
+        Windows e exige pelo menos 90 ms de folga. O NIA entrega o som em
         pedacos de 43 ms — mais rapido do que o MME consegue tocar — e o
         resultado e a voz picotando o tempo todo, principalmente em caixas USB.
 
         A WASAPI, que todo Windows moderno tem, trabalha com 3 ms. Ela costuma
-        recusar a taxa de 24 kHz que o JARVIS usa, mas aceita quando pedimos a
+        recusar a taxa de 24 kHz que o NIA usa, mas aceita quando pedimos a
         conversao automatica.
 
         Devolve (dispositivo, ajustes) ou (None, None) para deixar como estava.
@@ -12003,12 +12063,12 @@ class JarvisLive:
         return None, None   # sem WASAPI utilizavel: segue com o padrao do sistema
 
     async def _play_audio(self):
-        print("[JARVIS] 🔊 Play started")
+        print("[NIA] 🔊 Play started")
         stream = None
         last_error = ""
         self._aquecer_audio = True
         # A ESCOLHA DO CLIENTE VENCE. Ele sabe onde esta ouvindo; o programa nao.
-        # No caso do Diego, o JARVIS escolhia os alto-falantes USB enquanto ele
+        # No caso do Diego, o NIA escolhia os alto-falantes USB enquanto ele
         # ouvia pelo notebook via AudioRelay — falava certo, no lugar errado.
         _esc = getattr(self, "_saida_escolhida", "nao-definido")
         if _esc != "nao-definido":
@@ -12025,7 +12085,7 @@ class JarvisLive:
         else:
             saida_pref, ajustes_pref = self._melhor_saida_de_audio()
         if saida_pref is not None:
-            print(f"[JARVIS] 🔊 Saída de áudio: WASAPI (dispositivo {saida_pref})")
+            print(f"[NIA] 🔊 Saída de áudio: WASAPI (dispositivo {saida_pref})")
             _voice_diag("speaker_backend", f"wasapi:{saida_pref}")
         else:
             _voice_diag("speaker_backend", "padrao")
@@ -12106,11 +12166,11 @@ class JarvisLive:
                         raise
                     except Exception as e:
                         error = f"{type(e).__name__}: {e}"
-                        print(f"[JARVIS] ❌ Play: {error}")
+                        print(f"[NIA] ❌ Play: {error}")
                         _voice_diag_exception("speaker_error", e)
                         if error != last_error:
                             self.ui.write_log(
-                                "AVISO: saída de áudio indisponível; tentando novamente sem interromper o JARVIS."
+                                "AVISO: saída de áudio indisponível; tentando novamente sem interromper o NIA."
                             )
                             last_error = error
                         self._drain_audio_queue()
@@ -12129,11 +12189,11 @@ class JarvisLive:
                     )
                     # Rede de segurança: o "aviso de fim de turno" vem do
                     # servidor e nem sempre chega — basta a conexão oscilar ou
-                    # a sessão reconectar no meio da fala. Sem ele, o JARVIS
+                    # a sessão reconectar no meio da fala. Sem ele, o NIA
                     # continuava marcado como FALANDO para sempre e o microfone,
                     # que fica mudo enquanto ele fala, nunca mais era ouvido.
                     # O cliente falava e nada acontecia, mas pelo teclado o
-                    # JARVIS respondia normalmente. Se não chega áudio nenhum há
+                    # NIA respondia normalmente. Se não chega áudio nenhum há
                     # um tempo, damos a fala por encerrada.
                     silencio = (
                         not fim_do_turno
@@ -12204,7 +12264,7 @@ class JarvisLive:
                     except asyncio.QueueEmpty:
                         break
                 # FECHANDO (05/10/2026): a janela ja fechou, nao fala mais nada.
-                # Antes o JARVIS seguia falando sem janela ate o fim da limpeza.
+                # Antes o NIA seguia falando sem janela ate o fim da limpeza.
                 if _ENCERRANDO.is_set():
                     continue
                 # O NUCLEO PULSA COM A VOZ DE VERDADE (05/10/2026). O volume de
@@ -12212,7 +12272,7 @@ class JarvisLive:
                 # ela vai tocar (o que ja esta na caixa toca antes). So faz a
                 # conta e poe numa fila — nao mexe na janela daqui.
                 try:
-                    _avisar_voz = getattr(self.ui, "voz_do_jarvis", None)
+                    _avisar_voz = getattr(self.ui, "voz_do_nia", None)
                     if _avisar_voz is not None:
                         import numpy as _np_voz  # noqa: PLC0415
                         _fatia = RECEIVE_SAMPLE_RATE // 50
@@ -12245,7 +12305,7 @@ class JarvisLive:
                     # padrão trocado, driver reiniciado — o erro é um
                     # PortAudioError, que NÃO é RuntimeError. Ele escapava, o
                     # grupo de tarefas caía e a sessão inteira era derrubada:
-                    # o cliente via "SLEEP" e depois "JARVIS ativo", e o
+                    # o cliente via "SLEEP" e depois "NIA ativo", e o
                     # assistente ficava mudo. Agora só o alto-falante é
                     # reaberto; a conversa continua.
                     _voice_diag_exception("speaker_write_error", e)
@@ -12254,14 +12314,14 @@ class JarvisLive:
                     # que o Windows tirou o aparelho de som debaixo de nos —
                     # normalmente porque outro programa (AudioRelay, OBS,
                     # Discord) o tomou. Sem esta mensagem o cliente so ve o
-                    # JARVIS emudecer.
+                    # NIA emudecer.
                     #
                     # ATENCAO A INDENTACAO: este bloco tem de ficar DENTRO do
                     # `except`. Em 30/08 eu o colei um nivel acima, ele passou a
                     # rodar a cada volta do laco, leu a variavel `e` que nao
                     # existe fora do erro, deu NameError, e o fechamento do fluxo
                     # logo abaixo passou a FECHAR A CAIXA A CADA ITERACAO — a voz
-                    # do JARVIS cortava no primeiro instante de cada frase.
+                    # do NIA cortava no primeiro instante de cada frase.
                     try:
                         if "DEVICE_INVALIDATED" in str(e):
                             _agora_av = time.monotonic()
@@ -12283,7 +12343,7 @@ class JarvisLive:
                     self._drain_audio_queue()
                     self.set_speaking(False)
         except Exception as e:
-            print(f"[JARVIS] ❌ Play: {e}")
+            print(f"[NIA] ❌ Play: {e}")
             raise
         finally:
             self.set_speaking(False)
@@ -12338,7 +12398,7 @@ class JarvisLive:
         self.ui.write_log("SYS: Startup greeting sent. News briefing disabled.")
 
         # Notícias desativadas na inicialização.
-        # O JARVIS só chama web_search/news quando o usuário pedir.
+        # O NIA só chama web_search/news quando o usuário pedir.
 
     async def _briefing_news_phase(self, lang: str) -> None:
         """
@@ -12422,12 +12482,12 @@ class JarvisLive:
         self._avisar_whatsapp(frase)
 
     async def _watch_whatsapp_schedules(self) -> None:
-        """Envia mensagens WhatsApp agendadas enquanto o JARVIS estiver aberto."""
+        """Envia mensagens WhatsApp agendadas enquanto o NIA estiver aberto."""
         await asyncio.sleep(6.0)
         loop = asyncio.get_event_loop()
         while True:
             # SEGUNDO PLANO: nada sai. A agendada continua "pendente" e, na
-            # volta, segue a regra de sempre do JARVIS que ficou fechado depois
+            # volta, segue a regra de sempre do NIA que ficou fechado depois
             # do horario (envia se ainda da tempo, senao avisa que venceu).
             if _SEGUNDO_PLANO.is_set():
                 await asyncio.sleep(2.0)
@@ -12448,7 +12508,7 @@ class JarvisLive:
                         err = str(ev.get("error") or "").strip()
                         err, _ = _limpar_resultado_whatsapp(err)
                         if any(x in err.lower() for x in ("not connected", "offline", "connect whatsapp", "scan the qr")):
-                            err = "o WhatsApp está desconectado do JARVIS"
+                            err = "o WhatsApp está desconectado do NIA"
                         err = err[:1].lower() + err[1:]
                         expirou = (str(ev.get("status") or "").lower() == "expired"
                                    or bool(ev.get("expired")))
@@ -12689,7 +12749,7 @@ class JarvisLive:
 
         A causa esta nas linhas de baixo, como estavam antes: o texto SO era
         entregue quando existia `self.session` — que e a sessao ao vivo da
-        GEMINI. E o JARVIS nasce em MODO LOCAL (`self._modo_local = True`, o
+        GEMINI. E o NIA nasce em MODO LOCAL (`self._modo_local = True`, o
         padrao desde 30/08), e nesse modo `self.session` e None DE PROPOSITO.
         Entao ele esperava 8 s a toa e imprimia "Dropped command (no session)"
         num terminal que o dono nem ve. A webcam funcionava porque ela nao passa
@@ -12715,7 +12775,7 @@ class JarvisLive:
                     try:
                         from core.segundo_plano import aviso_remoto  # noqa: PLC0415
                         await self._dashboard.broadcast(
-                            {"type": "log", "speaker": "jarvis", "text": aviso_remoto(),
+                            {"type": "log", "speaker": "nia", "text": aviso_remoto(),
                              "ts": datetime.now().isoformat()})
                     except Exception:
                         pass
@@ -12755,7 +12815,7 @@ class JarvisLive:
     # Recados de tecnico. Ficam na janela do PC e NAO vao para o celular: quem
     # esta no celular quer a conversa, nao o diagnostico.
     _SO_DA_JANELA = ("SIS:", "SYS:", "LOCAL:", "VOZES:", "VOZ:", "CEREBRO:",
-                     "[VisionControl]", "[Dashboard]", "[JARVIS]", "[Web]")
+                     "[VisionControl]", "[Dashboard]", "[NIA]", "[Web]")
 
     def _espelhar_chat_no_celular(self) -> None:
         """Faz toda linha do chat da janela aparecer tambem no celular.
@@ -12821,7 +12881,7 @@ class JarvisLive:
         if len(ultimas) > 60:
             for velha in [k for k, v in ultimas.items() if agora - v > 30]:
                 ultimas.pop(velha, None)
-        quem = "jarvis"
+        quem = "nia"
         if texto.startswith(("Você:", "Voce:", "You:", "[Celular]:")):
             quem = "user"
         # Tira o "Nome: " da frente — o celular ja mostra de quem e a fala.
@@ -12884,7 +12944,7 @@ class JarvisLive:
             #
             # Ela ficava aberta sem receber um byte e caia sozinha a cada ~9 min
             # (limite de vida de uma sessao ao vivo). Cada queda reimprimia
-            # "JARVIS ativo" e refazia a saudacao — atropelando a fala do Diego
+            # "NIA ativo" e refazia a saudacao — atropelando a fala do Diego
             # no meio. Registro de 30/08: 9 reconexoes numa hora, todas inuteis.
             #
             # So volta a conectar se ele escolher `/cerebro gemini`, que e o
@@ -12901,7 +12961,7 @@ class JarvisLive:
                     self.out_queue = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()
                     self.ui.set_state("LISTENING")
-                    # (o recado "JARVIS pronto — modo local, sem Gemini" saiu do chat em
+                    # (o recado "NIA pronto — modo local, sem Gemini" saiu do chat em
                     #  05/09/2026: e informacao de tecnico, nao de dono. Quem abre a
                     #  conversa agora e a SAUDACAO, no fim do `_aquecer_local`; quem
                     #  quiser conferir tem o `logs/voice_session.log`.)
@@ -12917,7 +12977,7 @@ class JarvisLive:
                     # da ponte morta no fechamento anterior ainda parecia "viva"
                     # nos primeiros segundos e nada subia (achado server 0).
                     # Tenta na hora, aos 15 s e aos 40 s. Aos ~10 s, se o celular
-                    # desconectou o JARVIS, avisa UMA vez — antes ninguem dizia.
+                    # desconectou o NIA, avisa UMA vez — antes ninguem dizia.
                     def _ponte_whatsapp_na_abertura():
                         if getattr(self, "_ponte_abertura_rodando", False):
                             return
@@ -12975,7 +13035,7 @@ class JarvisLive:
                 continue
 
             try:
-                print("[JARVIS] Connecting...")
+                print("[NIA] Connecting...")
                 _voice_diag("session_connecting", LIVE_MODEL)
                 self.ui.set_state("THINKING")
                 self._sessao_vingou = False
@@ -13015,9 +13075,9 @@ class JarvisLive:
                     # Se a queda acontecia no meio de uma fala — que é
                     # justamente o que o vigia provocava — a sessão nova nascia
                     # com _is_speaking=True, e o microfone só manda áudio
-                    # quando o JARVIS NÃO está falando: microfone morto para
+                    # quando o NIA NÃO está falando: microfone morto para
                     # sempre. O cliente falava e nada acontecia, mas pelo
-                    # teclado o JARVIS respondia. Era a queixa "depois que
+                    # teclado o NIA respondia. Era a queixa "depois que
                     # reconecta ele não responde mais".
                     self.set_speaking(False)
                     self._tool_busy_desde      = 0.0
@@ -13026,7 +13086,7 @@ class JarvisLive:
                     self._recebeu_algo         = False
                     self._ultimo_trafego       = time.monotonic()
                     # Conexão nova: começa mandando tudo, como o original.
-                    # Sem isto o JARVIS nasceria em modo de economia e o
+                    # Sem isto o NIA nasceria em modo de economia e o
                     # primeiro "oi" do cliente chegaria cortado.
                     self._ultima_voz_detectada = time.monotonic()
                     self._servidor_ouviu_em    = 0.0
@@ -13049,19 +13109,19 @@ class JarvisLive:
                     self._pending_manual_save_destination = ""
                     self._pending_manual_save_extension = ""
 
-                    print("[JARVIS] Connected.")
+                    print("[NIA] Connected.")
                     _voice_diag("session_connected", LIVE_MODEL)
                     # A espera entre tentativas cresce a cada erro (até 5 min,
                     # para não martelar o servidor quando a cota acaba). Ela
                     # PRECISA voltar ao normal aqui: sem isto, depois de uma
-                    # sequência de erros o JARVIS continuava esperando minutos
+                    # sequência de erros o NIA continuava esperando minutos
                     # entre reconexões mesmo já funcionando — e o cliente via o
                     # assistente demorar 1 a 2 minutos para responder.
                     self._conn_backoff = 3
                     # A cota voltou: rearma o aviso falado para o proximo estouro.
                     self._avisou_cota = False
                     self.ui.set_state("LISTENING")
-                    self.ui.write_log("SYS: JARVIS online.")
+                    self.ui.write_log("SYS: NIA online.")
 
                     if self._dashboard:
                         await self._dashboard.broadcast({"type": "status", "state": "active"})
@@ -13131,18 +13191,18 @@ class JarvisLive:
                 # frase generica "unhandled errors in a TaskGroup" e NENHUM dos
                 # testes abaixo casava. Ver _texto_do_erro.
                 err_str = _texto_do_erro(e)
-                print(f"[JARVIS] Error ({type(e).__name__}): {e}")
+                print(f"[NIA] Error ({type(e).__name__}): {e}")
                 _voice_diag_exception("session_error", e)
                 traceback.print_exc()
 
                 # Se estávamos tentando RETOMAR uma sessão, o código pode ter
                 # vencido — o servidor guarda a sessão por tempo limitado. Nesse
                 # caso a próxima tentativa vai do zero. Sem isto, um código
-                # vencido prenderia o JARVIS num erro que se repete para sempre.
+                # vencido prenderia o NIA num erro que se repete para sempre.
                 # ...MAS só quando a conexão nem chegou a vingar. Se a sessão
                 # estava DE PÉ e caiu depois (ou fomos nós que a derrubamos, no
                 # vigia), o código continua válido e é ele que preserva o fio da
-                # conversa. Jogá-lo fora em toda queda era o motivo de o JARVIS
+                # conversa. Jogá-lo fora em toda queda era o motivo de o NIA
                 # voltar sem lembrar de nada — e de cada reconexão reenviar as
                 # instruções e as 28 ferramentas, ~10.600 tokens, o que ainda
                 # atrasava a primeira resposta depois de voltar.
@@ -13153,7 +13213,7 @@ class JarvisLive:
                 # Estado sem volta: o motor por baixo já foi desligado e nada
                 # mais consegue rodar. Insistir aqui não adianta — o registro do
                 # cliente mostrou 50 tentativas seguidas dando este mesmo erro,
-                # com o painel dizendo "JARVIS ativo" e o assistente mudo.
+                # com o painel dizendo "NIA ativo" e o assistente mudo.
                 # Saímos do laço para que o programa reconstrua o motor inteiro.
                 # Recursos avancados recusados pelo servidor (a preview muda de
                 # tempos em tempos): desliga e reconecta sem eles, como o original.
@@ -13177,7 +13237,7 @@ class JarvisLive:
                 # Invalid API key — stop hammering the API, prompt re-configuration
                 # Cota da chave de IA esgotada. Sem isto, o cliente via apenas
                 # "PENSANDO" e "SLEEPING" se repetindo para sempre, sem nenhuma
-                # explicacao, e achava que o JARVIS tinha quebrado. Nao adianta
+                # explicacao, e achava que o NIA tinha quebrado. Nao adianta
                 # insistir de 3 em 3 segundos: a cota so volta com o tempo ou
                 # com a troca do plano.
                 if ("exceeded your current quota" in err_str
@@ -13186,10 +13246,10 @@ class JarvisLive:
                     self.ui.set_state("SLEEPING")
                     self.ui.write_log(
                         "ATENÇÃO: o limite de uso da sua chave de IA acabou. "
-                        "O JARVIS volta a falar assim que o limite for renovado "
+                        "O NIA volta a falar assim que o limite for renovado "
                         "ou o plano da chave for ajustado."
                     )
-                    # Antes daqui o JARVIS emudecia: o cliente falava e nao voltava
+                    # Antes daqui o NIA emudecia: o cliente falava e nao voltava
                     # nada, nem um aviso, e ele achava que o programa tinha quebrado.
                     # O gemini-2.5-flash-preview-tts e OUTRO balde de cota (10 pedidos
                     # por dia na faixa gratis), entao a voz Charon ainda sai para dar a
@@ -13222,9 +13282,9 @@ class JarvisLive:
                             for pos in range(0, len(bruto), 2400):
                                 self.audio_in_queue.put_nowait(bruto[pos: pos + 2400])
                         except Exception as exc_aviso:
-                            print(f"[JARVIS] aviso de cota mudo: {str(exc_aviso)[:100]}")
+                            print(f"[NIA] aviso de cota mudo: {str(exc_aviso)[:100]}")
                     self._conn_backoff = min(getattr(self, "_conn_backoff", 30) * 2, 300)
-                    print("[JARVIS] Cota da API esgotada — nova tentativa em "
+                    print("[NIA] Cota da API esgotada — nova tentativa em "
                           f"{self._conn_backoff}s.")
                     self.set_speaking(False)
                     if self._dashboard:
@@ -13241,7 +13301,7 @@ class JarvisLive:
                     self.ui.prompt_reconfig()
                     while not self.ui._win._ready:
                         await asyncio.sleep(1)
-                    print("[JARVIS] New API key saved — reconnecting...")
+                    print("[NIA] New API key saved — reconnecting...")
                     _conn_backoff = 3
                     continue
 
@@ -13249,7 +13309,7 @@ class JarvisLive:
                 # "Sem resposta do servidor de voz" saiu desta lista de
                 # propósito: é a reconexão que NÓS pedimos, tratada logo acima
                 # com espera de 1 s. Deixá-la aqui dobrava a espera a cada
-                # reconexão até 60 s — um minuto de JARVIS mudo, sem defeito
+                # reconexão até 60 s — um minuto de NIA mudo, sem defeito
                 # nenhum de rede. Antes isso passava despercebido porque o texto
                 # do ExceptionGroup nunca casava com nada.
                 is_net_err = (
@@ -13281,11 +13341,11 @@ class JarvisLive:
                 await self._dashboard.broadcast({"type": "status", "state": "sleeping"})
 
             delay = getattr(self, "_conn_backoff", 3)
-            print(f"[JARVIS] Reconnecting in {delay}s...")
+            print(f"[NIA] Reconnecting in {delay}s...")
             await asyncio.sleep(delay)
 
-def _ja_existe_um_jarvis() -> bool:
-    """Ja ha um JARVIS deste usuario aberto?
+def _ja_existe_um_nia() -> bool:
+    """Ja ha um NIA deste usuario aberto?
 
     Cadeado nomeado do Windows: o primeiro a criar vence, e o segundo descobre
     pelo `ERROR_ALREADY_EXISTS`. Nao depende de arquivo (que fica para tras se o
@@ -13297,36 +13357,56 @@ def _ja_existe_um_jarvis() -> bool:
     if sys.platform.startswith("linux"):
         # LINUX (26/09/2026): o mutex abaixo e so do Windows. Cadeado de
         # arquivo, solto sozinho quando o processo morre (ate por kill -9).
-        # Arquivo proprio: o `.jarvis.lock` do jarvis.sh ja esta preso por ele.
+        # Arquivo proprio: o `.nia.lock` do nia.sh ja esta preso por ele.
         try:
             import fcntl  # noqa: PLC0415
-            caminho = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
-                                    ".jarvis-unico.lock")
+            pasta = _os.path.dirname(_os.path.abspath(__file__))
+            # Nao deixar dois processos (o antigo com nome velho e o novo) brigarem
+            # pela porta 8000 durante a troca de nome.
+            antigo = _os.path.join(pasta, ".jarvis-unico.lock")
+            if _os.path.isfile(antigo):
+                try:
+                    prova = open(antigo, "r")
+                    try:
+                        fcntl.flock(prova.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except OSError:
+                        prova.close()
+                        return True
+                    prova.close()
+                except OSError:
+                    pass
+            caminho = _os.path.join(pasta, ".nia-unico.lock")
             arq = open(caminho, "w")
             try:
                 fcntl.flock(arq, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError:
                 arq.close()
                 return True
-            globals()["_CADEADO_DO_JARVIS"] = arq
+            globals()["_CADEADO_DO_NIA"] = arq
             return False
         except Exception:
             return False
     try:
         import ctypes  # noqa: PLC0415
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        alca = k32.CreateMutexW(None, False, r"Local\JARVIS-CyberBot-unico")
+        # Um NIA atual nao pode abrir ao lado do JARVIS antigo: sao dois donos
+        # da mesma porta 8000 e da mesma ponte do WhatsApp.
+        legado = k32.OpenMutexW(0x00100000, False, r"Local\JARVIS-CyberBot-unico")
+        if legado:
+            k32.CloseHandle(legado)
+            return True
+        alca = k32.CreateMutexW(None, False, r"Local\NIA-CyberBot-unico")
         if ctypes.get_last_error() == 183:      # 183 = ERROR_ALREADY_EXISTS
-            if _jarvis_anterior_preso():
-                globals()["_CADEADO_DO_JARVIS"] = alca
+            if _nia_anterior_preso():
+                globals()["_CADEADO_DO_NIA"] = alca
                 return False
             return True
         # A alca fica guardada de proposito: se o Python a recolher, o cadeado
-        # abre e o proximo JARVIS entraria achando que e o primeiro.
-        globals()["_CADEADO_DO_JARVIS"] = alca
+        # abre e o proximo NIA entraria achando que e o primeiro.
+        globals()["_CADEADO_DO_NIA"] = alca
         return False
     except Exception:
-        # Sem cadeado e melhor que sem JARVIS.
+        # Sem cadeado e melhor que sem NIA.
         return False
 
 
@@ -13354,11 +13434,11 @@ def main():
     # UM DE CADA VEZ (01/09/2026).
     #
     # Instalar por cima com o programa aberto, ou so clicar duas vezes no
-    # atalho, subia um segundo JARVIS. Os dois disputavam a porta 8000 do painel
+    # atalho, subia um segundo NIA. Os dois disputavam a porta 8000 do painel
     # e o segundo entrava em laco de reinicio sem fim. O cliente ve um programa
     # quebrado; na verdade sao dois programas certos brigando.
-    if _ja_existe_um_jarvis():
-        # SEGUNDO PLANO (01/11/2026): o JARVIS aberto pode estar escondido perto
+    if _ja_existe_um_nia():
+        # SEGUNDO PLANO (01/11/2026): o NIA aberto pode estar escondido perto
         # do relogio — e ai a janela NAO esta na barra de tarefas, que e onde o
         # aviso abaixo manda procurar. Antes do aviso, pede para ele voltar para
         # a tela; se ele atender (versao 1.0.37 ou mais nova), sai calado.
@@ -13372,16 +13452,16 @@ def main():
             import ctypes  # noqa: PLC0415
             ctypes.windll.user32.MessageBoxW(
                 None,
-                "O JARVIS ja esta aberto.\n\nProcure a janela dele na barra de "
+                "O NIA ja esta aberto.\n\nProcure a janela dele na barra de "
                 "tarefas. Se ela nao aparecer, feche o programa pelo Gerenciador "
                 "de Tarefas e abra de novo.",
-                "JARVIS CyberBot", 0x40)
+                "NIA CyberBot", 0x40)
         except Exception:
-            print("[JARVIS] ja existe um JARVIS aberto.")
+            print("[NIA] ja existe um NIA aberto.")
             try:  # Linux: aviso na tela, que o MessageBox acima e do Windows
                 _subprocess.run(
-                    ["notify-send", "JARVIS CyberBot",
-                     _frase_no_idioma("O JARVIS ja esta aberto. Procure a janela dele.")],
+                    ["notify-send", "NIA CyberBot",
+                     _frase_no_idioma("O NIA ja esta aberto. Procure a janela dele.")],
                     timeout=5)
             except Exception:
                 pass
@@ -13396,14 +13476,14 @@ def main():
         pass
 
     _rastrear_cameras()
-    ui = JarvisUI("face.png")
+    ui = NiaUI("face.png")
 
     def runner():
         """Mantém o motor de voz vivo pelo tempo que a janela estiver aberta.
 
         Antes, se `asyncio.run` terminasse por qualquer motivo, esta thread
         simplesmente acabava. A janela continuava aberta e respondendo, o painel
-        até dizia "JARVIS ativo", mas o motor estava morto e o assistente nunca
+        até dizia "NIA ativo", mas o motor estava morto e o assistente nunca
         mais falava — só voltava quando o cliente fechava e abria o programa.
         Era o caso mais reclamado.
 
@@ -13413,35 +13493,35 @@ def main():
         ui.wait_for_api_key()
         tentativa = 0
         while True:
-            jarvis = JarvisLive(ui)
+            nia = NiaLive(ui)
             try:
-                asyncio.run(jarvis.run())
+                asyncio.run(nia.run())
                 # Terminou sem erro: só acontece se pediram para encerrar.
-                print("[JARVIS] Motor encerrado.")
+                print("[NIA] Motor encerrado.")
                 return
             except KeyboardInterrupt:
                 print("\n🔴 Shutting down...")
                 return
             except BaseException as e:
                 _voice_diag_exception("engine_restart", e)
-                print(f"[JARVIS] Motor caiu ({type(e).__name__}: {e}) — reiniciando.")
+                print(f"[NIA] Motor caiu ({type(e).__name__}: {e}) — reiniciando.")
 
             tentativa += 1
             espera = min(3 * tentativa, 30)
             try:
                 ui.set_state("SLEEPING")
-                ui.write_log(f"SIS: Reiniciando o JARVIS sozinho em {espera}s...")
+                ui.write_log(f"SIS: Reiniciando o NIA sozinho em {espera}s...")
             except Exception:
                 pass
             time.sleep(espera)
             try:
-                ui.write_log("SIS: JARVIS reiniciado.")
+                ui.write_log("SIS: NIA reiniciado.")
             except Exception:
                 pass
 
     threading.Thread(target=runner, daemon=True).start()
     ui.root.mainloop()
-    # A janela fechou: fecha TUDO que e do JARVIS (01/10/2026). Ver abaixo.
+    # A janela fechou: fecha TUDO que e do NIA (01/10/2026). Ver abaixo.
     _encerrar_tudo("janela fechada")
 
 
@@ -13449,13 +13529,13 @@ def main():
 #
 # Pedido do Diego: "certifique que toda vez que fecha ele todos os processos
 # dele finalizam". O caso que motivou, provado no PC dele: as 15:23 ele ligou o
-# Vision Control (webcam) e fechou o JARVIS 13 s depois. O `os._exit` matou a
+# Vision Control (webcam) e fechou o NIA 13 s depois. O `os._exit` matou a
 # linha que lia a camera NO MEIO da leitura; o driver da webcam ficou com um
 # pedido pendente que nunca termina e o processo ficou preso com 1 linha
 # esperando o driver — nem o Gerenciador de Tarefas mata. O Windows
 # (CapabilityAccessManager\webcam) mostrava a camera "ainda em uso" desde
-# 15:23:15. Esse preso segurava o cadeado de "um JARVIS so" e a porta 8000: o
-# JARVIS novo nao abria ate reiniciar o PC.
+# 15:23:15. Esse preso segurava o cadeado de "um NIA so" e a porta 8000: o
+# NIA novo nao abria ate reiniciar o PC.
 #
 # E o fechamento demorava: a voz seguia tocando SEM JANELA por 3 a 6 s
 # (17:19:18 fechou, 17:19:24 ainda falava) enquanto a limpeza rodava.
@@ -13467,9 +13547,9 @@ def main():
 #      VPS, fecha a janela e o programa do projeto);
 #      (13/10/2026) e a ponte do WhatsApp recebe POST /shutdown: salva o banco
 #      e as chaves e sai sozinha, em ate ~1,6 s; se nao sair, o passo 3 mata;
-#   3. varre o computador: todo processo cujo programa mora na pasta do JARVIS
+#   3. varre o computador: todo processo cujo programa mora na pasta do NIA
 #      (filho OU orfao: o node da ponte do WhatsApp e um deles), node rodando
-#      script da pasta, navegador com perfil na pasta do JARVIS (a janela do
+#      script da pasta, navegador com perfil na pasta do NIA (a janela do
 #      Cowork), o que o Cowork rodou na pasta do projeto, e os filhos de todos
 #      esses. Programa que o dono pediu para abrir (Chrome dele, Bloco de
 #      Notas...) continua aberto. A `_kill_old_bridge_port` ficou de fora: ela
@@ -13481,13 +13561,13 @@ def main():
 import weakref as _weakref_fechar
 
 _ENCERRANDO = threading.Event()
-_CAMERAS_DO_JARVIS = _weakref_fechar.WeakSet()
+_CAMERAS_DO_NIA = _weakref_fechar.WeakSet()
 _CAMERAS_TRAVA = threading.Lock()
 _SOLTAR_TRAVA = threading.Lock()      # soltar de duas linhas ao mesmo tempo derruba
 
 
 def _rastrear_cameras() -> None:
-    """Toda `cv2.VideoCapture` do JARVIS passa a ficar registrada.
+    """Toda `cv2.VideoCapture` do NIA passa a ficar registrada.
 
     Uma subclasse no lugar da original: quem chama `cv2.VideoCapture(...)`
     (Vision Control, camera da janela, painel, visao do cerebro) nao muda nada.
@@ -13499,25 +13579,25 @@ def _rastrear_cameras() -> None:
         base = cv2.VideoCapture
     except Exception:
         return
-    if getattr(base, "_jarvis_rastreia", False):
+    if getattr(base, "_nia_rastreia", False):
         return
 
-    class _CameraDoJarvis(base):
-        _jarvis_rastreia = True
+    class _CameraDoNia(base):
+        _nia_rastreia = True
 
         def __init__(self, *args, **kwargs):
             if _ENCERRANDO.is_set():
                 args, kwargs = (), {}          # fechando: nao abre camera nova
             super().__init__(*args, **kwargs)
-            self._jarvis_lendo = False
-            self._jarvis_lida = time.monotonic()   # recem-aberta: meio segundo de folga
+            self._nia_lendo = False
+            self._nia_lida = time.monotonic()   # recem-aberta: meio segundo de folga
             with _CAMERAS_TRAVA:
-                _CAMERAS_DO_JARVIS.add(self)
+                _CAMERAS_DO_NIA.add(self)
 
         def read(self, *args, **kwargs):
             # A marca vem ANTES de olhar o fechamento: quem fecha so solta de
             # fora uma camera que ninguem esta lendo.
-            self._jarvis_lendo = True
+            self._nia_lendo = True
             try:
                 if _ENCERRANDO.is_set():
                     try:
@@ -13527,22 +13607,22 @@ def _rastrear_cameras() -> None:
                     return False, None
                 return super().read(*args, **kwargs)
             finally:
-                self._jarvis_lendo = False
-                self._jarvis_lida = time.monotonic()
+                self._nia_lendo = False
+                self._nia_lida = time.monotonic()
 
         def release(self, *args, **kwargs):
             with _SOLTAR_TRAVA:
                 return super().release(*args, **kwargs)
 
     try:
-        cv2.VideoCapture = _CameraDoJarvis
+        cv2.VideoCapture = _CameraDoNia
     except Exception as exc:
         _voice_diag("camera_sem_rastreio", str(exc)[:90])
 
 
 def _cameras_abertas() -> list:
     with _CAMERAS_TRAVA:
-        todas = list(_CAMERAS_DO_JARVIS)
+        todas = list(_CAMERAS_DO_NIA)
     abertas = []
     for cam in todas:
         try:
@@ -13571,8 +13651,8 @@ def _soltar_cameras(prazo: float) -> int:
         for cam in resto:
             # Ninguem le dela ha meio segundo (gerador do painel que ninguem
             # puxa mais, camera esquecida): solta daqui, ja.
-            if (not getattr(cam, "_jarvis_lendo", False)
-                    and time.monotonic() - getattr(cam, "_jarvis_lida", 0.0) > 0.5):
+            if (not getattr(cam, "_nia_lendo", False)
+                    and time.monotonic() - getattr(cam, "_nia_lida", 0.0) > 0.5):
                 try:
                     cam.release()
                     forcadas += 1
@@ -13610,15 +13690,15 @@ def _parar_cowork(prazo: float) -> None:
             pass
 
 
-def _processos_do_jarvis(inicio_fechamento: float) -> list:
-    """Todo processo que e do JARVIS — filho ou orfao — menos ele mesmo."""
+def _processos_do_nia(inicio_fechamento: float) -> list:
+    """Todo processo que e do NIA — filho ou orfao — menos ele mesmo."""
     import os  # noqa: PLC0415  (este arquivo so importa `os` como `_os`)
     import psutil  # noqa: PLC0415
     pasta = os.path.normcase(str(Path(__file__).resolve().parent))
     perfil = "--user-data-dir=" + pasta
     eu = psutil.Process(os.getpid())
     minha_hora = eu.create_time()
-    try:          # o atalho que abriu este JARVIS: os filhos dele sao do dono
+    try:          # o atalho que abriu este NIA: os filhos dele sao do dono
         ancestrais = {p.pid for p in eu.parents()}
     except Exception:
         ancestrais = set()
@@ -13641,22 +13721,22 @@ def _processos_do_jarvis(inicio_fechamento: float) -> list:
             if info["pid"] == eu.pid:
                 continue
             if (info.get("create_time") or 0) > inicio_fechamento:
-                continue          # aberto DEPOIS do fechamento: e um JARVIS novo
+                continue          # aberto DEPOIS do fechamento: e um NIA novo
             nome = (info.get("name") or "").lower()
             if nome.startswith(("unins", "setup")):
                 continue          # desinstalador / instalador
             exe = os.path.normcase(info.get("exe") or "")
             linha = os.path.normcase(" ".join(info.get("cmdline") or []))
-            do_jarvis = (exe.startswith(pasta + os.sep) or perfil in linha
+            do_nia = (exe.startswith(pasta + os.sep) or perfil in linha
                          or (nome.startswith("node") and pasta in linha))
-            if not do_jarvis and projeto and info["pid"] in descendentes:
+            if not do_nia and projeto and info["pid"] in descendentes:
                 try:              # o que o Cowork rodou na pasta do projeto
-                    do_jarvis = os.path.normcase(p.cwd()).startswith(projeto)
+                    do_nia = os.path.normcase(p.cwd()).startswith(projeto)
                 except Exception:
                     pass
-            if not do_jarvis:
+            if not do_nia:
                 continue
-            # JARVIS anterior preso no driver (1 linha, mais velho que este):
+            # NIA anterior preso no driver (1 linha, mais velho que este):
             # ninguem o mata; esperar por ele so atrasaria o fechamento.
             if ("python" in nome and (info.get("create_time") or 0) < minha_hora
                     and p.num_threads() <= 1):
@@ -13664,7 +13744,7 @@ def _processos_do_jarvis(inicio_fechamento: float) -> list:
             alvos.append(p)
         except Exception:
             continue
-    # Filhos de quem e do JARVIS tambem sao (navegador da ponte do WhatsApp,
+    # Filhos de quem e do NIA tambem sao (navegador da ponte do WhatsApp,
     # o jogo que o programa do Cowork abriu...).
     vistos = {p.pid for p in alvos} | ancestrais | {eu.pid}
     for p in list(alvos):
@@ -13684,10 +13764,10 @@ def _processos_do_jarvis(inicio_fechamento: float) -> list:
     return alvos
 
 
-def _matar_processos_do_jarvis(inicio_fechamento: float, prazo: float) -> int:
+def _matar_processos_do_nia(inicio_fechamento: float, prazo: float) -> int:
     try:
         import psutil  # noqa: PLC0415
-        alvos = _processos_do_jarvis(inicio_fechamento)
+        alvos = _processos_do_nia(inicio_fechamento)
         for p in alvos:
             try:
                 p.kill()
@@ -13724,14 +13804,14 @@ def _sair_de_vez(codigo: int = 0) -> None:
     os._exit(codigo)
 
 
-def _jarvis_anterior_preso() -> bool:
-    """O cadeado esta com um JARVIS que ja fechou mas ficou PRESO no driver?
+def _nia_anterior_preso() -> bool:
+    """O cadeado esta com um NIA que ja fechou mas ficou PRESO no driver?
 
     Caso de 05/10 15:23: o processo antigo ficou com 1 linha esperando o driver
     da webcam, sem janela, e ninguem o mata (so reiniciando o PC). Ele segura o
-    cadeado e o cliente via "O JARVIS ja esta aberto" para sempre. Um JARVIS de
-    verdade tem dezenas de linhas; o preso tem 1. So libera se TODOS os JARVIS
-    achados estao assim e tem mais de 20 s (um JARVIS que acabou de abrir ainda
+    cadeado e o cliente via "O NIA ja esta aberto" para sempre. Um NIA de
+    verdade tem dezenas de linhas; o preso tem 1. So libera se TODOS os NIA
+    achados estao assim e tem mais de 20 s (um NIA que acabou de abrir ainda
     tem poucas linhas)."""
     try:
         import psutil  # noqa: PLC0415
@@ -13750,7 +13830,7 @@ def _jarvis_anterior_preso() -> bool:
             except Exception:
                 return False
             if linhas > 1 or agora - (info.get("create_time") or agora) < 20:
-                return False      # tem JARVIS de verdade (ou abrindo agora)
+                return False      # tem NIA de verdade (ou abrindo agora)
             presos.append(p)
         if not presos:
             return False
@@ -13759,7 +13839,7 @@ def _jarvis_anterior_preso() -> bool:
                 p.kill()
             except Exception:
                 pass
-        _voice_diag("jarvis_preso_ignorado",
+        _voice_diag("nia_preso_ignorado",
                     f"PID {', '.join(str(p.pid) for p in presos)} preso no driver; "
                     f"abrindo assim mesmo")
         return True
@@ -13811,11 +13891,11 @@ def _fechar_secretaria() -> None:
 
 
 def _encerrar_tudo(motivo: str = "") -> None:
-    """Fecha o JARVIS INTEIRO, sem deixar nada rodando para tras.
+    """Fecha o NIA INTEIRO, sem deixar nada rodando para tras.
 
-    01/10/2026, queixa do Diego: "quando o JARVIS ta aberto eu fecho e ele fica
+    01/10/2026, queixa do Diego: "quando o NIA ta aberto eu fecho e ele fica
     aberto ainda". Fechada a janela, a ponte do WhatsApp (o `node.exe
-    server.js` da pasta do JARVIS) seguia rodando sozinha, e uma tarefa de
+    server.js` da pasta do NIA) seguia rodando sozinha, e uma tarefa de
     fundo presa segurava o Python aberto sem janela nenhuma.
 
     05/10/2026: camera, Cowork, orfaos, saida que o driver nao segura e a voz
@@ -13856,9 +13936,9 @@ def _encerrar_tudo(motivo: str = "") -> None:
     for passo in passos:
         passo.join(max(0.0, limite - time.monotonic()))
     demorados = [passo.name for passo in passos + [ponte] if passo.is_alive()]
-    n = _matar_processos_do_jarvis(inicio, 2.0)
+    n = _matar_processos_do_nia(inicio, 2.0)
     _voice_diag("programa_encerrou",
-                f"limpo em {time.time() - inicio:.1f}s | {n} processo(s) do JARVIS fechado(s)"
+                f"limpo em {time.time() - inicio:.1f}s | {n} processo(s) do NIA fechado(s)"
                 f" | cameras soltas a forca: {forcadas[0] if forcadas else '?'}"
                 + (f" | nao terminou: {', '.join(demorados)}" if demorados else ""))
     _sair_de_vez()

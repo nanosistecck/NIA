@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-MODO ECONOMICO do JARVIS — a mesma voz Charon, sem streaming de audio pago.
+MODO ECONOMICO do NIA — a mesma voz Charon, sem streaming de audio pago.
 
 Por que existe
 --------------
 No modo normal o microfone manda audio para o Google o TEMPO TODO, e a Live API
 cobra por segundo de audio nos dois sentidos. Alem do custo, a sessao de voz do
-Google morre sozinha de tempos em tempos: foi isso que fez o JARVIS parar de
+Google morre sozinha de tempos em tempos: foi isso que fez o NIA parar de
 responder no meio das gravacoes.
 
 Aqui o desenho e outro:
@@ -17,7 +17,7 @@ Aqui o desenho e outro:
 
 Nao existe sessao de conversa aberta, entao nao ha o que cair no meio do video.
 
-Como rodar (com o JARVIS fechado, para nao disputar a chave):
+Como rodar (com o NIA fechado, para nao disputar a chave):
     runtime/python/python.exe modo_economico.py
 """
 from __future__ import annotations
@@ -69,9 +69,8 @@ PREROLL           = 16      # 320 ms guardados antes da primeira silaba
 
 
 def _carregar_chave() -> str:
-    caminho = BASE / "config" / "api_keys.json"
-    with open(caminho, encoding="utf-8") as f:
-        return json.load(f).get("gemini_api_key", "").strip()
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 def _lingua() -> str:
@@ -86,7 +85,7 @@ def _carregar_prompt() -> str:
     try:
         return (BASE / "core" / "prompt.txt").read_text(encoding="utf-8")
     except Exception:
-        return "Voce e o JARVIS, assistente pessoal. Responda em portugues do Brasil."
+        return "Voce e o NIA, assistente pessoal. Responda em portugues do Brasil."
 
 
 class Ouvido:
@@ -100,7 +99,7 @@ class Ouvido:
         print(f"[STT] pronto em {time.monotonic() - t0:.1f}s", flush=True)
         self.frases: queue.Queue[tuple[np.ndarray, float]] = queue.Queue()
         self._parar = threading.Event()
-        self.mudo = False          # fica True enquanto o JARVIS fala
+        self.mudo = False          # fica True enquanto o NIA fala
 
     # -- captura -------------------------------------------------------------
     def escutar(self) -> None:
@@ -188,10 +187,11 @@ class Cerebro:
         # e a conversa caia no socorro em todas as frases.
         self.cliente = genai.Client(api_key=chave,
                                     http_options={"timeout": 12000})
-        # Chave do OpenRouter, usada so como socorro (ver _socorro).
+        # Chave do OpenRouter, usada so como socorro (ver _socorro). Vem da
+        # MESMA lista de provedores da tela (banco primeiro, arquivo depois).
         try:
-            with open(BASE / "config" / "api_keys.json", encoding="utf-8") as f:
-                self.chave_or = (json.load(f).get("openrouter_api_key") or "").strip()
+            from core.llm_router import resolver as _resolver
+            self.chave_or = (_resolver("openrouter") or "").strip()
         except Exception:
             self.chave_or = ""
         self.historico: list = []
@@ -374,7 +374,7 @@ def _limpar_para_voz(texto: str) -> str:
 def principal() -> None:
     chave = _carregar_chave()
     if not chave:
-        print("Nenhuma chave Gemini em config/api_keys.json."); return
+        print("Nenhuma chave Gemini cadastrada (Configuracoes > Chaves de API)."); return
 
     ouvido = Ouvido()
     cerebro = Cerebro(chave)
@@ -410,7 +410,7 @@ def principal() -> None:
                 continue
             if not resposta:
                 continue
-            print(f"JARVIS: {resposta}")
+            print(f"NIA: {resposta}")
 
             ouvido.mudo = True          # nao escuta a propria voz
             t0 = time.monotonic()

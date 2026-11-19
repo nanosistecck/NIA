@@ -13,7 +13,7 @@ Como cada parada funciona, depois do que ele reprovou na primeira versao ("nao a
   - lugar que nao se ve (radio, empresa, predio que ja foi demolido) nao e' parada;
   - comeca andando para o lado da rua onde tem mais coisa para ver.
 
-Roda numa thread do JARVIS. As pernas estao em globo/andar.py; os lugares vem da
+Roda numa thread do NIA. As pernas estao em globo/andar.py; os lugares vem da
 Wikipedia; a fala sai do modelo rapido e, sem resposta a tempo, do proprio artigo.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ ESPERA_PASSO_S = 3.4     # sem sair do lugar nesse tempo, nao deu para andar
 CLIQUE_NO_CHAO = (0.56, 0.60)
 SALTOS_M = (35, 70, 120)     # onde procurar a rua, a frente, quando as fotos nao estao ligadas
 
-_UA = "JARVIS-Globo/1.0 (assistente pessoal)"
+_UA = "NIA-Globo/1.0 (assistente pessoal)"
 _abridor = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 _NAO_E_PAGINA = re.compile(r"^(lista d|list of|anexo:|predefini|categoria:|portal:)", re.I)
@@ -279,12 +279,12 @@ class Passeio:
                 return pronta
             jeito = self._persona()
             if en:
-                pedido = (f"You are JARVIS, a tour guide walking through Street View with your boss. We are at: {onde}. "
+                pedido = (f"You are NIA, a tour guide walking through Street View with your boss. We are at: {onde}. "
                           f"{lado or 'Right here'} is: {item['titulo']}. Facts from Wikipedia: {texto[:700]}\n"
                           "In at most 2 short sentences (35 words at most), speak in English as someone pointing at it. "
                           "Only the speech, no quotes, no markdown, no numbers in digits.")
             else:
-                pedido = (f"Você é o JARVIS, guia turístico andando pelo Street View com o dono. Estamos em: {onde}. "
+                pedido = (f"Você é o NIA, guia turístico andando pelo Street View com o dono. Estamos em: {onde}. "
                           f"{lado.capitalize() if lado else 'Aqui'} está: {item['titulo']}. Dados da Wikipédia: {texto[:700]}\n"
                           f"Em no máximo 2 frases curtas (até 35 palavras), em português do Brasil, fale como quem aponta "
                           f"(\"Olha, {lado or 'aqui'} é...\"), contando a curiosidade mais interessante. "

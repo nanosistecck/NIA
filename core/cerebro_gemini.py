@@ -4,24 +4,21 @@
 Por que existe (30/08/2026, medido no proprio uso do Diego)
 ------------------------------------------------------------
 A conta do OpenRouter e gratuita: ~50 pedidos por dia. Nesta noite ela acabou no
-meio da conversa e o JARVIS **emudeceu** — o microfone ouvia certinho
+meio da conversa e o NIA **emudeceu** — o microfone ouvia certinho
 (`local_ouviu 'Minha voz nao esta saindo la...'`) e logo em seguida vinha
 `openrouter_falhou ... free-models-per-day`. Sem cerebro, nao ha resposta.
 
 O Diego pediu a Gemini **so para a voz**. Isto aqui nao muda esse desenho: a
 Gemini continua so falando no dia a dia. Ela so pensa quando o OpenRouter ja
-morreu e a alternativa e o JARVIS ficar mudo.
+morreu e a alternativa e o NIA ficar mudo.
 
 Modelo: `gemini-2.5-flash-lite`, o mais barato da lista da chave dele.
 
-As ferramentas do JARVIS ja nascem no formato da Gemini (`TOOL_DECLARATIONS` no
+As ferramentas do NIA ja nascem no formato da Gemini (`TOOL_DECLARATIONS` no
 main.py) — o `CerebroOpenRouter` e que as traduz para o formato OpenAI. Aqui a
 traducao volta atras.
 """
 from __future__ import annotations
-
-import json
-from pathlib import Path
 
 from core.preguica import Preguicoso as _Preguicoso
 genai = _Preguicoso("google.genai")
@@ -114,16 +111,38 @@ def _desembrulhar(ferramentas_openai: list) -> list:
 class CerebroGemini:
     """Mesmo contrato do cerebro principal, no modelo barato da Gemini."""
 
-    def __init__(self, chave: str | None = None) -> None:
+    def __init__(self, chave: str | None = None, router=None) -> None:
+        self._gerenciada = not bool(chave)
+        self._router = router
+        self._identidade_conexao = None
+        if self._gerenciada:
+            from core.llm_router import resolver_conexao
+            conexao = resolver_conexao('gemini', router)
+            chave = conexao.chave if conexao else None
         if not chave:
-            caminho = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
-            chave = str(json.loads(caminho.read_text(encoding="utf-8"))
-                        .get("gemini_api_key") or "").strip()
-        if not chave:
-            raise RuntimeError("Chave Gemini ausente em config/api_keys.json")
+            raise RuntimeError("Chave Gemini ausente: cadastre em Configuracoes > Chaves de API")
         # Prazo de 30 s (01/10/2026): num pico do Google o pedido ficava ate 51 s
         # preso antes de voltar 503, e o degrau seguinte nem chegava a tentar.
-        self.client = genai.Client(api_key=chave, http_options={"timeout": 30000})
+        if self._gerenciada:
+            self._atualizar_conexao()
+        else:
+            self.client = genai.Client(api_key=chave, http_options={"timeout": 30000})
+
+    def _atualizar_conexao(self):
+        if not self._gerenciada:
+            return
+        from core.llm_router import resolver_conexao
+        from core.http_seguranca import validar_endpoint
+        conexao = resolver_conexao('gemini', self._router)
+        if conexao is None:
+            raise RuntimeError('Chave Gemini ausente ou indisponível')
+        identidade = (conexao.chave, conexao.base_url)
+        if identidade != self._identidade_conexao:
+            opcoes = {'timeout': 30000}
+            if conexao.base_url:
+                opcoes['base_url'] = validar_endpoint(conexao.base_url)
+            self.client = genai.Client(api_key=conexao.chave, http_options=opcoes)
+            self._identidade_conexao = identidade
 
     @staticmethod
     def _para_conteudo(mensagens: list) -> tuple[str, list]:
@@ -155,6 +174,7 @@ class CerebroGemini:
 
     def escrever_longo(self, instrucao: str, pedido: str, max_tokens: int = 4000) -> str:
         """Texto LONGO sem ferramenta (codigo inteiro). Ver o mesmo no cerebro OpenAI."""
+        self._atualizar_conexao()
         cfg = types.GenerateContentConfig(
             system_instruction=str(instrucao) or None,
             temperature=0.4,
@@ -179,6 +199,7 @@ class CerebroGemini:
         Laco com teto de 3 rodadas, igual ao cerebro principal: sem teto, um
         modelo confuso fica pedindo ferramenta para sempre.
         """
+        self._atualizar_conexao()
         sistema, conteudos = self._para_conteudo(mensagens)
         cruas = _desembrulhar(ferramentas_openai)
         # FORCAR A CHAMADA (31/08/2026). Quando a trava anti-mentira cobra o

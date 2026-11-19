@@ -4,7 +4,7 @@
 Por que existe (31/08/2026)
 ---------------------------
 A chave da Gemini do cliente e do nivel gratuito e acaba no meio do dia. Quando
-ela morre, o JARVIS passa a pensar por AQUI, na conta do Diego, e o cliente nem
+ela morre, o NIA passa a pensar por AQUI, na conta do Diego, e o cliente nem
 percebe. Passadas as 24 horas do Google, ele volta sozinho para a chave dele.
 
 REGRA FECHADA PELO DONO, NAO MUDAR SEM ELE PEDIR:
@@ -36,7 +36,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from pathlib import Path
+from core.http_seguranca import abrir, validar_endpoint, sanitizar
 
 URL = "https://api.openai.com/v1/responses"
 
@@ -88,25 +88,25 @@ def _sessao():
     return _SESSAO or None
 
 
-def _postar(chave: str, corpo: dict, timeout: float) -> dict:
+def _postar(chave: str, corpo: dict, timeout: float, url=URL) -> dict:
     """Manda o pedido e devolve o JSON. Erro de HTTP vira RuntimeError com a
     mensagem da propria OpenAI — e ela que diz "sem credito" ou "chave ruim"."""
     dados = json.dumps(corpo).encode()
     cabeca = {"Authorization": f"Bearer {chave}", "Content-Type": "application/json"}
     ses = _sessao()
     if ses is not None:
-        r = ses.post(URL, data=dados, headers=cabeca, timeout=timeout)
-        if r.status_code >= 400:
+        r = ses.post(url, data=dados, headers=cabeca, timeout=timeout, allow_redirects=False)
+        if r.status_code >= 300:
             detalhe = ""
             try:
                 detalhe = (r.json().get("error", {}) or {}).get("message", "")
             except Exception:
                 detalhe = r.text[:180]
-            raise RuntimeError(f"OpenAI {r.status_code}: {str(detalhe)[:180]}")
+            raise RuntimeError(f"OpenAI {r.status_code}: {sanitizar(detalhe, chave)[:180]}")
         return r.json()
-    req = urllib.request.Request(URL, data=dados, headers=cabeca)
+    req = urllib.request.Request(url, data=dados, headers=cabeca)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with abrir(req, timeout=timeout) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         detalhe = ""
@@ -114,7 +114,7 @@ def _postar(chave: str, corpo: dict, timeout: float) -> dict:
             detalhe = json.loads(e.read()).get("error", {}).get("message", "")
         except Exception:
             pass
-        raise RuntimeError(f"OpenAI {e.code}: {detalhe[:180]}") from e
+        raise RuntimeError(f"OpenAI {e.code}: {sanitizar(detalhe, chave)[:180]}") from None
 
 
 def _achatar(ferramentas_openai: list) -> list:
@@ -139,25 +139,32 @@ def _achatar(ferramentas_openai: list) -> list:
 
 
 class CerebroOpenAI:
-    """Mesmo contrato dos outros cerebros do JARVIS."""
+    """Mesmo contrato dos outros cerebros do NIA."""
 
-    def __init__(self, chave: str | None = None) -> None:
-        self.chave = (chave or self._chave_do_config() or "").strip()
+    def __init__(self, chave: str | None = None, router=None) -> None:
+        self._gerenciada = not bool(chave)
+        self._router = router
+        self.url = URL
+        if self._gerenciada:
+            from core.llm_router import resolver_conexao
+            conexao = resolver_conexao('openai', router)
+            chave = conexao.chave if conexao else None
+        self.chave = (chave or "").strip()
         if not self.chave:
-            raise RuntimeError("Chave da OpenAI ausente em config/api_keys.json")
+            raise RuntimeError("Chave da OpenAI ausente: cadastre em Configuracoes > Chaves de API")
 
-    @staticmethod
-    def _chave_do_config() -> str:
-        caminho = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
-        try:
-            return str(json.loads(caminho.read_text(encoding="utf-8"))
-                       .get("openai_api_key") or "")
-        except Exception:
-            return ""
+    def _atualizar_conexao(self):
+        if self._gerenciada:
+            from core.llm_router import resolver_conexao
+            conexao = resolver_conexao('openai', self._router)
+            if conexao is None:
+                raise RuntimeError('Chave da OpenAI ausente ou indisponível')
+            self.chave = conexao.chave
+            self.url = validar_endpoint(conexao.base_url) + '/responses' if conexao.base_url else URL
 
     @staticmethod
     def _entrada(mensagens: list) -> list:
-        """Mensagens no formato do JARVIS -> itens de entrada do /v1/responses.
+        """Mensagens no formato do NIA -> itens de entrada do /v1/responses.
 
         As respostas de ferramenta de turnos ANTIGOS viram texto simples: elas
         so servem para o modelo saber o que ja aconteceu, e remontar o par
@@ -188,7 +195,8 @@ class CerebroOpenAI:
             # anti-mentira esta cobrando — senao ele pediria ferramenta ate
             # para "bom dia".
             corpo["tool_choice"] = "required" if forcar else "auto"
-        dados = _postar(self.chave, corpo, timeout)
+        self._atualizar_conexao()
+        dados = _postar(self.chave, corpo, timeout, self.url)
         return dados.get("output") or []
 
     def escrever_longo(self, instrucao: str, pedido: str, max_tokens: int = 9000,
@@ -213,7 +221,8 @@ class CerebroOpenAI:
                       {"role": "user", "content": str(pedido)}],
             "max_output_tokens": int(max_tokens),
         }
-        dados = _postar(self.chave, corpo, timeout)
+        self._atualizar_conexao()
+        dados = _postar(self.chave, corpo, timeout, self.url)
         return self._texto_da_saida(dados.get("output") or [])
 
     @staticmethod

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Quem e o dono desta instalacao — e como o JARVIS deve trata-lo.
+"""Quem e o dono desta instalacao — e como o NIA deve trata-lo.
 
 Por que existe (01/09/2026)
 ---------------------------
-Os clientes do Diego instalavam o JARVIS e **ele os chamava de "Diego"**. O nome
+Os clientes do Diego instalavam o NIA e **ele os chamava de "Diego"**. O nome
 estava escrito na pedra dentro do prompt (`REGRAS_FIXAS`), entao todo cliente
 herdava o nome do criador. Constrangedor, e o tipo de detalhe que derruba a
 sensacao de produto proprio.
@@ -13,7 +13,7 @@ genero e o que mais quiser contar. Tudo isso entra no prompt, e as treze
 personalidades passam a falar com ELE.
 
 O arquivo fica em `config/dono.json` e **nao vai no instalador** — cada
-instalacao comeca em branco e o JARVIS pergunta na primeira conversa.
+instalacao comeca em branco e o NIA pergunta na primeira conversa.
 """
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def salvar(dados: dict) -> dict:
 
 
 def como_chamar() -> str:
-    """O nome que o JARVIS usa. Vazio significa 'ainda nao sei'."""
+    """O nome que o NIA usa. Vazio significa 'ainda nao sei'."""
     d = carregar()
     return d.get("como_chamar") or d.get("apelido") or ""
 
@@ -63,7 +63,7 @@ def como_chamar() -> str:
 def resumo_para_prompt() -> str:
     """O pedaco do prompt que fala do dono. Vazio se ele nao preencheu nada.
 
-    Quando nao ha nome, o JARVIS e instruido a PERGUNTAR — melhor do que
+    Quando nao ha nome, o NIA e instruido a PERGUNTAR — melhor do que
     inventar um tratamento generico ou, pior, usar o nome de outra pessoa.
     """
     d = carregar()

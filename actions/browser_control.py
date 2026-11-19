@@ -109,10 +109,19 @@ def _real_profile_dir(browser: str) -> str:
             print(f"[Browser] ✅ Real profile found for {browser}: {p}")
             return str(p)
 
-    fallback = home / ".jarvis_profiles" / browser
-    fallback.mkdir(parents=True, exist_ok=True)
+    fallback = Path(_perfil_nia(browser))
     print(f"[Browser] ⚠️  Real profile not found for {browser}, using: {fallback}")
     return str(fallback)
+
+
+def _perfil_nia(nome: str) -> str:
+    """Perfil proprio do NIA. Quem ja tem o antigo continua nele (login salvo)."""
+    novo = Path.home() / ".nia_profiles" / nome
+    antigo = Path.home() / ".jarvis_profiles" / nome
+    d = antigo if antigo.is_dir() and not novo.exists() else novo
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
 
 def _firefox_profile_dir() -> Optional[str]:
     home = Path.home()
@@ -492,7 +501,7 @@ def _resolve_local_browser_target(value: str) -> Path | None:
 
 def _open_url_external(browser_name: str, url: str) -> str:
     """
-    Opens URLs in the user's real browser instead of launching a second Playwright/JARVIS profile.
+    Opens URLs in the user's real browser instead of launching a second Playwright/NIA profile.
     On Windows, passing the URL to chrome.exe/msedge.exe reuses the existing browser window when possible.
     """
     browser_name = _ALIASES.get((browser_name or "chrome").lower().strip(), (browser_name or "chrome").lower().strip())
@@ -631,9 +640,7 @@ class _BrowserSession:
         engine_obj  = getattr(self._pw, engine_name)
 
         if engine_name == "firefox":
-            profile = _firefox_profile_dir() or str(
-                Path.home() / ".jarvis_profiles" / "firefox"
-            )
+            profile = _firefox_profile_dir() or _perfil_nia("firefox")
             kwargs: dict = {
                 "headless":    False,
                 "slow_mo":     0,
@@ -645,10 +652,9 @@ class _BrowserSession:
             try:
                 self._context = await engine_obj.launch_persistent_context(profile, **kwargs)
             except Exception as e:
-                print(f"[Browser] Firefox real profile failed ({e}), using JARVIS profile")
-                jarvis = str(Path.home() / ".jarvis_profiles" / "firefox_jarvis")
-                Path(jarvis).mkdir(parents=True, exist_ok=True)
-                self._context = await engine_obj.launch_persistent_context(jarvis, **kwargs)
+                print(f"[Browser] Firefox real profile failed ({e}), using NIA profile")
+                nia = _perfil_nia("firefox_nia")
+                self._context = await engine_obj.launch_persistent_context(nia, **kwargs)
 
             await asyncio.sleep(0.5)  
             self._page = await self._context.new_page()
@@ -656,8 +662,7 @@ class _BrowserSession:
             return
 
         if engine_name == "webkit":
-            safari_profile = str(Path.home() / ".jarvis_profiles" / "safari")
-            Path(safari_profile).mkdir(parents=True, exist_ok=True)
+            safari_profile = _perfil_nia("safari")
             kwargs = {
                 "headless":    False,
                 "slow_mo":     0,
@@ -706,15 +711,14 @@ class _BrowserSession:
         except Exception as e:
             print(f"[Browser] ⚠️  Real profile failed for {label}: {e}")
 
-        jarvis_profile = str(Path.home() / ".jarvis_profiles" / self.browser_name)
-        Path(jarvis_profile).mkdir(parents=True, exist_ok=True)
-        print(f"[Browser] Retrying with JARVIS profile: {jarvis_profile}")
+        nia_profile = _perfil_nia(self.browser_name)
+        print(f"[Browser] Retrying with NIA profile: {nia_profile}")
 
         try:
-            self._context = await engine_obj.launch_persistent_context(jarvis_profile, **kwargs)
+            self._context = await engine_obj.launch_persistent_context(nia_profile, **kwargs)
             await asyncio.sleep(0.5)
             self._page = await self._context.new_page()
-            print(f"[Browser] ✅ Launched [{label}] with JARVIS profile")
+            print(f"[Browser] ✅ Launched [{label}] with NIA profile")
         except Exception as e2:
             raise RuntimeError(f"Could not launch {self.browser_name}: {e2}") from e2
 
@@ -907,7 +911,7 @@ class _BrowserSession:
     async def screenshot(self, path: str = None) -> str:
         page = await self._get_page()
         try:
-            save_path = path or str(Path.home() / "Desktop" / "jarvis_screenshot.png")
+            save_path = path or str(Path.home() / "Desktop" / "nia_screenshot.png")
             await page.screenshot(path=save_path, full_page=False)
             return f"Screenshot saved: {save_path}"
         except Exception as e:
@@ -960,7 +964,7 @@ class _SessionRegistry:
 
     def get(self, browser_name: str | None = None) -> _BrowserSession:
         if not browser_name:
-            # User preference for JARVIS: "meu navegador" defaults to Google Chrome.
+            # User preference for NIA: "meu navegador" defaults to Google Chrome.
             # If we already opened a browser in this session, keep using that same browser.
             browser_name = self._active_browser or "chrome"
         browser_name = _ALIASES.get(browser_name.lower().strip(), browser_name.lower().strip())
@@ -1037,8 +1041,8 @@ def browser_control(
         _log(player, result)
         return result
 
-    # Simple navigation should use the user's real browser, not a second Playwright/JARVIS profile.
-    # This prevents cases like Chrome already being open and JARVIS launching another Chrome profile.
+    # Simple navigation should use the user's real browser, not a second Playwright/NIA profile.
+    # This prevents cases like Chrome already being open and NIA launching another Chrome profile.
     if action in ("go_to", "search", "new_tab") and not params.get("force_playwright"):
         target_browser = browser or _registry._active_browser or "chrome"
         target_browser = _ALIASES.get(target_browser.lower().strip(), target_browser.lower().strip())

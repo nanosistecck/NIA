@@ -10,7 +10,7 @@ Codex leva 3 a 5 s so para responder "ok" (medido na VPS em 01/10) — nao ha o
 que acelerar ali. O Diego, no mesmo dia:
 
     "tem que continuar rapido igual estava antes, porem sem depender da OpenAI"
-    "cada um vai adicionar sua propria chave no proprio JARVIS"
+    "cada um vai adicionar sua propria chave no proprio NIA"
 
 O que mudou
 -----------
@@ -21,7 +21,7 @@ pedido de verdade (37 ferramentas, ~2.800 fichas): `gemini-3.5-flash-lite` em
 0,66 a 0,85 s, escolhendo a ferramenta certa.
 
 O SERVIDOR CONTINUA SENDO A REDE. Cota acabou, modelo fora do ar, chave
-recusada, internet ruim: a pergunta vai pela ponte, como antes. O JARVIS fica
+recusada, internet ruim: a pergunta vai pela ponte, como antes. O NIA fica
 lento nesse caso, mas nunca mudo.
 
 NAO MEXE NA VOZ. O ao-vivo e outro modelo (native-audio) e a cota do plano
@@ -63,7 +63,7 @@ MODELOS = [
 ]
 
 # A CORRIDA DOS DOIS LITE (08/10/2026). Queixa do Diego: "por que a voz do
-# JARVIS ta demorando tanto?" — registro: `pensar=6.5s`. Medido na hora com o
+# NIA ta demorando tanto?" — registro: `pensar=6.5s`. Medido na hora com o
 # prompt de verdade: o 3.5-flash-lite devolvia 503 ("high demand") em 0,6-1,6 s
 # e uma vez ficou 19,8 s ate um 504; o 3.1-flash-lite respondia em 0,8 a 8 s.
 # Esperar um de cada vez somava os tropecos. Agora a decisao sai pelo primeiro;
@@ -98,7 +98,7 @@ _chave_ruim_ate = 0.0
 
 
 def _anotar(evento: str, detalhe: str = "") -> None:
-    """Uma linha no `logs/voice_session.log` (o JARVIS roda no pythonw)."""
+    """Uma linha no `logs/voice_session.log` (o NIA roda no pythonw)."""
     try:
         from datetime import datetime as _dt  # noqa: PLC0415
         caminho = _RAIZ / "logs" / "voice_session.log"
@@ -110,11 +110,8 @@ def _anotar(evento: str, detalhe: str = "") -> None:
 
 
 def _ler_chave() -> str:
-    try:
-        dados = json.loads((_RAIZ / "config" / "api_keys.json").read_text(encoding="utf-8"))
-        return str(dados.get("gemini_api_key") or "").strip()
-    except Exception:
-        return ""
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 def _cliente_gemini():
@@ -167,7 +164,7 @@ def disponivel() -> bool:
     # Interruptor para teste e diagnostico: com ele, tudo vai pela ponte como
     # era antes de 01/10/2026 (os testes antigos roteirizam a resposta da ponte).
     import os  # noqa: PLC0415
-    if os.environ.get("JARVIS_SEM_CEREBRO_RAPIDO"):
+    if os.environ.get("NIA_SEM_CEREBRO_RAPIDO"):
         return False
     if time.time() < _chave_ruim_ate or not _ler_chave():
         return False
@@ -810,7 +807,7 @@ def transcrever(wav: bytes, idioma: str = "pt") -> str:
 # ── OUVIDO PRINCIPAL DO PC SEM PLACA (10/10/2026) ──────────────────────────
 #
 # Cliente CSNOTECOREI7 (i7-5500U, 2 nucleos de 2015, sem NVIDIA): o whisper
-# small no processador levava 14 a 110 s por fala ("Oi, JARVIS." = 17,9 s;
+# small no processador levava 14 a 110 s por fala ("Oi, NIA." = 17,9 s;
 # 80 s de fala = 109,7 s), com o processador em 100%. O cerebro respondia em
 # 1 s e a voz em 1,2 s: o "demora minutos" era todo do ouvido. As mesmas falas
 # pela Gemini do cliente sairam em 1,4 a 3,9 s, e certas. O ouvido da VPS
@@ -875,7 +872,7 @@ def ouvir_pela_nuvem(wav: bytes, idioma: str = "pt", dur: float = 0.0,
     #
     # CORRIDA TAMBEM NO OUVIDO (02/11/2026, DESKTOP-BBCPCI2, i5 650): o 3.5 ficava
     # mudo ate estourar o prazo de 8,3 s e so entao o 3.1 entrava, respondendo em
-    # 2-3 s ("JARVIS" = 11,1 s; outra fala = 14,9 s). Mesmo remedio da decisao
+    # 2-3 s ("NIA" = 11,1 s; outra fala = 14,9 s). Mesmo remedio da decisao
     # (`_gerar_em_corrida`): sem resposta na folga, o segundo entra JUNTO e vale
     # quem chegar antes. Som baixo da sala (quase sempre barulho) espera mais antes
     # de gastar a cota do segundo, e no maximo 7 s para nao segurar a proxima fala.

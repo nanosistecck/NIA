@@ -3,11 +3,11 @@
 
 Ideia do Diego em 01/09/2026, e e das melhores que ele teve:
 
-    Cliente: "JARVIS, olha minha tela — voce ve o botao Configuracao?"
-    JARVIS:  "Vejo sim, ele fica no canto de baixo a esquerda. Se voce nao
+    Cliente: "NIA, olha minha tela — voce ve o botao Configuracao?"
+    NIA:  "Vejo sim, ele fica no canto de baixo a esquerda. Se voce nao
               achar, eu marco na imagem e te mando."
     Cliente: "marca pra mim"
-    JARVIS:  tira o print, manda para o Codex na VPS com a instrucao de
+    NIA:  tira o print, manda para o Codex na VPS com a instrucao de
              CIRCULAR o item, recebe a imagem marcada, abre na tela e diz
              "pronto, esta marcado".
 
@@ -15,7 +15,7 @@ Por que o Codex e nao a Gemini: o `image_edit` do Codex ja existe, ja recebe a
 foto pela ponte e ja devolve a imagem editada — e o mesmo caminho que edita a
 foto que o cliente arrasta para a janela. Reaproveitar isso custa nada.
 
-A captura e do MESMO helper do `screen_process`, para o JARVIS marcar exatamente
+A captura e do MESMO helper do `screen_process`, para o NIA marcar exatamente
 a tela que ele acabou de olhar.
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ def marcar_na_tela(parameters: dict, player=None, speak=None) -> str:
     except Exception as exc:
         return f"Nao consegui capturar a tela: {str(exc)[:120]}"
 
-    destino = Path(tempfile.gettempdir()) / f"jarvis-tela-{int(time.time())}.png"
+    destino = Path(tempfile.gettempdir()) / f"nia-tela-{int(time.time())}.png"
     try:
         destino.write_bytes(imagem)
     except Exception as exc:
@@ -65,7 +65,7 @@ def marcar_na_tela(parameters: dict, player=None, speak=None) -> str:
         from actions.codex_remote import remote_codex_job  # noqa: PLC0415
         resultado = remote_codex_job(
             {"kind": "image_edit", "description": pedido,
-             "imagem": str(destino), "project_name": "JarvisMarcacao"},
+             "imagem": str(destino), "project_name": "NiaMarcacao"},
             player=player, speak=speak)
     except Exception as exc:
         return f"O servidor nao conseguiu marcar a imagem: {str(exc)[:140]}"

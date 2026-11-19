@@ -38,7 +38,7 @@ def _capturar_quadros(player=None) -> list[bytes]:
     """Os quadros da webcam, espacados no tempo. Lista vazia se nao der.
 
     DUAS CAPTURAS NA MESMA WEBCAM NAO CONVIVEM (05/09/2026). O Diego viu a
-    camera abrir e ficar CONGELADA enquanto o JARVIS "olhava": a tela estava com
+    camera abrir e ficar CONGELADA enquanto o NIA "olhava": a tela estava com
     o aparelho aberto e o `_capture_camera` tentava abrir de novo, roubando o
     dispositivo — a imagem parava, e o que ele analisava eram quadros velhos.
     (O `_capture_camera` so reaproveita o quadro da tela quando ele passa de
@@ -139,7 +139,7 @@ def ver_webcam_ao_vivo(pergunta: str = "", player=None) -> str:
         if player is not None and hasattr(player, "start_camera_stream"):
             # SE HA QUADRO FRESCO, A CAMERA ESTA RODANDO. Perguntar por uma
             # bandeira (`camera_ligada`) nao servia: a UI nao expoe nenhuma com
-            # esse nome, entao a conta dava "fechada" mesmo aberta e o JARVIS
+            # esse nome, entao a conta dava "fechada" mesmo aberta e o NIA
             # fechava no fim a camera que o DONO tinha aberto.
             ja_aberta = False
             try:

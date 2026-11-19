@@ -3,7 +3,7 @@
 
 Por que existe (01/09/2026)
 ---------------------------
-O JARVIS ja excluia mandando para a Lixeira (send2trash), mas "desfazer" nao
+O NIA ja excluia mandando para a Lixeira (send2trash), mas "desfazer" nao
 existia: o dono tinha de abrir a Lixeira e procurar. Agora cada exclusao
 confirmada fica anotada aqui e "pode desfazer" restaura o item pelo proprio
 Windows (Shell.Application, o mesmo botao "Restaurar" da Lixeira), de volta ao
@@ -97,7 +97,7 @@ def _restaurar_pela_lixeira(caminho: Path) -> bool:
 
 
 def restaurar_ultima() -> str:
-    """Traz de volta o ultimo item excluido pelo JARVIS. Texto para falar."""
+    """Traz de volta o ultimo item excluido pelo NIA. Texto para falar."""
     itens = _ler()
     for i in range(len(itens) - 1, -1, -1):
         it = itens[i]

@@ -1,12 +1,12 @@
 """NOMES DA TELA (17/10/2026) — o cliente troca os nomes que aparecem na janela.
 
 Pedido do Diego: "um sistema de personalizacao de nomes, qualquer nome na
-interface do JARVIS o cliente consiga alterar, tipo o nome la em cima, JARVIS,
+interface do NIA o cliente consiga alterar, tipo o nome la em cima, NIA,
 ele pode alterar para qualquer um".
 
 Fica em config/nomes_tela.json, so com o que o cliente mudou. Campo vazio =
 o nome de fabrica. A tela le daqui ao montar e de novo quando o cliente salva
-na engrenagem (aba NOMES), sem precisar reabrir o JARVIS.
+na engrenagem (aba NOMES), sem precisar reabrir o NIA.
 """
 from __future__ import annotations
 
@@ -18,12 +18,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ARQUIVO = BASE_DIR / "config" / "nomes_tela.json"
 
 # (chave, rotulo na engrenagem, nome de fabrica, maximo de letras)
-# nome de fabrica "" = segue o que o JARVIS ja mostra (o subtitulo muda com o
+# nome de fabrica "" = segue o que o NIA ja mostra (o subtitulo muda com o
 # idioma; o nome no chat segue a voz escolhida).
 CAMPOS: list[tuple[str, str, str, int]] = [
-    ("titulo", "Nome no alto da tela", "J.A.R.V.I.S", 18),
+    ("titulo", "Nome no alto da tela", "N.I.A", 18),
     ("subtitulo", "Frase embaixo do nome", "", 40),
-    ("janela", "Nome da janela (barra do Windows)", "JARVIS", 40),
+    ("janela", "Nome da janela (barra do Windows)", "NIA", 40),
     ("nome_chat", "Nome dele nas mensagens do chat", "", 24),
     ("cartao_sistema", "Título do cartão SISTEMA", "SISTEMA", 22),
     ("cartao_cowork", "Título do cartão COWORK", "COWORK", 22),

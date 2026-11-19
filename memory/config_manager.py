@@ -21,7 +21,7 @@ def save_api_keys(gemini_api_key: str, _sem_uso: str = "") -> None:
     """Grava a chave do Gemini.
 
     O SEGUNDO ARGUMENTO ERA A CHAVE DO OPENROUTER e nao serve mais para nada
-    (05/09/2026): o OpenRouter saiu do JARVIS inteiro. Ele ficou no lugar so
+    (05/09/2026): o OpenRouter saiu do NIA inteiro. Ele ficou no lugar so
     para nao quebrar quem chama esta funcao com dois valores posicionais.
     """
     ensure_config_dir()
@@ -52,8 +52,8 @@ def load_api_keys() -> dict:
         return {}
 
 def get_gemini_key() -> str | None:
-    data = load_api_keys()
-    return data.get("gemini_api_key") or data.get("GEMINI_API_KEY") or data.get("google_api_key")
+    from core.llm_router import resolver
+    return resolver("gemini")
 
 def is_configured() -> bool:
     key = get_gemini_key()

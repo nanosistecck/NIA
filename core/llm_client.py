@@ -1,5 +1,5 @@
 """
-Local LLM client for JARVIS.
+Local LLM client for NIA.
 
 Supports two backends — selected via  "llm_provider"  in config/api_keys.json:
 
@@ -21,10 +21,26 @@ import re
 import subprocess
 import sys
 import time
+import os
+import tempfile
+import threading
 from pathlib import Path
 from typing import Callable, Generator
 
 import requests
+from core.http_seguranca import validar_endpoint
+
+_CONFIG_LOCK = threading.RLock()
+_MOTOR_CONVERSA = 'nenhuma chamada nesta sessão'
+
+
+def registrar_motor_conversa(nome):
+    global _MOTOR_CONVERSA
+    _MOTOR_CONVERSA = str(nome)
+
+
+def motor_conversa_em_uso():
+    return _MOTOR_CONVERSA
 
 # Matches a sentence boundary: [.!?] followed by whitespace, or a blank line.
 # Avoids splitting on decimals (3.5) because those have no space after the dot.
@@ -42,7 +58,6 @@ CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 _DEFAULTS = {
     "llm_url":      "http://localhost:11434",
     "llm_model":    "llama3.2",
-    "llm_provider": "ollama",   # "ollama" | "openai"
 }
 
 
@@ -73,7 +88,7 @@ def ensure_ollama_running(timeout: int = 15) -> bool:
         # by the user — we just check if they're reachable.
         health = f"{url}/v1/models"
         try:
-            ok = requests.get(health, timeout=5).status_code == 200
+            ok = requests.get(health, timeout=5, allow_redirects=False).status_code == 200
             if ok:
                 print(f"[LLM] OpenAI-compatible server reachable at {url}")
             else:
@@ -91,12 +106,16 @@ def ensure_ollama_running(timeout: int = 15) -> bool:
 
     def _is_up() -> bool:
         try:
-            return requests.get(health, timeout=3).status_code == 200
+            return requests.get(health, timeout=3, allow_redirects=False).status_code == 200
         except Exception:
             return False
 
     if _is_up():
         return True
+
+    from urllib.parse import urlsplit
+    if urlsplit(url).hostname not in ('localhost', '127.0.0.1', '::1'):
+        return False
 
     print("[LLM] Ollama not running — launching 'ollama serve'…")
     try:
@@ -134,7 +153,7 @@ def warmup_model(system_prompt: str | None = None) -> bool:
     to evaluate the small delta (user message ± time context) instead of the full
     300-500 token system prompt → drops first-token latency from ~17 s to <1 s.
 
-    Pass the *static* part of the system prompt (the JARVIS protocol text, without
+    Pass the *static* part of the system prompt (the NIA protocol text, without
     timestamps or per-minute context) so the prefix stays valid across calls.
     """
     url, model = get_llm_settings()
@@ -156,7 +175,7 @@ def warmup_model(system_prompt: str | None = None) -> bool:
             "max_tokens": 1,
         }
         try:
-            resp = requests.post(f"{url}/v1/chat/completions", json=payload, timeout=180)
+            resp = requests.post(f"{url}/v1/chat/completions", json=payload, timeout=180, allow_redirects=False)
             resp.raise_for_status()
             print(f"[LLM] '{model}' ready (OpenAI-compatible server).")
             return True
@@ -175,7 +194,7 @@ def warmup_model(system_prompt: str | None = None) -> bool:
         "options":    {"num_predict": 1, "num_gpu": 99},
     }
     try:
-        resp = requests.post(f"{url}/api/chat", json=payload, timeout=180)
+        resp = requests.post(f"{url}/api/chat", json=payload, timeout=180, allow_redirects=False)
         resp.raise_for_status()
         print(f"[LLM] '{model}' loaded and KV cache primed.")
         return True
@@ -195,14 +214,10 @@ def check_model_available(log: Callable | None = None) -> bool:
 
     url, model = get_llm_settings()
     try:
-        resp = requests.get(f"{url}/api/tags", timeout=5)
+        resp = requests.get(f"{url}/api/tags", timeout=5, allow_redirects=False)
         resp.raise_for_status()
         pulled = [m.get("name", "") for m in resp.json().get("models", [])]
-        model_base = model.split(":")[0]
-        found = any(
-            m == model or m == model_base or m.startswith(model_base + ":")
-            for m in pulled
-        )
+        found = _modelo_instalado(model, pulled)
         if not found:
             available = ", ".join(pulled) if pulled else "none"
             warn = (
@@ -215,7 +230,58 @@ def check_model_available(log: Callable | None = None) -> bool:
                 log(f"WRN: '{model}' not found — run: ollama pull {model}")
         return found
     except Exception:
-        return True   # Ollama might still be starting up; non-blocking
+        return False
+
+
+def _modelo_instalado(modelo, instalados):
+    return modelo in instalados or (':' not in modelo and modelo + ':latest' in instalados)
+
+
+def descobrir_modelos(url=None):
+    """Somente consulta: não inicia serviço nem baixa modelos."""
+    url = validar_endpoint(url or get_llm_settings()[0])
+    try:
+        resp = requests.get(url + '/api/tags', timeout=5, allow_redirects=False)
+        resp.raise_for_status()
+        if resp.status_code != 200:
+            raise ValueError('resposta inesperada')
+        modelos = sorted({m['name'] for m in resp.json()['models'] if m.get('name')})
+        return {'estado': 'disponivel' if modelos else 'sem_modelos', 'modelos': modelos}
+    except Exception:
+        return {'estado': 'inacessivel', 'modelos': []}
+
+
+def salvar_config_local(campos):
+    """Atualização atômica e aditiva; arquivo ilegível não é sobrescrito."""
+    with _CONFIG_LOCK:
+        dados = json.loads(CONFIG_PATH.read_text(encoding='utf-8')) if CONFIG_PATH.exists() else {}
+        if not isinstance(dados, dict):
+            raise ValueError('Configuração inválida')
+        dados.update(campos)
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporario = tempfile.mkstemp(dir=CONFIG_PATH.parent, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as arq:
+                json.dump(dados, arq, ensure_ascii=False, indent=4)
+            os.replace(temporario, CONFIG_PATH)
+        finally:
+            if os.path.exists(temporario):
+                os.unlink(temporario)
+
+
+def ativar_modelo(modelo, url=None, *, modelos_instalados=None):
+    """Valida e persiste a seleção; a UI pode fornecer a descoberta assíncrona."""
+    url = validar_endpoint(url or get_llm_settings()[0])
+    if modelos_instalados is None:
+        modelos_instalados = descobrir_modelos(url)['modelos']
+    if not _modelo_instalado(modelo, modelos_instalados):
+        raise ValueError('Modelo não instalado ou Ollama inacessível; seleção anterior preservada.')
+    salvar_config_local({'llm_provider': 'ollama', 'llm_url': url, 'llm_model': modelo,
+                        'conversation_provider': 'ollama'})
+
+
+def preferencia_conversa():
+    return _load_config().get('conversation_provider', 'legado')
 
 
 def get_llm_settings() -> tuple[str, str]:
@@ -252,7 +318,7 @@ def call_llm(
             payload["tools"]       = tools
             payload["tool_choice"] = "auto"
         try:
-            resp = requests.post(endpoint, json=payload, timeout=timeout)
+            resp = requests.post(endpoint, json=payload, timeout=timeout, allow_redirects=False)
             resp.raise_for_status()
             choice = resp.json().get("choices", [{}])[0]
             msg    = choice.get("message", {})
@@ -292,7 +358,7 @@ def call_llm(
         payload["tools"] = tools
 
     try:
-        resp = requests.post(endpoint, json=payload, timeout=timeout)
+        resp = requests.post(endpoint, json=payload, timeout=timeout, allow_redirects=False)
         resp.raise_for_status()
         data = resp.json()
         msg  = data.get("message", {})
@@ -304,7 +370,7 @@ def call_llm(
         print(f"[LLM] ConnectionError — trying to restart Ollama… ({e})")
         if ensure_ollama_running():
             try:
-                resp = requests.post(endpoint, json=payload, timeout=timeout)
+                resp = requests.post(endpoint, json=payload, timeout=timeout, allow_redirects=False)
                 resp.raise_for_status()
                 data = resp.json()
                 msg  = data.get("message", {})
@@ -339,6 +405,7 @@ def call_llm_text(
     Used by planner, executor, error_handler, code_helper, dev_agent.
     """
     url, default_model = get_llm_settings()
+    provider = get_llm_provider()
     endpoint = f"{url}/api/chat"
     m        = model or default_model
 
@@ -348,15 +415,20 @@ def call_llm_text(
     messages.append({"role": "user", "content": prompt})
 
     payload = {"model": m, "messages": messages, "stream": False, "keep_alive": -1, "options": {"num_predict": 600}}
+    if provider == 'openai':
+        endpoint = f'{url}/v1/chat/completions'
+        payload = {'model': m, 'messages': messages, 'stream': False, 'max_tokens': 600}
 
     try:
-        resp = requests.post(endpoint, json=payload, timeout=timeout)
+        resp = requests.post(endpoint, json=payload, timeout=timeout, allow_redirects=False)
         resp.raise_for_status()
-        return (resp.json().get("message", {}).get("content") or "").strip()
+        data = resp.json()
+        msg = data.get('choices', [{}])[0].get('message', {}) if provider == 'openai' else data.get('message', {})
+        return (msg.get('content') or '').strip()
     except requests.exceptions.ConnectionError:
-        if ensure_ollama_running():
+        if provider == 'ollama' and ensure_ollama_running():
             try:
-                resp = requests.post(endpoint, json=payload, timeout=timeout)
+                resp = requests.post(endpoint, json=payload, timeout=timeout, allow_redirects=False)
                 resp.raise_for_status()
                 return (resp.json().get("message", {}).get("content") or "").strip()
             except Exception:
@@ -394,7 +466,7 @@ def _stream_openai(
         payload["tool_choice"] = "auto"
 
     try:
-        with requests.post(endpoint, json=payload, timeout=timeout, stream=True) as resp:
+        with requests.post(endpoint, json=payload, timeout=timeout, stream=True, allow_redirects=False) as resp:
             resp.raise_for_status()
             full_content = ""
             buf          = ""
@@ -521,7 +593,7 @@ def call_llm_stream(
         payload["tools"] = tools
 
     def _do_stream() -> Generator[dict, None, None]:
-        with requests.post(endpoint, json=payload, timeout=timeout, stream=True) as resp:
+        with requests.post(endpoint, json=payload, timeout=timeout, stream=True, allow_redirects=False) as resp:
             resp.raise_for_status()
             full_content = ""
             tool_calls:  list = []

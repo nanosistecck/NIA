@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """O DIARIO: o que foi dito e o que foi FEITO (05/09/2026).
 
-Pedido do Diego, com o caso na mao. Ele mandou o JARVIS escrever "bom dia" no
+Pedido do Diego, com o caso na mao. Ele mandou o NIA escrever "bom dia" no
 bloco de notas e salvar; minutos depois perguntou "voce lembra o que voce
 escreveu?" e ouviu:
 
@@ -48,7 +48,7 @@ CAMINHO = _base() / "memory" / "diario.jsonl"
 _TRAVA = threading.Lock()
 
 # A CONVERSA E POR SESSAO (10/09/2026, pedido do Diego). Cada vez que o
-# programa abre e uma sessao nova. O caso: ele fechou o JARVIS logo depois de
+# programa abre e uma sessao nova. O caso: ele fechou o NIA logo depois de
 # dizer "ficou top, voce ja fez ja", abriu de novo, arrastou tres arquivos — e
 # ouviu "Valeu, chefe! Que bom que curtiu", resposta a uma fala da sessao
 # ANTERIOR, que o diario continuava mandando ao cerebro como se fosse de

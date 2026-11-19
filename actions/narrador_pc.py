@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""A VOZ enquanto o JARVIS usa o computador sozinho.
+"""A VOZ enquanto o NIA usa o computador sozinho.
 
 Por que existe (03/09/2026)
 ---------------------------
@@ -7,7 +7,7 @@ Uma tarefa na tela leva de 30 segundos a varios minutos. Nesse tempo o mouse
 anda sozinho e a tela pisca. Sem ninguem falando, o dono acha que travou, mexe
 no mouse e ESTRAGA o passo (o clique cai no lugar errado porque a tela mudou).
 
-Entao o JARVIS narra: avisa no comeco, repete de vez em quando com frase DIFERENTE
+Entao o NIA narra: avisa no comeco, repete de vez em quando com frase DIFERENTE
 (a mesma frase repetida soa a robo travado) e conta o que esta fazendo quando o
 Codex manda um marco ("abrindo o YouTube", "achei o campo de pesquisa").
 
@@ -33,8 +33,8 @@ import time
 # nada" — ele grava e atende enquanto o assistente trabalha, e voz no meio
 # atrapalha. La o `FALAR_DURANTE` fica desligado.
 #
-# AJ Consultoria (JARVIS, 04/09/2026): o oposto, e faz sentido — ele NAO fica
-# olhando a tela. Pediu que o JARVIS conte o andamento **de dois em dois minutos**
+# AJ Consultoria (NIA, 04/09/2026): o oposto, e faz sentido — ele NAO fica
+# olhando a tela. Pediu que o NIA conte o andamento **de dois em dois minutos**
 # ("como esta, se esta finalizando, nao mexa no mouse nem no teclado").
 # Por isso, aqui: ligado, a cada 120 s.
 FALAR_DURANTE = True

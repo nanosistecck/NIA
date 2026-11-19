@@ -524,7 +524,7 @@
     if (document.querySelector('canvas[aria-label], [data-ref] canvas, div[data-ref]')) est = 'qr';
     if (document.querySelector('#pane-side, [data-testid="chat-list"], div[aria-label][role="grid"], #side')) est = 'conectado';
     if (est !== ultimoLogin) { ultimoLogin = est; enviar('login', { estado: est }); }
-    // O QR CODE vai para o cartao do JARVIS (o navegador interno fica escondido).
+    // O QR CODE vai para o cartao do NIA (o navegador interno fica escondido).
     // Ele troca sozinho a cada ~20 s: confere a cada 2 s e so' manda quando muda.
     if (est === 'qr' && (contaQr++ % 5) === 0) {
       const cv = document.querySelector('[data-ref] canvas, canvas[aria-label], canvas');

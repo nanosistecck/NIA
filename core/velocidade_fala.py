@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""A velocidade da fala do JARVIS — um numero so, para todas as vozes.
+"""A velocidade da fala do NIA — um numero so, para todas as vozes.
 
 Por que existe (01/09/2026)
 ---------------------------
@@ -39,7 +39,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 VELOCIDADE = 1.5
 
-TAXA = 24_000          # todas as vozes do JARVIS saem em 24 kHz mono, 16 bits
+TAXA = 24_000          # todas as vozes do NIA saem em 24 kHz mono, 16 bits
 
 
 class Acelerador:

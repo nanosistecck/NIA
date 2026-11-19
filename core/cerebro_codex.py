@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""O CEREBRO DO JARVIS: o Codex CLI da VPS (04/09/2026).
+"""O CEREBRO DO NIA: o Codex CLI da VPS (04/09/2026).
 
 Por que ele existe
 ------------------
@@ -11,17 +11,17 @@ Decisao do Diego, depois de medirmos os tres caminhos com o pedido de verdade:
 
 Ele escolheu o Codex e mandou tirar o OpenRouter inteiro: "assim nao dependo
 mais de cota de ninguem". O preco combinado sao os ~5 s por resposta; o ganho e
-que o JARVIS nunca mais fica sem responder no meio do dia do cliente.
+que o NIA nunca mais fica sem responder no meio do dia do cliente.
 
 O DESENHO E O MESMO DO COMPUTER USE, e nao por acaso — aquele ja esta aprovado
 e rodando: a VPS DECIDE, o PC EXECUTA. O Codex nunca toca no computador do
-cliente; ele recebe a fala e a lista de ferramentas do JARVIS e devolve uma linha
+cliente; ele recebe a fala e a lista de ferramentas do NIA e devolve uma linha
 de JSON:
 
     {"fala": "..."}                                    so conversa
     {"fala": "...", "ferramenta": "nome", "args": {}}   chamar ferramenta
 
-Quem executa a ferramenta e o `executor` do proprio JARVIS — o mesmo que a Gemini
+Quem executa a ferramenta e o `executor` do proprio NIA — o mesmo que a Gemini
 usa. Depois de executar, o resultado volta para a VPS e ele fecha com a frase
 final, contando o que aconteceu de verdade.
 
@@ -55,7 +55,7 @@ import threading
 # Queixa do Diego: "ele tem que agir como uma IA avancada, entender o contexto
 # da conversa". Fui ver e o defeito era estrutural, nao de comportamento:
 #
-#   * o JARVIS TEM memoria de longo prazo (`memory/long_term.json`) e TEM a
+#   * o NIA TEM memoria de longo prazo (`memory/long_term.json`) e TEM a
 #     ferramenta de gravar nela (`save_memory`);
 #   * mas a memoria so era montada dentro do `_build_config`, que e a
 #     configuracao da GEMINI AO VIVO — um caminho que hoje nao decide nada.
@@ -121,13 +121,13 @@ _REGRAS_DO_TURNO = (
     "dele, um gesto: e a WEBCAM. O que esta escrito ou aberto no computador: e "
     "a TELA. Se ele falar em webcam ou camera, use a ferramenta da camera — "
     "nunca a foto da tela.\n"
-    # Ele perguntou "que objeto e esse na minha mao?" e o JARVIS respondeu com o
+    # Ele perguntou "que objeto e esse na minha mao?" e o NIA respondeu com o
     # objeto de MEIA HORA ANTES, que estava no diario, sem olhar a camera.
     "O DIARIO E O PASSADO. Para saber o que esta acontecendo AGORA — o que a "
     "camera ve, o que esta na tela, que horas sao, o que tem numa pasta — OLHE "
     "de novo com a ferramenta, sempre. E proibido responder sobre o presente "
     "com o que esta escrito no diario.\n"
-    # Ele perguntou "voce lembra o que escreveu no bloco de notas?" e o JARVIS
+    # Ele perguntou "voce lembra o que escreveu no bloco de notas?" e o NIA
     # ABRIU o bloco de notas e digitou "Nao tenho acesso ao historico..." la
     # dentro. Duas vezes seguidas, com ele dizendo "nao quero que digite nada".
     "PERGUNTA NAO E ORDEM. 'Voce lembra...', 'o que voce escreveu', 'voce "
@@ -190,7 +190,7 @@ def _pastas_de_verdade() -> str:
 
 
 def _com_a_memoria(pergunta: str) -> str:
-    """Junta na pergunta, como nota interna, o que o JARVIS ja sabe: a memoria
+    """Junta na pergunta, como nota interna, o que o NIA ja sabe: a memoria
     do dono e os caminhos reais desta maquina."""
     partes = []
     try:
@@ -333,7 +333,7 @@ def _resumo_das_ferramentas(ferramentas_openai: list) -> list:
         nome = str(fn.get("name") or "").strip()
         if not nome:
             continue
-        # 400 e nao 260: varias ferramentas do JARVIS explicam NO TEXTO quais
+        # 400 e nao 260: varias ferramentas do NIA explicam NO TEXTO quais
         # valores o parametro aceita (o `file_controller` lista as acoes ali),
         # e cortar em 260 comia justamente essa parte. O total ainda fica em
         # ~2.000 fichas, contra 6.635 do esquema JSON inteiro.
@@ -347,7 +347,7 @@ def _resumo_das_ferramentas(ferramentas_openai: list) -> list:
         # queimar o teto de fichas por minuto da conta do Diego — e quando o
         # teto estoura, a VOZ (que sai da mesma conta) engasga junto: medi um
         # "primeiro som" de 9,8 s logo depois de um 429. Nenhuma ferramenta do
-        # JARVIS precisa de mais de seis parametros para ser escolhida; os que
+        # NIA precisa de mais de seis parametros para ser escolhida; os que
         # sobram sao detalhe que o executor resolve.
         for p, d in list(props.items())[:6]:
             d = d or {}
@@ -360,7 +360,7 @@ def _resumo_das_ferramentas(ferramentas_openai: list) -> list:
             # escolhe entre o que existe. Custa poucas fichas e evita a volta.
             opcoes = d.get("enum") or (d.get("items") or {}).get("enum") or []
             # A LISTA QUE MORA NA DESCRICAO (01/10/2026). Muitos parametros do
-            # JARVIS nao tem `enum`: os valores vem escritos ("connect | status |
+            # NIA nao tem `enum`: os valores vem escritos ("connect | status |
             # send_text | ..."). Cortada em 30 caracteres, a lista do WhatsApp
             # parava em "connect | status | disconnect" — o cerebro nunca via
             # `send_text` e mandava "connect" para enviar mensagem. O mesmo com
@@ -386,7 +386,7 @@ def _resumo_das_ferramentas(ferramentas_openai: list) -> list:
             # Foi o que derrubou "abre a webcam" no teste de 04/09: o
             # `vision_control` aceita start|stop|status|restart, e isso esta
             # escrito na descricao do proprio `action` — que eu nao mandava. O
-            # Codex escolheu a ferramenta CERTA e inventou a acao, e o JARVIS
+            # Codex escolheu a ferramenta CERTA e inventou a acao, e o NIA
             # respondeu "nao consegui abrir sua webcam" com o log dizendo
             # "Acao invalida". Uma linha de 70 caracteres resolve.
             # 55 -> 30 caracteres. O que importa aqui e a DICA do valor
@@ -431,7 +431,7 @@ class CerebroCodex:
     def __init__(self, ponte=None) -> None:
         self.ponte = ponte
         self.job_id = secrets.token_hex(8)
-        self.nome = "JARVIS"
+        self.nome = "NIA"
         self.jeito = ""
         # Voz para os passos do meio de uma tarefa encadeada. Quem injeta e o
         # orquestrador; sem ela o dono so ouve o fim (e ate la fica no escuro).
@@ -445,7 +445,7 @@ class CerebroCodex:
 
     def disponivel(self) -> bool:
         # A ponte OU a Gemini do proprio cliente (01/10/2026): com a chave dele
-        # o JARVIS pensa mesmo com o servidor fora do ar.
+        # o NIA pensa mesmo com o servidor fora do ar.
         if self._tem_ponte():
             return True
         try:
@@ -632,7 +632,7 @@ class CerebroCodex:
         agora = datetime.now()
         ctx = {
             "jeito": self.jeito or "",
-            "nome": self.nome or "JARVIS",
+            "nome": self.nome or "NIA",
             "agora": f"{semana[agora.weekday()]}, {agora.strftime('%d/%m/%Y %H:%M')}",
         }
         # CLIENTE EM INGLES (26/09/2026): o cerebro da VPS troca a regra de
@@ -727,7 +727,7 @@ class CerebroCodex:
                 # Este caminho e usado tambem para PEDIR TEXTO ("escreva um
                 # script de calculadora"), e ali nao ha ferramenta nenhuma para
                 # executar. Antes o codigo respondia "Ferramenta indisponivel."
-                # e esse texto virava o CONTEUDO — foi o que o JARVIS digitou
+                # e esse texto virava o CONTEUDO — foi o que o NIA digitou
                 # dentro do bloco de notas do dono. Agora o pedido de ferramenta
                 # e ignorado e vale o que ele falou.
                 break
@@ -739,7 +739,7 @@ class CerebroCodex:
             # os 14 s inteiros no escuro, sem saber se tinha sido ouvido. O
             # tempo total nao muda (a volta do cerebro e 4 s medidos, e nao ha
             # o que cortar ali), mas a ESPERA CALADA muda: ele ouve na hora que
-            # o JARVIS entendeu e ja esta trabalhando.
+            # o NIA entendeu e ja esta trabalhando.
             #
             # Numa linha separada, senao a fala (1,5 s) seria somada ao total.
             # E so para ferramenta LENTA: em "abre o bloco de notas" o resultado
@@ -808,7 +808,7 @@ class CerebroCodex:
             # mas demora dez segundos para DIZER que abriu".) A segunda volta
             # ao Codex existia so para transformar o resultado da ferramenta
             # numa frase — e custa mais 4 a 9 s. So que a maioria das
-            # ferramentas do JARVIS ja devolve a frase pronta, em portugues:
+            # ferramentas do NIA ja devolve a frase pronta, em portugues:
             # "Bloco de Notas aberto.", "Nao consegui abrir a webcam". Quando e
             # esse o caso, a fala sai NA HORA e a volta e economizada.
             #
@@ -881,12 +881,12 @@ class CerebroCodex:
 
     # O AVISO TARDIO (24/10/2026). Queixa do Diego: "ta demorando um pouco para
     # responder". No registro, `open_app` levou 5,2 s em media (9 de 9 acima de
-    # 1,2 s) e, como nao e ferramenta "demorada", o JARVIS ficava calado ate o
+    # 1,2 s) e, como nao e ferramenta "demorada", o NIA ficava calado ate o
     # programa abrir: 9,4 s entre o dono falar e ouvir alguma coisa. Agora, se
     # a ferramenta passar deste prazo, a fala que o cerebro ja tinha escrito sai
     # JUNTO com o trabalho. Ferramenta rapida continua igual: so o resultado.
     _AVISO_TARDIO_S = 1.2
-    # Quem ja tem a propria voz no comeco: o executor do JARVIS anuncia estas
+    # Quem ja tem a propria voz no comeco: o executor do NIA anuncia estas
     # (`_AVISOS_DEMORADAS` do main.py), o computer use e a tarefa narram
     # sozinhos, e no WhatsApp a fala previa ("mensagem mandada") vem ANTES de
     # saber se o contato existe — quem fala ali e a confirmacao literal.
@@ -933,7 +933,7 @@ class CerebroCodex:
         """Pede CONTEUDO (nao acao): texto puro de volta, sem ferramenta.
 
         Caminho separado de proposito — ver o `modo texto` no jarvis-cerebro.js.
-        Misturar os dois foi o que fez o JARVIS digitar "nao ha ferramenta
+        Misturar os dois foi o que fez o NIA digitar "nao ha ferramenta
         disponivel" dentro do bloco de notas do dono.
         """
         if not self.disponivel():
@@ -971,7 +971,7 @@ class CerebroCodex:
             ferramentas=[], contexto=ctx, modo="imagem", imagem=imagem, timeout=120.0)
         # SERVIDOR VELHO: um cerebro anterior a 05/09/2026 nao conhece o modo
         # imagem — ele IGNORA a foto e responde como se fosse uma decisao de
-        # ferramenta. Deixar isso passar seria pior que falhar: o JARVIS falaria
+        # ferramenta. Deixar isso passar seria pior que falhar: o NIA falaria
         # sobre uma tela que ninguem olhou.
         if (r or {}).get("ferramenta"):
             raise RuntimeError("a VPS ainda esta com o cerebro antigo (sem modo imagem)")
@@ -1015,9 +1015,9 @@ _FERRAMENTAS_QUE_JA_RESPONDEM = {"screen_process"}
 
 
 def _anotar(evento: str, detalhe: str = "") -> None:
-    """Uma linha no diario do JARVIS (`logs/voice_session.log`).
+    """Uma linha no diario do NIA (`logs/voice_session.log`).
 
-    O `print` daqui nao aparece: o JARVIS roda no `pythonw`. E entender por que o
+    O `print` daqui nao aparece: o NIA roda no `pythonw`. E entender por que o
     cerebro demorou foi, tres vezes esta semana, o trabalho mais caro do dia.
     """
     try:
@@ -1051,7 +1051,7 @@ def _resposta_pronta(saida) -> str:
 # Quando o cerebro e chamado para ESCREVER algo ("um script de calculadora"), a
 # resposta dele e o texto que sera digitado no computador do dono. Se ele
 # responde "nao consigo, nenhuma ferramenta esta disponivel", isso NAO e o
-# conteudo — mas era tratado como se fosse, e o JARVIS digitou essa frase dentro do
+# conteudo — mas era tratado como se fosse, e o NIA digitou essa frase dentro do
 # bloco de notas do Diego. Duas vezes, com o dono olhando.
 _RECUSA = re.compile(
     r"\b(nao consigo|nao posso|nao tenho|nao foi possivel|nao ha ferramenta|"

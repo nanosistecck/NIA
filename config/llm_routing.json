@@ -1,0 +1,26 @@
+{
+  "router": {
+    "estrategia": "auto",
+    "cadeia": [
+      "gemini",
+      "openai",
+      "codex"
+    ],
+    "genericos": {
+      "ativo": true,
+      "prioridade": "reserva",
+      "max": 3
+    },
+    "provedores": {
+      "gemini": {
+        "chaves": []
+      },
+      "openai": {
+        "chaves": []
+      },
+      "codex": {
+        "chaves": []
+      }
+    }
+  }
+}

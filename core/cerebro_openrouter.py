@@ -1,53 +1,11 @@
-"""O CEREBRO DO JARVIS — hoje ele pensa pelo Codex da VPS, nao mais pelo OpenRouter.
+"""Motor de conversa da NIA: escada externa ou preferência explícita por Ollama.
 
-MUDANCA DE 04/09/2026 (decisao do Diego, com os tres caminhos medidos):
-
-    Gemini gratuita do cliente ..... 0,7 a 1,0 s   ~20 perguntas/dia, 429 direto
-    OpenRouter gratuito do cliente . 1,1 a 1,9 s   50 pedidos/dia, as vezes vazio
-    Codex CLI na nossa VPS ......... 4,5 a 5,4 s   SEM cota, no plano do dono
-
-O OpenRouter saiu INTEIRO daqui — chave, modelos, fila de reserva. A escada
-agora e: Gemini do cliente (quando a cota dela deixa) -> Codex da VPS (sempre).
-O preco combinado sao os ~5 s por resposta; o ganho e que o JARVIS nao fica sem
-responder no meio do dia de trabalho do cliente.
-
-O NOME DO ARQUIVO E DA CLASSE FICOU. Nao e descuido: o que este arquivo faz
-nunca foi "falar com o OpenRouter" — e orquestrar o prompt, a personalidade, o
-historico, as travas anti-mentira e o corte do texto para a voz. Trocar o nome
-mexeria em 30 pontos do main.py sem mudar uma linha de comportamento.
-
-O computer use NAO passa por aqui (ordem do dono, e ele esta aprovado): ele fala
-com o `jarvis-olhar.js` da VPS pelo seu proprio caminho.
-
-Cerebro do JARVIS pelo OpenRouter — rapido e fora da cota da Gemini.
-
-Medido em 30/08/2026 com a chave do Diego:
-    openai/gpt-4.1-mini      1,1 s
-    google/gemini-2.5-flash  1,3 s
-    llama-3.3-70b            4,6 s
-Contra 3 a 5 s da Gemini ao vivo (quando saudavel) e 12 a 19 s do Codex na VPS.
-
-Com o whisper local (0,5 s) e o Kokoro local (1,0 s), a conversa inteira fica em
-torno de 3 s **sem gastar um byte da cota de audio da Gemini**, que e cobrada por
-SEGUNDO e era o que estrangulava tudo.
-
-Conversa fica aqui; TRABALHO vai para o Codex na VPS. O proprio modelo decide,
-por chamada de ferramenta — nada de adivinhar por palavra-chave, que erra tanto
-para mais ("que horas sao" virando pesquisa) quanto para menos.
-
-Ferramentas ligadas (30/08/2026, a pedido do Diego):
-    hora_agora     respondida AQUI mesmo, do relogio do PC: instantanea
-    pesquisar      noticias e qualquer coisa que precise da internet -> Codex
-    criar_imagem   -> Codex (kind image)
-    editar_imagem  -> Codex (kind image_edit), usa a foto arrastada na janela
-    buscar_leads   -> Codex (kind leads)
+Preserva personalidade, histórico e execução de ferramentas. O nome do módulo
+continua estável para os consumidores existentes; não há cliente OpenRouter aqui.
 """
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
-from pathlib import Path
 
 # Verbos que indicam PEDIDO DE ACAO. Se o cliente usou um destes e o modelo nao
 # chamou ferramenta, ele esta inventando que fez.
@@ -91,7 +49,7 @@ _ASSUNTOS_DA_MAQUINA = (
 
 # "Conta" tem dois sentidos e so um e tarefa: "conta quantos arquivos tem na
 # pasta" e consulta ao PC, mas "me conta uma piada" e conversa. Sem esta
-# excecao a trava cobrava ferramenta para contar piada e o JARVIS respondia
+# excecao a trava cobrava ferramenta para contar piada e o NIA respondia
 # que nao consegue.
 _CONVERSA_DISFARCADA = _re_acao.compile(
     r"\b(conta|conte|contar|fala|fale|falar|diz|diga|manda|mande|mandar|"
@@ -103,7 +61,7 @@ _CONVERSA_DISFARCADA = _re_acao.compile(
     r"resenha|zoeira|indireta)\b")
 
 # Pedido de FALA: cumpre-se falando, nao chamando ferramenta. "Manda um salve
-# pra rapaziadinha" nao e tarefa de computador — e o JARVIS abrindo a boca.
+# pra rapaziadinha" nao e tarefa de computador — e o NIA abrindo a boca.
 # Em 30/08/2026 a trava tratou isso como acao, nao achou ferramenta e obrigou a
 # recusa: "nao tenho ferramenta pra mandar audio ou mensagem". O dono odiou, com
 # razao. Quando o alvo do pedido e uma PESSOA ou um PUBLICO, e conversa.
@@ -118,7 +76,7 @@ _PEDIDO_DE_FALA = _re_acao.compile(
 
 # PROMESSA DE FUTURO — a mentira que a trava original nao pegava.
 #
-# Em 31/08/2026 o Diego pediu CPU, RAM e disco. O JARVIS chamou a ferramenta,
+# Em 31/08/2026 o Diego pediu CPU, RAM e disco. O NIA chamou a ferramenta,
 # falou do processador e terminou com "vou abrir a aba de Performance, ja
 # volto". Nao existe "ja volto": o turno acabou ali e ele nunca voltou.
 #
@@ -150,7 +108,7 @@ def _promete_sem_cumprir(texto: str) -> bool:
 _PRECISA_DO_MUNDO = (
     "que horas", "horas sao", "horas e", "que hora", "a hora", "das horas",
     # "que dia" sozinho e generico demais: pegava "nossa, que dia dificil foi
-    # esse" e o JARVIS respondia a data. As formas abaixo so aparecem quando a
+    # esse" e o NIA respondia a data. As formas abaixo so aparecem quando a
     # pessoa quer MESMO saber o dia.
     "dia e hoje", "dia de hoje", "data de hoje", "hoje e dia", "que dia estamos",
     "que dia sera", "que mes", "que ano",
@@ -164,7 +122,7 @@ _PRECISA_DO_MUNDO = (
 
 # CASAR POR PALAVRA INTEIRA, nao por pedaco.
 #
-# Em 01/09/2026 o Diego disse "amanha EU tenho que trabalhar" e o JARVIS
+# Em 01/09/2026 o Diego disse "amanha EU tenho que trabalhar" e o NIA
 # respondeu a hora — tres vezes. O termo "amanha e" da lista casava dentro de
 # "amanha eu": busca por substring nao sabe onde a palavra acaba. Com fronteira
 # de palavra o problema some, e as perguntas de verdade continuam pegando.
@@ -175,7 +133,7 @@ _RE_MUNDO = _re_acao.compile(
 # HORA COM NUMERO NA FRENTE E DURACAO, NAO PERGUNTA (01/09/2026).
 #
 # "tenho que trabalhar daqui a 4 HORAS E nao to a fim de dormir" disparou o
-# gatilho "horas e" e o JARVIS respondeu que horas eram — pela terceira vez na
+# gatilho "horas e" e o NIA respondeu que horas eram — pela terceira vez na
 # mesma conversa. As palavras do gatilho estavam la, mas ninguem tinha
 # perguntado nada.
 #
@@ -260,11 +218,6 @@ MODELO_PADRAO = "codex"
 # passa facil de 20 trocas. Zera quando o programa fecha, como ele quer.
 MEMORIA_MAX = 120
 
-# O OpenRouter gratuito, quando entra como ultimo recurso, continua no aperto:
-# la o teto por pedido e real e derruba a resposta inteira.
-MEMORIA_GRATUITO = 6
-
-
 # O RELOGIO VAI NA CONVERSA, NAO NO PROMPT DE SISTEMA (03/09/2026).
 #
 # Por que existe: "que horas sao" era a pergunta mais comum do cliente e a mais
@@ -298,7 +251,7 @@ _MESES = ("janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho",
 # PEDIDO COM MAIS DE UMA ACAO (05/09/2026).
 #
 # Caso real: "abre o meu bloco de notas E DENTRO DELA DIGITA um script em Python
-# de uma calculadora". O JARVIS chamou `open_app`, recebeu "o Bloco de Notas ja
+# de uma calculadora". O NIA chamou `open_app`, recebeu "o Bloco de Notas ja
 # esta aberto" e PAROU ali — tratou o primeiro passo como se fosse a tarefa
 # inteira. O laco de varias voltas existe no `cerebro_codex`; o que faltava era
 # alguem AVISAR que ainda havia trabalho.
@@ -349,7 +302,7 @@ def _quanto_calar_a_gemini(texto_do_erro: str) -> tuple[float, str]:
     gratuita tem DOIS limites — por MINUTO e por DIA — e os dois chegam com o
     mesmo codigo 429. Fazer tres perguntas seguidas (exatamente o que acontece
     num teste ao vivo, ou quando o dono conversa animado) estoura o de minuto...
-    e o JARVIS passava o resto do DIA no degrau lento, respondendo em 2 a 16 s em
+    e o NIA passava o resto do DIA no degrau lento, respondendo em 2 a 16 s em
     vez de 1 s. Provado aqui: o 429 chegou e, quinze segundos depois, a mesma
     chave respondeu normalmente.
 
@@ -365,7 +318,7 @@ def _quanto_calar_a_gemini(texto_do_erro: str) -> tuple[float, str]:
     # A mensagem real desta conta traz as duas coisas ao mesmo tempo:
     #   "Please retry in 34.8s"  ...  quotaId: GenerateRequestsPerDayPerProject
     # Lendo o ROTULO ("PerDay") eu calaria a Gemini por 24 horas quando ela
-    # volta em 35 segundos — e foi assim que o JARVIS passou a noite inteira no
+    # volta em 35 segundos — e foi assim que o NIA passou a noite inteira no
     # degrau lento do OpenRouter (2 a 16 s por resposta) em vez de responder em
     # 1 s. O prazo e informacao; o rotulo e so nome de contador.
     achado = _re.search(r"retry(?:delay)?['\"]?\s*(?:in|:|=)?\s*['\"]?(\d+)", t)
@@ -395,13 +348,15 @@ def _openai_morta(texto_do_erro: str) -> bool:
 
 
 class CerebroOpenRouter:
-    def __init__(self, modelo: str = MODELO_PADRAO, sistema: str = "") -> None:
+    def __init__(self, modelo: str = MODELO_PADRAO, sistema: str = "", router=None) -> None:
         # NAO LE MAIS CHAVE NENHUMA AQUI (04/09/2026). A do OpenRouter deixou
         # de existir no caminho do cerebro, e a da Gemini quem le e o
-        # `cerebro_gemini`. Sem isto, o JARVIS nem abria quando faltava a chave —
+        # `cerebro_gemini`. Sem isto, o NIA nem abria quando faltava a chave —
         # e agora ele PRECISA abrir mesmo sem chave nenhuma do cliente, porque
         # o Codex da VPS responde de qualquer jeito.
         self.modelo = modelo or MODELO_PADRAO
+        # FASE: o Router com o pool de chaves (multi-key + failover automatico).
+        self.router = router
         # A ponte com a VPS (o `relay_client`). Quem injeta e o main.py, que e
         # quem a tem. Sem ela sobra a Gemini; sem as duas, ele avisa o dono em
         # vez de inventar resposta.
@@ -473,7 +428,7 @@ class CerebroOpenRouter:
                     # DESCRICAO ENXUTA. As do formato Gemini trazem paragrafos
                     # de explicacao, e somadas dao ~7.819 fichas nas 28 — mais
                     # que o teto de 7.866 fichas por pedido da conta gratis do
-                    # OpenRouter. Resultado: erro 402 e o JARVIS mudo.
+                    # OpenRouter. Resultado: erro 402 e o NIA mudo.
                     #
                     # Cortar na FRASE, nao no caractere: uma descricao truncada
                     # no meio da palavra confunde o modelo mais do que ajuda.
@@ -532,7 +487,7 @@ class CerebroOpenRouter:
             p = PERSONALIDADES.get(self.personalidade)
             if not p:
                 return ""
-            nome = nome_da_ia(getattr(self, "personagem", "")) or "JARVIS"
+            nome = nome_da_ia(getattr(self, "personagem", "")) or "NIA"
             partes = [
                 f"Voce e {nome}, o assistente pessoal do dono deste computador.",
                 str(p.get("jeito") or "").strip(),
@@ -581,14 +536,14 @@ class CerebroOpenRouter:
                 return ""
             # OS SINAIS PRECISAM ESTAR ESCRITOS (05/09/2026).
             #
-            # A voz do JARVIS INTERPRETA o que le: "hmm" vira hesitacao de
+            # A voz do NIA INTERPRETA o que le: "hmm" vira hesitacao de
             # verdade, "ahh" vira suspiro, reticencias viram pausa. Isso ja
             # estava dito no prompt grande (EXPRESSAO_INTERPRETA em
             # personas.py) — mas o cerebro da VPS nao recebe aquele prompt, so
             # este lembrete de 400 caracteres. Resultado: ele escrevia frases
             # limpas e a voz saia correta, porem sem alma.
             #
-            # Sao ~45 fichas por pergunta (US$ 0,00001). O ganho e o JARVIS soar
+            # Sao ~45 fichas por pergunta (US$ 0,00001). O ganho e o NIA soar
             # gente; o custo nao aparece na fatura.
             return ("LEMBRETE DO SEU JEITO (obedeça isto na resposta de agora, "
                     "sem exceção): %s "
@@ -664,6 +619,14 @@ class CerebroOpenRouter:
     # A nossa API entra quando a do cliente acaba. Ver `_pensar`.
     usar_openai = True
 
+    # PROVEDORES DO CATALOGO (04/2026): qualquer provedor do `core/provedores.py`
+    # que fale OpenAI-compat e tenha chave no banco vira um degrau da escada.
+    # Fica em "reserva" (depois de Codex/Gemini/OpenAI) por padrao, para nao
+    # mudar o comportamento de quem nao cadastrou chave nenhuma. O
+    # `config/llm_routing.json` (`genericos.prioridade = "preferido"`) coloca
+    # esses provedores na frente do Codex.
+    usar_generico = True
+
     # Ate quando NAO tentar a Gemini de novo (relogio do sistema). E preenchido
     # quando ela devolve 429 de cota diaria: bater nela a cada frase so gastaria
     # o tempo do cliente esperando o erro chegar.
@@ -682,6 +645,7 @@ class CerebroOpenRouter:
         Chamada SEM ferramenta e SEM historico: e pergunta tecnica seca, e a
         personalidade (malandro, brincalhao) so atrapalharia.
         """
+        self._sincronizar_credenciais()
         from actions.tarefa_comando import PEDIDO_AO_CODEX, SISTEMA_DO_COMANDO  # noqa: PLC0415
         mensagens = [
             {"role": "system", "content": SISTEMA_DO_COMANDO},
@@ -696,11 +660,11 @@ class CerebroOpenRouter:
         # minusculo — algumas centenas de fichas, fracao de centavo. Medido nas
         # mesmas tres tarefas: Luna 3/3, Gemini 2/3 (e uma levou 19,5 s).
         # Economizar meio centavo para o comando sair torto nao vale.
-        if self.usar_openai:
+        if self.usar_openai and not getattr(self, "_openai_bloqueada", False):
             try:
                 from core.cerebro_openai import CerebroOpenAI  # noqa: PLC0415
                 if getattr(self, "_openai", None) is None:
-                    self._openai = CerebroOpenAI()
+                    self._openai = CerebroOpenAI(router=self.router)
                 # `responder` E CONVERSA FALADA: teto de 700 fichas de saida.
                 # Serve para "abre o bloco de notas", nao para um Set-Content
                 # com um programa inteiro dentro do -Value. Em 08/09/2026 o
@@ -714,13 +678,13 @@ class CerebroOpenRouter:
                     return texto
             except Exception as exc:
                 if _openai_morta(str(exc)):
-                    self.usar_openai = False
-                print(f"[JARVIS] nossa API nao escreveu o comando: {str(exc)[:120]}")
-        if self.usar_gemini and _t.time() >= self._gemini_ate:
+                    self._openai_bloqueada = True
+                print(f"[NIA] nossa API nao escreveu o comando: {str(exc)[:120]}")
+        if self.usar_gemini and not getattr(self, "_gemini_bloqueada", False) and _t.time() >= self._gemini_ate:
             try:
                 from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
                 if getattr(self, "_gemini", None) is None:
-                    self._gemini = CerebroGemini()
+                    self._gemini = CerebroGemini(router=self.router)
                 # Mesma razao do degrau acima — e aqui o teto do `responder` e
                 # ainda menor (400 fichas).
                 texto = self._gemini.escrever_longo(
@@ -731,6 +695,12 @@ class CerebroOpenRouter:
                 texto = str(exc)
                 if "429" in texto or "RESOURCE_EXHAUSTED" in texto:
                     self._gemini_ate = _t.time() + _quanto_calar_a_gemini(texto)[0]
+        # Antes do Codex: se o usuario cadastrou chave de um provedor do
+        # catalogo (Groq, Cerebras, Mistral...), ela responde comando em 1-2 s.
+        texto = self._escrever_com_generico(mensagens[0]["content"],
+                                            mensagens[1]["content"], max_tokens=1500)
+        if texto:
+            return texto
         # Ultimo degrau: o Codex da VPS (era o gratuito do OpenRouter).
         return self.escrever_comando(tarefa)
 
@@ -769,24 +739,25 @@ class CerebroOpenRouter:
         instrucao dele + esta chamada. Ordem: nossa OpenAI -> Gemini do cliente
         -> Codex da VPS.
         """
+        self._sincronizar_credenciais()
         import time as _t  # noqa: PLC0415
-        if self.usar_openai:
+        if self.usar_openai and not getattr(self, "_openai_bloqueada", False):
             try:
                 from core.cerebro_openai import CerebroOpenAI  # noqa: PLC0415
                 if getattr(self, "_openai", None) is None:
-                    self._openai = CerebroOpenAI()
+                    self._openai = CerebroOpenAI(router=self.router)
                 t = self._openai.escrever_longo(instrucao, pedido)
                 if t.strip():
                     return t
             except Exception as exc:
                 if _openai_morta(str(exc)):
-                    self.usar_openai = False
-                print(f"[JARVIS] nossa API nao escreveu o texto: {str(exc)[:120]}")
-        if self.usar_gemini and _t.time() >= self._gemini_ate:
+                    self._openai_bloqueada = True
+                print(f"[NIA] nossa API nao escreveu o texto: {str(exc)[:120]}")
+        if self.usar_gemini and not getattr(self, "_gemini_bloqueada", False) and _t.time() >= self._gemini_ate:
             try:
                 from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
                 if getattr(self, "_gemini", None) is None:
-                    self._gemini = CerebroGemini()
+                    self._gemini = CerebroGemini(router=self.router)
                 t = self._gemini.escrever_longo(instrucao, pedido)
                 if t.strip():
                     return t
@@ -794,6 +765,10 @@ class CerebroOpenRouter:
                 texto = str(exc)
                 if "429" in texto or "RESOURCE_EXHAUSTED" in texto:
                     self._gemini_ate = _t.time() + _quanto_calar_a_gemini(texto)[0]
+        # Mesmo degrau do catalogo antes do Codex (texto longo).
+        t = self._escrever_com_generico(instrucao, str(pedido))
+        if t.strip():
+            return t
         # Ultimo degrau: o Codex da VPS. Texto longo (um programa inteiro,
         # uma carta) e justamente onde ele e melhor que modelo gratuito.
         cerebro = self._cerebro_codex(a_parte=True)
@@ -817,7 +792,7 @@ class CerebroOpenRouter:
         """O Codex da VPS, criado na primeira vez que precisar dele.
 
         Devolve None quando nao ha ponte (o programa acabou de abrir, a rede
-        caiu). Quem chama trata: o JARVIS prefere dizer que nao consegue pensar
+        caiu). Quem chama trata: o NIA prefere dizer que nao consegue pensar
         agora a inventar uma resposta.
 
         `a_parte=True` devolve um cerebro com CONVERSA PROPRIA, e existe por um
@@ -833,7 +808,7 @@ class CerebroOpenRouter:
                 if getattr(self, "_codex_aux", None) is None:
                     self._codex_aux = CerebroCodex(ponte=self.ponte)
                 self._codex_aux.ponte = self.ponte
-                self._codex_aux.nome = "JARVIS"
+                self._codex_aux.nome = "NIA"
                 return self._codex_aux if self._codex_aux.disponivel() else None
             if self._codex is None:
                 self._codex = CerebroCodex(ponte=self.ponte)
@@ -846,9 +821,9 @@ class CerebroOpenRouter:
             # Nova); no cliente de nome fixo isto devolve sempre o mesmo.
             try:
                 from core.personas import nome_da_ia  # noqa: PLC0415
-                self._codex.nome = nome_da_ia(getattr(self, "personagem", "")) or "JARVIS"
+                self._codex.nome = nome_da_ia(getattr(self, "personagem", "")) or "NIA"
             except Exception:
-                self._codex.nome = "JARVIS"
+                self._codex.nome = "NIA"
             # 400 -> 800: com o teto antigo a instrucao dos sinais ("hmm",
             # "ahh", reticencias) era cortada fora e nunca chegava ao cerebro —
             # o lembrete inteiro passa de 400 caracteres. Sao ~100 fichas a
@@ -858,7 +833,7 @@ class CerebroOpenRouter:
             self._codex.falar = getattr(self, "falar", None)
             return self._codex if self._codex.disponivel() else None
         except Exception as exc:
-            print(f"[JARVIS] cerebro do Codex fora: {str(exc)[:120]}")
+            print(f"[NIA] cerebro do Codex fora: {str(exc)[:120]}")
             return None
 
     def _pensar_com_codex(self, mensagens: list, forcar: bool = False):
@@ -878,7 +853,7 @@ class CerebroOpenRouter:
                 self.ultimo_cerebro = "codex"
                 return r
         except Exception as exc:
-            print(f"[JARVIS] o Codex da VPS nao respondeu: {str(exc)[:140]}")
+            print(f"[NIA] o Codex da VPS nao respondeu: {str(exc)[:140]}")
             try:
                 from main import _voice_diag  # noqa: PLC0415
                 _voice_diag("codex_falhou", str(exc)[:140])
@@ -886,7 +861,96 @@ class CerebroOpenRouter:
                 pass
         return None
 
+    def _provedores_genericos(self) -> list[str]:
+        """Provedores do catalogo com chave no banco e endpoint conhecido."""
+        from core.provedores import base_url_do_provedor  # noqa: PLC0415
+
+        if self.router is None or not self.usar_generico:
+            return []
+        cfg = getattr(self.router, "genericos", {}) or {}
+        if not cfg.get("ativo", True):
+            return []
+        nativos = {"gemini", "openai", "openrouter", "codex"}
+        maximo = max(1, int(cfg.get("max") or 3))
+        saida = []
+        try:
+            disponiveis = self.router.provedores_disponiveis()
+        except Exception:
+            return []
+        for provedor in disponiveis:
+            selecionado = self.router.escolher(provedor)
+            url = selecionado[1].base_url if selecionado else ''
+            if provedor in nativos or not (url or base_url_do_provedor(provedor)):
+                continue
+            saida.append(provedor)
+        return saida[:maximo]
+
+    def _pensar_com_generico(self, mensagens: list, forcar: bool = False):
+        """Um degrau por provedor do catalogo (Groq, Cerebras, Mistral...).
+
+        Cada provedor fala OpenAI-compat, entao um cerebro so (`CerebroGenerico`)
+        serve para todos: muda o `base_url` e o modelo. Quem falha entra em
+        cooldown no pool e o proximo assume — e o mesmo failover que ja existe
+        entre chaves do mesmo provedor.
+        """
+        from core.cerebro_generico import CerebroGenerico  # noqa: PLC0415
+
+        for provedor in self._provedores_genericos():
+            try:
+                cerebro = CerebroGenerico(provedor, router=self.router)
+                r = cerebro.responder(mensagens, self._ferramentas_para(mensagens),
+                                      self.executor, forcar_ferramenta=forcar)
+                if r.get("texto") or r.get("chamou_ferramenta"):
+                    self.ultimo_cerebro = provedor
+                    return r
+            except Exception as exc:
+                print(f"[NIA] {provedor} nao respondeu: {str(exc)[:140]}")
+        return None
+
+    def _escrever_com_generico(self, instrucao: str, pedido: str,
+                               max_tokens: int = 9000, timeout: float = 120.0) -> str:
+        """Texto longo pelo primeiro provedor do catalogo que responder."""
+        from core.cerebro_generico import CerebroGenerico  # noqa: PLC0415
+
+        for provedor in self._provedores_genericos():
+            try:
+                cerebro = CerebroGenerico(provedor, router=self.router)
+                texto = cerebro.escrever_longo(instrucao, pedido,
+                                               max_tokens=max_tokens, timeout=timeout)
+                if texto.strip():
+                    self.ultimo_cerebro = provedor
+                    return texto
+            except Exception as exc:
+                print(f"[NIA] {provedor} nao escreveu: {str(exc)[:140]}")
+        return ""
+
+    def _genericos_preferidos(self) -> bool:
+        cfg = getattr(self.router, "genericos", {}) or {}
+        return str(cfg.get("prioridade") or "reserva").lower() == "preferido"
+
     def _pensar(self, mensagens: list, forcar: bool = False):
+        from core.llm_client import registrar_motor_conversa, preferencia_conversa
+        self._sincronizar_credenciais()
+        try:
+            resultado = self._pensar_configurada(mensagens, forcar)
+        except Exception:
+            if preferencia_conversa() == 'ollama':
+                registrar_motor_conversa('Ollama indisponível')
+            raise
+        if resultado is not None:
+            registrar_motor_conversa(getattr(self, 'ultimo_cerebro', 'externo'))
+        return resultado
+
+    def _sincronizar_credenciais(self):
+        from core.db_chaves import listar_chaves
+        revisao = tuple((r['id'], r['revision'], r['enabled']) for r in listar_chaves())
+        if revisao != getattr(self, '_revisao_credenciais', None):
+            self._revisao_credenciais = revisao
+            self._openai = self._gemini = None
+            self._gemini_ate = 0.0
+            self._openai_bloqueada = self._gemini_bloqueada = False
+
+    def _pensar_configurada(self, mensagens: list, forcar: bool = False):
         """O CODEX PRIMEIRO. Gemini e OpenAI so se a ponte estiver fora.
 
         ORDEM INVERTIDA EM 05/09/2026, decisao do Diego: "toda tarefa tem que
@@ -907,17 +971,57 @@ class CerebroOpenRouter:
         """
         import time as _t  # noqa: PLC0415
 
+        from core.llm_client import preferencia_conversa, call_llm, get_llm_provider
+        if preferencia_conversa() == 'ollama':
+            if get_llm_provider() != 'ollama':
+                raise RuntimeError('A preferência local exige o backend Ollama; reative um modelo instalado.')
+            # A ativação local é uma preferência de privacidade: falhas não
+            # autorizam enviar a conversa para a escada externa.
+            self.ultimo_cerebro = 'ollama'
+            conversa = list(mensagens)
+            ferramentas = self._ferramentas_para(mensagens)
+            chamou = False
+            for _ in range(3):
+                r = call_llm(conversa, ferramentas)
+                chamadas = r.get('tool_calls') or []
+                if not chamadas:
+                    return {'texto': r.get('content', ''), 'chamou_ferramenta': chamou}
+                chamou = True
+                conversa.append({'role': 'assistant', 'content': r.get('content', ''),
+                                 'tool_calls': chamadas})
+                for chamada in chamadas:
+                    fn = chamada.get('function') or {}
+                    args = fn.get('arguments') or {}
+                    if isinstance(args, str):
+                        args = json.loads(args)
+                    resultado = self.executor(fn.get('name', ''), args)
+                    conversa.append({'role': 'tool', 'content': str(resultado),
+                                     'tool_name': fn.get('name', '')})
+            return {'texto': 'Limite de chamadas de ferramentas atingido.', 'chamou_ferramenta': chamou}
+
+        # "preferido": os provedores do catalogo entram na frente do Codex.
+        # Só quem escolheu isso no config muda de comportamento; o padrão
+        # ("reserva") continua exatamente como era.
+        if self._genericos_preferidos():
+            r = self._pensar_com_generico(mensagens, forcar)
+            if r is not None:
+                return r
         r = self._pensar_com_codex(mensagens, forcar)
         if r is not None:
             return r
-        if self.usar_gemini and _t.time() >= self._gemini_ate:
+        if self.usar_gemini and not getattr(self, "_gemini_bloqueada", False) and _t.time() >= self._gemini_ate:
             r = self._pensar_com_gemini(mensagens, forcar)
             if r is not None:
                 return r
-        if self.usar_openai:
+        if self.usar_openai and not getattr(self, "_openai_bloqueada", False):
             r = self._pensar_com_openai(mensagens, forcar)
             if r is not None:
                 return r
+        # ÚLTIMO DEGRAU DO CATALOGO: Groq/Cerebras/Mistral/SambaNova... Se
+        # ninguém acima respondeu, ainda dá para falar com a chave do usuário.
+        r = self._pensar_com_generico(mensagens, forcar)
+        if r is not None:
+            return r
         return None
 
     # PAPO CURTO NAO PRECISA DE FERRAMENTA (02/09/2026).
@@ -943,7 +1047,7 @@ class CerebroOpenRouter:
         "esta ai continua ai nada deixa pra la esquece desculpa foi mal "
         # os vocativos: "oi Bob" e conversa, e sem eles aqui a frase
         # inteira caia no caminho completo por causa de uma palavra so
-        "jarvis friday chefe cara mano ai la ei "
+        "nia friday chefe cara mano ai la ei "
         # 03/09/2026: "Obrigado, meu amigo. Ate mais." pagava o caminho das 36
         # ferramentas por causa de TRES palavras — "meu", "amigo", "mais". A
         # regra e severa de proposito (uma palavra fora ja derruba a frase
@@ -966,7 +1070,7 @@ class CerebroOpenRouter:
         "e o com que pena "
         # 04/09/2026: faltavam palavras de enchimento que o Diego usa em toda
         # frase. "E ai, como e que voce TA?" saia do papo por causa de UMA
-        # palavra ("ta"), e "obrigado JARVIS, voce e demais HEIN cara" por causa de
+        # palavra ("ta"), e "obrigado NIA, voce e demais HEIN cara" por causa de
         # "hein" — as duas iam pelo caminho completo e pagavam 0,8 s de
         # ferramentas que nao seriam usadas. Todas estas, sozinhas, nao pedem
         # nada: sao tratamento, muleta de fala e concordancia.
@@ -1009,7 +1113,7 @@ class CerebroOpenRouter:
         try:
             from core.cerebro_openai import CerebroOpenAI  # noqa: PLC0415
             if getattr(self, "_openai", None) is None:
-                self._openai = CerebroOpenAI()
+                self._openai = CerebroOpenAI(router=self.router)
             r = self._openai.responder(mensagens,
                                        self._ferramentas_para(mensagens),
                                        self.executor, forcar_ferramenta=forcar)
@@ -1023,8 +1127,8 @@ class CerebroOpenRouter:
             # erro. Desliga o degrau ate a proxima abertura do programa.
             # Desde 01/10/2026 vale tambem para a conta SEM CREDITO.
             if _openai_morta(str(exc)):
-                self.usar_openai = False
-            print(f"[JARVIS] a nossa API tambem falhou: {str(exc)[:140]}")
+                self._openai_bloqueada = True
+            print(f"[NIA] a nossa API tambem falhou: {str(exc)[:140]}")
         return None
 
     def _pensar_com_gemini(self, mensagens: list, forcar: bool = False):
@@ -1036,7 +1140,7 @@ class CerebroOpenRouter:
         try:
             from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
             if getattr(self, "_gemini", None) is None:
-                self._gemini = CerebroGemini()
+                self._gemini = CerebroGemini(router=self.router)
             r = self._gemini.responder(mensagens,
                                        self._ferramentas_para(mensagens),
                                        self.executor, forcar_ferramenta=forcar)
@@ -1060,7 +1164,7 @@ class CerebroOpenRouter:
                 espera, motivo = _quanto_calar_a_gemini(texto)
                 self._gemini_ate = _t.time() + espera
                 # VAI PARA O REGISTRO, nao so para o console: rodando por
-                # `pythonw` nao ha console nenhum, e era por isso que "o JARVIS
+                # `pythonw` nao ha console nenhum, e era por isso que "o NIA
                 # esta lento hoje" nunca tinha explicacao no log — a Gemini
                 # calada e a diferenca entre 1 s e 16 s por resposta.
                 try:
@@ -1068,9 +1172,9 @@ class CerebroOpenRouter:
                     _voice_diag("gemini_calada", f"{espera:.0f}s ({motivo})")
                 except Exception:
                     pass
-                print(f"[JARVIS] Gemini recusou ({motivo}); volto a ela em "
+                print(f"[NIA] Gemini recusou ({motivo}); volto a ela em "
                       f"{espera/60:.0f} min" if espera < 3600 else
-                      f"[JARVIS] Gemini recusou ({motivo}); so amanha")
+                      f"[NIA] Gemini recusou ({motivo}); so amanha")
             elif ("api key not valid" in texto.lower()
                   or "api_key_invalid" in texto.lower()
                   or "invalid_argument" in texto.lower() and "api key" in texto.lower()):
@@ -1083,16 +1187,16 @@ class CerebroOpenRouter:
                 # uma ida a rede jogada fora por mensagem, com o dono
                 # esperando. Desliga ate a proxima abertura do programa; o
                 # Codex responde igual e sem cota.
-                self.usar_gemini = False
+                self._gemini_bloqueada = True
                 try:
                     from main import _voice_diag  # noqa: PLC0415
                     _voice_diag("gemini_chave_recusada",
                                 "desliguei o degrau da Gemini nesta sessao")
                 except Exception:
                     pass
-                print("[JARVIS] a chave do Gemini foi recusada; sigo pelo Codex")
+                print("[NIA] a chave do Gemini foi recusada; sigo pelo Codex")
             else:
-                print(f"[JARVIS] Gemini falhou: {texto[:140]}")
+                print(f"[NIA] Gemini falhou: {texto[:140]}")
         return None
 
     def _voz_interpreta(self) -> bool:
@@ -1174,7 +1278,7 @@ class CerebroOpenRouter:
         """Tira o que o sintetizador SOLETRA em vez de ler.
 
         O prompt ja proibe markdown e risada escrita, e mesmo assim em
-        31/08/2026 o JARVIS respondeu com lista de asterisco e um "rsrs" no
+        31/08/2026 o NIA respondeu com lista de asterisco e um "rsrs" no
         fim — que sai da caixa como "erre esse erre esse". Regra no texto o
         modelo quebra; aqui nao tem como.
         """
@@ -1385,7 +1489,7 @@ class CerebroOpenRouter:
             return ""
         # MONTAR O PROMPT NA HORA, nao usar o guardado.
         #
-        # 01/09/2026: o Diego preencheu os dados dele na engrenagem e o JARVIS
+        # 01/09/2026: o Diego preencheu os dados dele na engrenagem e o NIA
         # continuou dizendo "nao tenho essa informacao". O motivo: o
         # `self.sistema` era montado UMA vez, na criacao do cerebro, e o que ele
         # digitou depois nunca entrava. Remontar custa juntar algumas strings —
@@ -1455,7 +1559,7 @@ class CerebroOpenRouter:
         #   OpenRouter :free ... 10 a 16 s     Gemini flash-lite ... 0,7 a 1,9 s
         # E naquele momento SEIS dos sete modelos gratuitos estavam em 429; a
         # fila inteira era um modelo so. O Diego sentiu isso como 68 s entre
-        # falar e o JARVIS mexer um dedo.
+        # falar e o NIA mexer um dedo.
         #
         # Se a Gemini falhar (chave, rede, cota), `_pensar_com_gemini` devolve
         # None sem levantar excecao e o laco dos gratuitos assume normalmente.

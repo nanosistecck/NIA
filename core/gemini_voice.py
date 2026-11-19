@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import threading
 import re
 import unicodedata
@@ -13,14 +12,13 @@ from core.preguica import Preguicoso as _Preguicoso
 genai = _Preguicoso("google.genai")
 types = _Preguicoso("google.genai.types")
 
-from core.velocidade_fala import acelerar_pcm16
 
 
 LIVE_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 RECEIVE_SAMPLE_RATE = 24000
 
 # A VOZ PELO MODELO MAIS RAPIDO (08/10/2026). Queixa do Diego: "as vozes,
-# principalmente a do JARVIS, estao demorando muito para responder". O registro
+# principalmente a do NIA, estao demorando muito para responder". O registro
 # do dia mostrou o 2.5 native-audio entregando o primeiro som em 2 a 7 s e
 # ficando mudo por 8 s duas vezes. Medido com a chave dele, mesma voz Charon,
 # sessao aberta e 4 frases seguidas (1o pedaco de audio):
@@ -84,11 +82,11 @@ def _o_que_faltou(texto: str, dur: float) -> str:
 
 # COTA DO AO-VIVO (08/10/2026). Depois de um dia inteiro de testes, o Google
 # passou a responder "1011 You exceeded your current quota" na conexao — e o
-# JARVIS reconectava na hora, varias vezes seguidas, o que so gasta mais. Viu
+# NIA reconectava na hora, varias vezes seguidas, o que so gasta mais. Viu
 # cota, a voz ao vivo descansa `_DESCANSO_COTA_S` sem abrir conexao nenhuma (a
 # resposta sai escrita nesse meio tempo) e depois tenta de novo sozinha.
 # 30 -> 5 s no mesmo dia: o 1011 que apareceu depois era de sessao antiga ainda
-# contada pelo Google (logo depois de reabrir o JARVIS), e 30 s de descanso
+# contada pelo Google (logo depois de reabrir o NIA), e 30 s de descanso
 # deixaram duas falas escritas. 5 s ja impedem a reconexao em rajada.
 _DESCANSO_COTA_S = 5.0
 _cota_ate = [0.0]
@@ -111,9 +109,9 @@ def _anotar_cota(exc) -> None:
         pass
 
 
-# FECHAR AS SESSOES AO SAIR (08/10/2026). O fechamento do JARVIS mata o
+# FECHAR AS SESSOES AO SAIR (08/10/2026). O fechamento do NIA mata o
 # processo na hora (ver `_encerrar_tudo` no main) e as sessoes ao vivo ficavam
-# contando do lado do Google por alguns minutos: reabrir o JARVIS logo depois
+# contando do lado do Google por alguns minutos: reabrir o NIA logo depois
 # dava "You exceeded your current quota". Toda conexao se registra aqui, e o
 # fechamento despede todas (teto de 1 s) antes de sair.
 import weakref as _weakref
@@ -194,6 +192,18 @@ def _modelo_fora(exc: Exception) -> bool:
     t = f"{type(exc).__name__} {exc}".lower()
     return any(s in t for s in ("404", "not found", "not supported", "unsupported",
                                 "permission_denied", "permission denied", "403"))
+
+
+def _erro_de_chave(exc: Exception) -> bool:
+    """A CHAVE em si foi recusada (invalida, expirada, sem permissao).
+
+    Diferente de cota: aqui nao adianta esperar — a chave nao volta a valer
+    sozinha. E o sinal para o pool passar a proxima.
+    """
+    t = f"{type(exc).__name__} {exc}".lower()
+    return any(s in t for s in ("api key not valid", "api_key_invalid",
+                                "api key expired", "permission_denied",
+                                "permission denied"))
 
 
 def _erro_de_modelo(exc: Exception) -> bool:
@@ -300,12 +310,15 @@ class GeminiCharonVoice:
         # Gemini falava sempre igual, e trocar de "mordomo" para "malandro"
         # mudava as PALAVRAS e nao mudava o TOM. Ver `_direcao_do_jeito`.
         self.jeito = str(jeito or "")
-        config_path = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        api_key = str(data.get("gemini_api_key") or "").strip()
-        if not api_key:
-            raise RuntimeError("Chave Gemini ausente em config/api_keys.json")
-        self.client = genai.Client(api_key=api_key)
+        from core.llm_router import resolver
+        self._chave = resolver("gemini") or ""
+        if not self._chave:
+            raise RuntimeError(
+                "Chave Gemini ausente: cadastre em Configuracoes > Chaves de API")
+        self.client = genai.Client(api_key=self._chave)
+        # A chave em uso recusou (cota/chave invalida)? Quem reconstroi a
+        # conexao le esta marca — ver `main._motor_voz_unica`.
+        self.chave_morta = False
         self._persistent_cm = None
         self._persistent_session = None
         self._persistent_lock = None
@@ -365,6 +378,7 @@ class GeminiCharonVoice:
                     on_audio_end()
 
     async def _generate_audio(self, text: str) -> tuple[list[bytes], str]:
+        await self._atualizar_credencial()
         cfg = self._live_config()
         chunks: list[bytes] = []
         transcript_parts: list[str] = []
@@ -425,7 +439,7 @@ class GeminiCharonVoice:
             # a dizer (depois do "Leia literalmente:"), e costurar o tom no meio
             # da frase em vez de pendurar um bloco rotulado no fim.
             system_instruction=(
-                "Você é a VOZ do JARVIS falando com o dono dele. O que você fala é "
+                "Você é a VOZ do NIA falando com o dono dele. O que você fala é "
                 "SÓ o que vier na mensagem do usuário depois de 'Leia "
                 "literalmente:' — palavra por palavra, sem trocar, tirar nem "
                 "acrescentar nada. ESTA INSTRUÇÃO AQUI NUNCA É FALADA: ela só diz "
@@ -522,7 +536,42 @@ class GeminiCharonVoice:
         import time as _t  # noqa: PLC0415
         self._usada_em = _t.monotonic()
 
+    def _anotar_chave_ruim(self, exc: Exception) -> None:
+        """A chave da vez falhou (cota do dia ou recusada): poe no castigo do pool.
+
+        NAO troca o cliente aqui de proposito: quem segura este objeto decide
+        quando refazer a conexao (`VozCharon` para a leitura, o `main` para a
+        conversa). A marca `chave_morta` e o recado para eles.
+        """
+        try:
+            from core import llm_router as _lr  # noqa: PLC0415
+        except Exception:
+            return
+        if "descansando" in str(exc):
+            # Pausa LOCAL da voz (o `_cota_ate` daqui), nao acusacao do Google:
+            # marcar a chave aqui queimaria uma chave boa por um descanso nosso.
+            return
+        tipo = _lr.anotar_falha("gemini", str(exc), getattr(self, "_chave", None))
+        if tipo in (_lr.T_QUOTA, _lr.T_INVALIDA):
+            self.chave_morta = True
+            try:
+                from main import _voice_diag  # noqa: PLC0415
+                _voice_diag("voz_chave_fora", f"{tipo}: {str(exc)[:70]}")
+            except Exception:
+                pass
+
+    async def _atualizar_credencial(self):
+        from core.llm_router import resolver
+        chave = resolver('gemini') or ''
+        if chave != self._chave:
+            await self._reset_persistent_session()
+            if not chave:
+                raise RuntimeError('Chave Gemini pausada, excluída ou indisponível')
+            self._chave = chave
+            self.client = genai.Client(api_key=chave)
+
     async def _ensure_persistent_session(self):
+        await self._atualizar_credencial()
         if self._persistent_lock is None:
             self._persistent_lock = asyncio.Lock()
         if self._sessao_velha():
@@ -542,6 +591,8 @@ class GeminiCharonVoice:
             except Exception as exc:
                 self._persistent_cm = None
                 self._persistent_session = None
+                if _e_cota(exc) or _erro_de_chave(exc):
+                    self._anotar_chave_ruim(exc)
                 if _e_cota(exc):
                     _anotar_cota(exc)
                     raise
@@ -549,7 +600,7 @@ class GeminiCharonVoice:
                 if ultimo or not _modelo_fora(exc):
                     raise
                 GeminiCharonVoice._modelo_idx += 1
-                print(f"[JARVIS] voz: {modelo} recusou ({str(exc)[:90]}); "
+                print(f"[NIA] voz: {modelo} recusou ({str(exc)[:90]}); "
                       f"agora pelo {self._modelo_vivo()}")
         return self._persistent_session
 
@@ -606,13 +657,15 @@ class GeminiCharonVoice:
                     raise RuntimeError("sessão literal encerrou sem turn_complete")
                 except Exception as exc:
                     last_error = exc
+                    if _e_cota(exc) or _erro_de_chave(exc):
+                        self._anotar_chave_ruim(exc)
                     await self._reset_persistent_session()
             raise RuntimeError(f"falha na sessão literal: {last_error}")
 
     async def stream_audio_persistent(self, text: str, on_chunk) -> str:
         """Entrega PCM conforme chega, mantendo a sessão literal já aquecida.
 
-        ONDE VAI O TEMPO ATE O PRIMEIRO SOM (05/09/2026). Fora do JARVIS, esta
+        ONDE VAI O TEMPO ATE O PRIMEIRO SOM (05/09/2026). Fora do NIA, esta
         mesma sessao entrega em 1,2 s; dentro dele, em 2,9 s. Sem separar as
         tres etapas — esperar a trava, abrir a conexao, mandar o texto — nao ha
         como saber qual delas engordou, e este projeto ja perdeu noites
@@ -687,6 +740,8 @@ class GeminiCharonVoice:
                         texto_turno = falta
                 except Exception as exc:
                     last_error = exc
+                    if _e_cota(exc) or _erro_de_chave(exc):
+                        self._anotar_chave_ruim(exc)
                     await self._reset_persistent_session()
                     # Nunca reinicia depois de já tocar áudio, evitando duplicação.
                     if emitted:
@@ -700,7 +755,7 @@ class GeminiCharonVoice:
                     if (_modelo_fora(exc)
                             and GeminiCharonVoice._modelo_idx < len(LIVE_MODELOS) - 1):
                         GeminiCharonVoice._modelo_idx += 1
-                        print(f"[JARVIS] voz: modelo recusou no meio ({str(exc)[:80]}); "
+                        print(f"[NIA] voz: modelo recusou no meio ({str(exc)[:80]}); "
                               f"agora pelo {self._modelo_vivo()}")
             raise RuntimeError(f"falha no streaming literal: {last_error}")
 
@@ -742,7 +797,7 @@ class GeminiCharonVoice:
     def _garantir_laco(cls):
         """O laco de eventos proprio, numa thread so dele.
 
-        A sessao persistente precisa sempre do MESMO laco, e o laco do JARVIS
+        A sessao persistente precisa sempre do MESMO laco, e o laco do NIA
         esta ocupado com o microfone e a caixa de som.
         """
         with cls._lock_laco:
@@ -792,7 +847,7 @@ class GeminiCharonVoice:
             # sessao aberta a toa e o que aperta o limite por minuto da Gemini
             # (ver a memoria da cota do ao-vivo).
             # LIMITE DE CONEXOES DA CHAVE GRATIS (08/10/2026): medido, com o
-            # JARVIS aberto so mais 2 sessoes ao vivo abriram; da 3a em diante,
+            # NIA aberto so mais 2 sessoes ao vivo abriram; da 3a em diante,
             # "You exceeded your current quota". Por isso a espelho continua
             # nascendo so na primeira corrida (e nao no aquecimento), e a
             # conversa direta (`GeminiConversa`) nao tem espelho: no pior caso
@@ -812,8 +867,8 @@ class GeminiCharonVoice:
     async def _corrida_unica(self, texto: str, on_chunk) -> str:
         """Uma conexao so: se travar sem som, derruba e repete numa nova.
 
-        LIMITE DE SESSOES DA CHAVE GRATIS (08/10/2026): com o JARVIS de pe so
-        mais 2 sessoes ao vivo abriram. O JARVIS fica com DUAS: a que conversa
+        LIMITE DE SESSOES DA CHAVE GRATIS (08/10/2026): com o NIA de pe so
+        mais 2 sessoes ao vivo abriram. O NIA fica com DUAS: a que conversa
         (`GeminiConversa`) e a que le o texto do cerebro — cada uma SEM espelho.
         Se nao sair som em `_PRAZO_1O_SOM_S`, a conexao e derrubada e a frase
         vai de novo numa conexao NOVA (~0,7 s para abrir): nunca passam de duas.
@@ -971,7 +1026,7 @@ class GeminiCharonVoice:
                 # corrida abrir — e nao 0,2 s. O culpado era o `import main`
                 # logo abaixo: numa importacao fria ele segura o laco inteiro,
                 # e a tarefa recem-criada nao chega a rodar. Uma volta do laco
-                # resolve, e no JARVIS de pe nao custa nada.
+                # resolve, e no NIA de pe nao custa nada.
                 await asyncio.sleep(0)
                 try:
                     from main import _voice_diag  # noqa: PLC0415
@@ -1086,7 +1141,7 @@ class GeminiCharonVoice:
         cobrados por pedido estavam todos estourados.
 
         O laco de eventos e proprio e vive numa thread separada: a sessao
-        persistente precisa sempre do MESMO laco, e o laco do JARVIS esta
+        persistente precisa sempre do MESMO laco, e o laco do NIA esta
         ocupado com o microfone e a caixa de som.
         """
         laco = self._garantir_laco()
@@ -1197,7 +1252,7 @@ TTS_MODEL = "gemini-2.5-flash-preview-tts"
 # FILA DE MODELOS DE FALA (31/08/2026).
 #
 # Cada modelo tem o SEU proprio teto diario — o `2.5-flash-tts` estourou em
-# 100 pedidos e o JARVIS caiu para a voz local no meio da gravacao do Diego.
+# 100 pedidos e o NIA caiu para a voz local no meio da gravacao do Diego.
 # Medido na hora, com o mesmo balde ja esgotado no primeiro:
 #     gemini-2.5-flash-preview-tts .... BLOQUEADO (teto 100/dia)
 #     gemini-3.1-flash-tts-preview ....  2,7 s   OK
@@ -1225,7 +1280,7 @@ class GeminiConversa(GeminiCharonVoice):
     voz (le o texto). Sao duas idas ao Google em serie, e no dia o cerebro
     gratis devolvia 503 e quem respondia era o servidor (3,6 a 4,3 s). Para
     CONVERSA (sem acao no PC), o proprio ao-vivo 2.5 — o gratis por sessao —
-    ouve a frase (em texto) e responde FALANDO, com o jeito do JARVIS: medido,
+    ouve a frase (em texto) e responde FALANDO, com o jeito do NIA: medido,
     1,1 a 1,6 s ate o primeiro som. O que e acao continua indo ao cerebro.
 
     Mesma corrida de duas conexoes e mesma renovacao da sessao parada da voz
@@ -1280,7 +1335,7 @@ class GeminiConversa(GeminiCharonVoice):
         except Exception:
             instrucao = ""
         if not instrucao:
-            instrucao = ("Voce e o JARVIS, assistente pessoal do dono deste computador. "
+            instrucao = ("Voce e o NIA, assistente pessoal do dono deste computador. "
                          "Responda falando, curto e natural, em " + _lingua_da_voz() + ".")
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
@@ -1300,12 +1355,12 @@ class GeminiCharonTTS:
     """Mesma voz Charon, pelo modelo de fala — outro balde de cota, bem mais barato."""
 
     def __init__(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "config" / "api_keys.json"
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        api_key = str(data.get("gemini_api_key") or "").strip()
-        if not api_key:
-            raise RuntimeError("Chave Gemini ausente em config/api_keys.json")
-        self.client = genai.Client(api_key=api_key)
+        from core.llm_router import resolver
+        self._chave = resolver("gemini") or ""
+        if not self._chave:
+            raise RuntimeError(
+                "Chave Gemini ausente: cadastre em Configuracoes > Chaves de API")
+        self.client = genai.Client(api_key=self._chave)
 
     def _config(self) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
@@ -1321,14 +1376,40 @@ class GeminiCharonTTS:
     # para a frente quando o balde do dia estoura — assim uma resposta nao paga
     # o pedagio de tentar um modelo que ja se sabe esgotado.
     _modelo_atual = 0
+    # A reserva so troca de chave UMA vez por chamada (evita laco se todas
+    # estiverem sem cota).
+    _trocada = False
+
+    def _trocar_chave(self, exc: Exception) -> bool:
+        """Cota/chave recusada: anota no pool e refaz o cliente com a proxima."""
+        try:
+            from core import llm_router as _lr  # noqa: PLC0415
+        except Exception:
+            return False
+        tipo = _lr.anotar_falha("gemini", str(exc), self._chave)
+        if tipo not in (_lr.T_QUOTA, _lr.T_INVALIDA):
+            return False
+        nova = _lr.proxima_chave("gemini", self._chave)
+        if not nova:
+            return False
+        self._chave = nova
+        self.client = genai.Client(api_key=nova)
+        return True
 
     def _pcm_sync(self, text: str) -> bytes:
         """Chamada bloqueante do SDK. Sempre rodar fora do laco de eventos.
 
         Percorre a fila de modelos: quando um estoura o teto do dia (429), o
         proximo assume com a MESMA voz Charon. So depois de todos falharem e que
-        o JARVIS cai para a voz local.
+        o NIA cai para a voz local.
         """
+        from core.llm_router import resolver
+        chave = resolver('gemini') or ''
+        if not chave:
+            raise RuntimeError('Chave Gemini pausada, excluída ou indisponível')
+        if chave != self._chave:
+            self._chave = chave
+            self.client = genai.Client(api_key=chave)
         ultimo = None
         for passo in range(len(TTS_MODELOS)):
             indice = (GeminiCharonTTS._modelo_atual + passo) % len(TTS_MODELOS)
@@ -1342,6 +1423,12 @@ class GeminiCharonTTS:
             except Exception as exc:
                 ultimo = exc
                 if _erro_de_modelo(exc):
+                    # TODOS OS MODELOS NO MESMO BALDE (18/11/2026): se o 429 e
+                    # da CHAVE (cota do dia/chave recusada) e existe outra
+                    # cadastrada, troca a chave e recomeca a fila uma vez.
+                    if not self._trocada and self._trocar_chave(exc):
+                        self._trocada = True
+                        return self._pcm_sync(text)
                     continue          # balde do dia acabou (ou modelo fora): proximo da fila
                 raise
             for cand in (resp.candidates or []):
@@ -1350,9 +1437,14 @@ class GeminiCharonTTS:
                     inline = getattr(part, "inline_data", None)
                     data = getattr(inline, "data", None)
                     if data:
+                        try:
+                            from core.llm_router import anotar_sucesso  # noqa: PLC0415
+                            anotar_sucesso("gemini", self._chave)
+                        except Exception:
+                            pass
                         if indice != GeminiCharonTTS._modelo_atual:
                             GeminiCharonTTS._modelo_atual = indice
-                            print(f"[JARVIS] voz Charon agora pelo {modelo}")
+                            print(f"[NIA] voz Charon agora pelo {modelo}")
                         # A RESERVA NAO ACELERA MAIS (05/09/2026).
                         #
                         # Ela acelerava 1,5x por SOLA desde 01/09, quando era o
@@ -1403,7 +1495,7 @@ class GeminiCharonTTS:
 
         Por que dois e nao um por frase: a chave do Diego tem teto de **100
         pedidos por dia** neste modelo de fala (medido em 31/08/2026, quando
-        estourou e o JARVIS caiu para a voz local). Um pedido por frase gastava
+        estourou e o NIA caiu para a voz local). Um pedido por frase gastava
         3 e 4 fichas por resposta e queimou o dia inteiro numa noite.
 
         Dois resolve os dois lados: o primeiro sai rapido (a frase e curta) e
@@ -1432,7 +1524,7 @@ class GeminiCharonTTS:
         """Mesmo contrato da versao Live: manda texto, devolve audio em pedacos.
 
         Sincrono de proposito — quem chama e uma thread do modo local, e o laco
-        de eventos do JARVIS esta ocupado com microfone e caixa de som.
+        de eventos do NIA esta ocupado com microfone e caixa de som.
 
         FRASE POR FRASE (30/08/2026). Gerar a resposta inteira de uma vez
         custava de 4 a 9 s ate sair o PRIMEIRO som — foi a queixa do Diego de
@@ -1634,8 +1726,14 @@ class VozCharon:
         # Marcado para o `_falar_local` saber que NAO deve trocar de voz: numa
         # engasgada passageira, e melhor ficar calado neste turno e escrever no
         # chat do que responder com a voz de outra pessoa.
-        VozCharon.mudez_passageira = ("mudas" in baixo)
-        if "mudas" in baixo:
+        #
+        # ORDEM IMPORTA (18/11/2026): a mudez e testada PRIMEIRO e os outros
+        # casos viraram `elif`. Antes o bloco da mudez sobrescrevia `espera`
+        # sempre — chave recusada, que devia calar 12 h, calava 60 s, e o
+        # NIA voltava a bater na mesma chave invalida a cada minuto.
+        _mudo = "mudas" in baixo
+        VozCharon.mudez_passageira = _mudo
+        if _mudo:
             # MUDEZ NAO E CASTIGO DE UM MINUTO (05/09/2026, noite).
             #
             # Quando as duas conexoes emudecem, nao ha erro do Google: e uma
@@ -1648,7 +1746,7 @@ class VozCharon:
             # a ser ele. Se a mudez for de verdade (servidor ruim de longe), o
             # proximo turno cai aqui de novo e o castigo se renova sozinho.
             espera = 15.0
-        else:
+        elif not chave_ruim and not cota:
             espera = 60.0
         VozCharon._vivo_ate = _t.time() + espera
         try:
@@ -1661,6 +1759,49 @@ class VozCharon:
                                  else f"(reserva por {espera/60:.0f} min)")))
         except Exception:
             pass
+
+    # -- chave: quem falhou sai da fila, quem falou ganha credito --------------
+
+    def _anotar_sucesso(self, motor=None) -> None:
+        """A fala saiu: tira o castigo de cima da chave que a produziu."""
+        try:
+            from core.llm_router import anotar_sucesso  # noqa: PLC0415
+            anotar_sucesso("gemini", getattr(motor, "_chave", None))
+        except Exception:
+            pass
+
+    def _trocar_a_chave(self, exc: Exception) -> bool:
+        """Cota estourada ou chave recusada? Poe no castigo e passa a proxima.
+
+        Antes, chave com 429 deixava o NIA mudo ate a cota do dia voltar —
+        mesmo com outra chave cadastrada na tela, porque nada aqui consultava o
+        pool. Agora a chave que falhou entra em cooldown e os motores sao
+        refeitos, e eles nascem chamando `resolver()` (que devolve a proxima).
+        """
+        try:
+            from core import llm_router as _lr  # noqa: PLC0415
+        except Exception:
+            return False
+        motor = self._vivo
+        tipo = _lr.anotar_falha("gemini", str(exc), getattr(motor, "_chave", None))
+        if tipo not in (_lr.T_QUOTA, _lr.T_INVALIDA):
+            return False
+        nova = _lr.proxima_chave("gemini", getattr(motor, "_chave", None))
+        if not nova:
+            return False
+        # A chave nova so entra em uso quando o motor for refeito: os clientes
+        # do SDK guardam a chave na construcao.
+        self._vivo = None
+        self._barato = None
+        VozCharon._vivo_ate = 0.0
+        VozCharon.mudez_passageira = False
+        try:
+            from main import _voice_diag  # noqa: PLC0415
+            _voice_diag("charon_trocou_de_chave",
+                        f"{tipo}: {str(exc)[:60]} — chave nova na proxima tentativa")
+        except Exception:
+            pass
+        return True
 
     # -- o contrato que o main.py usa ----------------------------------------
 
@@ -1677,6 +1818,11 @@ class VozCharon:
         da chave gratis — antes ela era largada aberta) e a frase vai de novo
         numa conexao nova. Nada de outra voz e nada de desligar o ao-vivo por
         um tempo. Se nem assim sair, quem chamou deixa a resposta escrita.
+
+        CHAVE NOVA, FALA NOVA (18/11/2026): se o motivo for cota ou chave
+        recusada e houver outra chave cadastrada, a frase e tentada de novo na
+        hora, com a chave seguinte. Sem isso, ter duas chaves nao adiantava
+        nada para a voz.
         """
         saiu = {"sim": False}
 
@@ -1691,10 +1837,12 @@ class VozCharon:
             try:
                 vivo.speak_para_fila(texto, _marcado, modo="ler")
                 if saiu["sim"]:
+                    self._anotar_sucesso(vivo)
                     return
                 ultimo = RuntimeError("a voz devolveu o turno sem audio")
             except Exception as exc:
                 if saiu["sim"]:
+                    self._anotar_sucesso(vivo)
                     return          # ja falou: nunca repetir a frase
                 ultimo = exc
             try:
@@ -1708,6 +1856,25 @@ class VozCharon:
                     vivo._reset_persistent_session(), vivo._garantir_laco()).result(timeout=5)
             except Exception:
                 pass
+
+        # A MESMA FRASE, OUTRA CHAVE (uma vez so — repetir sempre esconderia o
+        # problema e faria o dono esperar duas vezes pela mesma falha).
+        if ultimo is not None and self._trocar_a_chave(ultimo):
+            vivo = self._ao_vivo()
+            try:
+                vivo.speak_para_fila(texto, _marcado, modo="ler")
+                if saiu["sim"]:
+                    self._anotar_sucesso(vivo)
+                    return
+                ultimo = RuntimeError("a voz devolveu o turno sem audio (chave nova)")
+            except Exception as exc:
+                if saiu["sim"]:
+                    self._anotar_sucesso(vivo)
+                    return
+                ultimo = exc
+
+        if ultimo is not None:
+            self._anotar_falha(ultimo)
         raise ultimo or RuntimeError("a voz ao vivo nao saiu")
 
     # A conexao ja tenta 2 vezes por dentro (`_corrida_unica`, conexao nova a

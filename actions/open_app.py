@@ -301,9 +301,9 @@ _GENERICOS_LINUX = {
 
 
 def _ambiente_do_programa() -> dict:
-    """O ambiente do programa aberto, sem o que so vale para o JARVIS.
+    """O ambiente do programa aberto, sem o que so vale para o NIA.
 
-    O jarvis.sh poe QT_QPA_PLATFORM=xcb para o PROPRIO JARVIS ir pelo XWayland;
+    O nia.sh poe QT_QPA_PLATFORM=xcb para o PROPRIO NIA ir pelo XWayland;
     herdado, isso empurraria os programas do KDE para o X11 tambem."""
     env = dict(os.environ)
     for k in ("QT_QPA_PLATFORM", "PYTHONUTF8", "PYTHONIOENCODING",
@@ -316,7 +316,7 @@ def _ambiente_do_programa() -> dict:
 
 
 def _iniciar_linux(cmd: list) -> bool:
-    """Abre solto do JARVIS e confere que nao morreu com erro no primeiro 1,5 s."""
+    """Abre solto do NIA e confere que nao morreu com erro no primeiro 1,5 s."""
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 stdin=subprocess.DEVNULL, start_new_session=True,

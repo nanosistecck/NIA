@@ -1,0 +1,168 @@
+# -*- coding: utf-8 -*-
+"""AS CHAVES DO NIA ESTAO CHEGANDO EM TODO LUGAR? — diagnostico (18/11/2026)
+
+    python verificar_chaves.py
+
+Por padrão, faz somente leitura. Responde três perguntas:
+
+  1. Quais chaves existem no banco (`config/nia.db`) e em que estado estao?
+  2. O provedor ACEITA cada uma? (leitura do catalogo de modelos, sem gastar cota)
+  3. Cada area do NIA puxa a chave da fonte certa (banco/roteador) ou ficou
+     presa no `config/api_keys.json` antigo?
+
+Nunca imprime a chave inteira. Por padrão, não altera registros.
+Use --atualizar para persistir diagnósticos e catálogos no banco.
+"""
+from __future__ import annotations
+
+import json
+import argparse
+import sys
+from pathlib import Path
+
+RAIZ = Path(__file__).resolve().parent
+sys.path.insert(0, str(RAIZ))
+
+from core import db_chaves, llm_router, valida_chave  # noqa: E402
+
+# Areas que precisam de chave e o arquivo onde a decisao mora. O 3o campo e o
+# que se espera encontrar no codigo: "roteador" (banco primeiro) e o correto;
+# "arquivo" seria o caminho antigo (so' `config/api_keys.json`).
+CONSUMIDORES = [
+    ("Voz Gemini (ao vivo, conversa e TTS)", "core/gemini_voice.py"),
+    ("Voz OpenAI", "core/voz_openai.py"),
+    ("Cerebro principal (escada de modelos)", "core/cerebro_openrouter.py"),
+    ("Cerebro Gemini", "core/cerebro_gemini.py"),
+    ("Cerebro OpenAI", "core/cerebro_openai.py"),
+    ("Cerebro rapido", "core/cerebro_rapido.py"),
+    ("Provedores genericos (OpenAI-compat)", "core/cerebro_generico.py"),
+    ("Socorro das acoes (Gemini -> VPS)", "core/gemini_socorro.py"),
+    ("Secretaria (ligacoes)", "secretaria/motor.py"),
+    ("Secretaria (WhatsApp com IA)", "core/secretaria_chat.py"),
+    ("Ponte WhatsApp (transcricao/visao)", "actions/whatsapp_bridge.py"),
+    ("Visao de tela", "actions/screen_processor.py"),
+    ("Busca na web", "actions/web_search.py"),
+    ("Controle do computador", "actions/computer_control.py"),
+    ("Acoes com IA (codigo, arquivos, video...)", "actions/code_helper.py"),
+    ("Modo economico (script avulso)", "modo_economico.py"),
+    ("main.py (motor da conversa)", "main.py"),
+    ("Tela de configuracao (F2)", "ui.py"),
+]
+
+
+def _marca(chave: str) -> str:
+    if not chave:
+        return "(nenhuma)"
+    return f"••••{chave[-4:]} ({len(chave)} caracteres)"
+
+
+def _fonte(caminho: Path) -> str:
+    """O arquivo fala com o roteador (banco) ou so' com o arquivo antigo?"""
+    try:
+        texto = caminho.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return "ILEGIVEL"
+    usa_router = any(s in texto for s in (
+        "llm_router", "carregar_router", "resolver(", "chave_ativa(",
+        "router=", "CerebroGemini(", "CerebroOpenAI(", "CerebroGenerico("))
+    if usa_router:
+        return "ROTEADOR (banco primeiro)"
+    if "api_keys.json" in texto:
+        return "ARQUIVO antigo (SEM banco)"
+    return "nao le chave diretamente"
+
+
+def _ler_json_antigo() -> dict:
+    try:
+        return json.loads((RAIZ / "config" / "api_keys.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description='Valida credenciais e consulta modelos sem gerar texto.')
+    parser.add_argument('--atualizar', action='store_true', help='Salva os resultados no banco sem retomar chaves pausadas.')
+    args = parser.parse_args(argv)
+    print("NIA · diagnostico das chaves")
+    print(f"banco: {db_chaves.DB_PATH}")
+    print(f"config antigo: {RAIZ / 'config' / 'api_keys.json'}")
+
+    todas = db_chaves.listar_chaves()
+    print(f"\n== chaves no banco: {len(todas)} ==")
+    if not todas:
+        print("  NENHUMA. Cadastre em Configuracoes > Chaves de API.")
+    for row in todas:
+        status = str(row.get("status") or "ativo")
+        castigo = ""
+        if status != "ativo" and float(row.get("cooldown_ate") or 0):
+            castigo = f" (castigo ate {_quando(float(row['cooldown_ate']))})"
+        print(f"  - {str(row.get('platform')):12s} {_marca(str(row.get('key')))} "
+              f"status={status}{castigo}")
+
+    # 2. O provedor aceita? Uma leitura por chave, sem gastar cota de geracao.
+    print("\n== o provedor aceita cada chave? ==")
+    alguma_aceita = False
+    for row in todas:
+        provedor = str(row.get("platform") or "")
+        chave = str(row.get("key") or "")
+        resultado = valida_chave.testar(provedor, chave, str(row.get('base_url') or ''))
+        ok, texto = resultado.apta, resultado.mensagem
+        aplicado = db_chaves.aplicar_validacao(row['id'], row['revision'], resultado) if args.atualizar else None
+        print(f"  {provedor:12s} {_marca(chave)}: "
+              f"{valida_chave.ROTULOS_STATUS[resultado.status_exibicao]} "
+              f"(HTTP {resultado.http_status or 'sem resposta'}) — {texto}")
+        print(f"    modelos: {len(resultado.modelos)}; catálogo "
+              f"{'completo' if resultado.catalogo_completo else 'parcial/indisponível'}")
+        if args.atualizar and not aplicado:
+            print('    Resultado ignorado: registro alterado durante o teste.')
+        if ok:
+            alguma_aceita = True
+
+    # 3. O que cada area recebe HOJE.
+    print("\n== chave que cada area recebe agora ==")
+    for nome in ("gemini", "openai", "openrouter"):
+        chave = llm_router.resolver(nome)
+        print(f"  resolver('{nome}') -> {_marca(chave or '')}")
+
+    # 4. Cada area puxa da fonte certa?
+    print("\n== de onde cada area puxa a chave ==")
+    problemas = []
+    for rotulo, relativo in CONSUMIDORES:
+        fonte = _fonte(RAIZ / relativo)
+        print(f"  {rotulo:44s} {relativo:32s} {fonte}")
+        if "ARQUIVO antigo" in fonte:
+            problemas.append(rotulo)
+
+    # 5. O arquivo antigo pode enganar? (o banco vence, mas vale avisar)
+    antigo = _ler_json_antigo()
+    chave_json = str(antigo.get("gemini_api_key") or "").strip()
+    chave_banco = llm_router.resolver("gemini") or ""
+    if chave_json and chave_banco and chave_json != chave_banco:
+        print("\n  AVISO: o `api_keys.json` tem uma chave Gemini DIFERENTE da do")
+        print("  banco. O NIA usa a do banco; a do arquivo so' serve de reserva.")
+
+    print("\n== conclusao ==")
+    if alguma_aceita:
+        print("  Ha pelo menos uma chave aceita pelo provedor.")
+        print('  Autenticação ou catálogo acessível não garantem saldo nem permissão')
+        print('  de geração em todos os modelos. Consulte os detalhes de cada API.')
+        if problemas:
+            print("  Atencao: estas areas ainda leem o arquivo antigo:", ", ".join(problemas))
+        return 0
+    print('  Nenhuma autenticação foi confirmada nesta verificação; resultados')
+    print('  inconclusivos não significam que as chaves sejam inválidas.')
+    print("  Abra Configuracoes > Chaves de API, confira a chave (copiada inteira)")
+    print("  e, se o provedor continuar recusando, gere outra no site dele.")
+    return 1
+
+
+def _quando(ts: float) -> str:
+    import datetime as _dt
+    try:
+        return _dt.datetime.fromtimestamp(ts).strftime("%d/%m %H:%M")
+    except Exception:
+        return "?"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -78,7 +78,7 @@ _START_LOCK = threading.Lock()
 _HTTP = requests.Session()
 _HTTP.trust_env = False
 # Agente: mensagem com mais de 10 min nao e respondida (fila velha acumulada
-# enquanto o JARVIS estava fechado) (13/10/2026).
+# enquanto o NIA estava fechado) (13/10/2026).
 AGENT_MAX_AGE_S = 600
 _DELETE_GUARD_LOCK = threading.Lock()
 _DELETE_GUARD = {"signature": "", "at": 0.0, "result": ""}
@@ -101,7 +101,7 @@ except Exception:
 LOCAL_TZ_NAME = os.environ.get("MARKXLVIII_LOCAL_TZ") or os.environ.get("CYBERBOT_LOCAL_TZ") or os.environ.get("CYBERBOT_TZ") or "America/Fortaleza"
 
 def _now_local() -> datetime:
-    """Data/hora real usada pelo Jarvis para WhatsApp e agendamentos.
+    """Data/hora real usada pelo Nia para WhatsApp e agendamentos.
 
     Não depende da data que a IA imaginar. Por padrão usa o fuso do Brasil
     sem horário de verão (America/Fortaleza), que é o fuso de Patos/PB.
@@ -303,7 +303,7 @@ def _kill_old_bridge_port():
 
     # Uma tentativa que perde a disputa pela porta pode deixar um node.exe
     # órfão sem LISTENING. Limpa somente o server.js iniciado pelo runtime e
-    # diretório do próprio JARVIS; outros processos Node do computador ficam
+    # diretório do próprio NIA; outros processos Node do computador ficam
     # intocados. psutil é opcional para manter compatibilidade com instalações
     # antigas que não o incluam.
     try:
@@ -443,7 +443,7 @@ def _ensure_node_dependencies(timeout_seconds: int = 240) -> tuple[bool, str]:
     try:
         log_file = BRIDGE_DIR / "bridge_install.log"
         with open(log_file, "a", encoding="utf-8", errors="ignore") as out:
-            out.write(f"\n[{datetime.now().isoformat()}] npm install iniciado pelo JARVIS\n")
+            out.write(f"\n[{datetime.now().isoformat()}] npm install iniciado pelo NIA\n")
             cmd = ["cmd", "/c", "npm", "install"] if os.name == "nt" else [npm, "install"]
             proc = subprocess.run(
                 cmd,
@@ -510,7 +510,7 @@ def disconnect_whatsapp_session() -> str:
             r = _HTTP.post(f"{BASE_URL}/logout", json={"full": True}, timeout=25)
             data = _json_or_error(r)
             if r.status_code < 400 and data.get("ok") is not False:
-                return data.get("result") or "WhatsApp desconectado completamente. A sessão foi encerrada no Jarvis e no aparelho conectado. Para usar de novo, peça conectar WhatsApp e escaneie um novo QR Code."
+                return data.get("result") or "WhatsApp desconectado completamente. A sessão foi encerrada no Nia e no aparelho conectado. Para usar de novo, peça conectar WhatsApp e escaneie um novo QR Code."
             # Se o bridge respondeu erro, ainda limpamos localmente para não ficar preso.
             local = _clean_local_whatsapp_files(kill_bridge=True)
             return f"Tentei desconectar o WhatsApp pelo Baileys, mas a ponte retornou erro: {data.get('error') or r.text}. {local}"
@@ -555,7 +555,7 @@ def _start_bridge_sem_trava(force_restart: bool = False) -> str:
             if versao_viva == _expected_bridge_version():
                 return "WhatsApp bridge already running."
             # PONTE DE ANTES DA ATUALIZACAO (23/09/2026). O Node da ponte e um
-            # processo separado e sobrevive a troca de versao do JARVIS. Antes,
+            # processo separado e sobrevive a troca de versao do NIA. Antes,
             # com a versao diferente, este codigo tentava subir OUTRO Node na mesma
             # porta — que morria calado — e a ponte velha (com o defeito das duas
             # conexoes, consertado na 38) seguia no ar para sempre. Agora ela e
@@ -705,7 +705,7 @@ def _fresh_status_file(max_age_seconds: float = 45.0) -> dict | None:
 
     Eram 12 s. O Node reescreve o arquivo a cada 2,5 s QUANDO ESTA LIVRE;
     numa sincronizacao de historico ele passa facil de 12 s sem escrever, e
-    o JARVIS declarava desconexao com o WhatsApp conectado (22/09/2026).
+    o NIA declarava desconexao com o WhatsApp conectado (22/09/2026).
 
     So aceita arquivo gravado pelo NODE com o pid ainda vivo (13/10/2026): o
     status da ponte morta e o gravado pelo Python nao valem mais.
@@ -851,7 +851,7 @@ def _quando_pt(at_iso: str) -> str:
 def _frase_sem_sessao(abriu_qr: bool = False, status: dict | None = None) -> str:
     """Frase do contrato para no_session/needs_qr (13/10/2026)."""
     ld = _ler_last_disconnect(status)
-    frase = "Seu WhatsApp está desconectado do JARVIS"
+    frase = "Seu WhatsApp está desconectado do NIA"
     if ld.get("logged_out"):
         quando = _quando_pt(str(ld.get("at") or ""))
         frase += " (a sessão foi encerrada pelo celular" + (f" em {quando}" if quando else "") + ")"
@@ -921,7 +921,7 @@ def format_status(player=None) -> str:
     if motivo == "banned":
         return _frase_da_falha("banned")
     if motivo == "version_rejected":
-        return "O WhatsApp recusou a versão da ponte do JARVIS (código 405). Tente conectar de novo mais tarde ou atualize o JARVIS."
+        return "O WhatsApp recusou a versão da ponte do NIA (código 405). Tente conectar de novo mais tarde ou atualize o NIA."
     if _precisa_de_qr(data) or data.get("has_qr"):
         return _frase_sem_sessao(_abrir_qr(player), data)
     if data.get("ponte_offline"):
@@ -1221,7 +1221,7 @@ def _common_user_dirs() -> list[Path]:
     return out
 
 
-def _sanitize_zip_file_name(name: str, default: str = "JARVIS_Arquivo.zip") -> str:
+def _sanitize_zip_file_name(name: str, default: str = "NIA_Arquivo.zip") -> str:
     raw = str(name or default).strip().strip('"').strip("'")
     raw = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '_', raw)
     raw = re.sub(r'\s+', ' ', raw).strip().strip('.')
@@ -1390,12 +1390,8 @@ def _fmt_ts(ts):
 
 
 def _read_gemini_key() -> str:
-    cfg = BASE_DIR / "config" / "api_keys.json"
-    try:
-        data = json.loads(cfg.read_text(encoding="utf-8"))
-        return str(data.get("gemini_api_key") or "").strip()
-    except Exception:
-        return ""
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 _GEMINI_MEDIA_MODELS = (
@@ -1418,10 +1414,10 @@ def _generate_media_with_fallback(client, contents):
 
 
 def _transcribe_audio_file(media_path: str) -> str:
-    """Transcreve áudio recebido sem travar o Jarvis indefinidamente.
+    """Transcreve áudio recebido sem travar o Nia indefinidamente.
 
     A chamada de IA fica protegida por timeout; se a Gemini ou a rede travar,
-    o JARVIS volta a responder e pede para tentar novamente.
+    o NIA volta a responder e pede para tentar novamente.
     """
     path = Path(media_path or "").expanduser()
     if not path.exists() or not path.is_file():
@@ -1455,7 +1451,7 @@ def _transcribe_audio_file(media_path: str) -> str:
         return future.result(timeout=35)
     except concurrent.futures.TimeoutError:
         future.cancel()
-        return "A transcrição demorou demais e foi interrompida para não travar o Jarvis. Tente novamente em alguns segundos."
+        return "A transcrição demorou demais e foi interrompida para não travar o Nia. Tente novamente em alguns segundos."
     except Exception as e:
         raise RuntimeError(f"Falha ao transcrever áudio com Gemini: {e}")
     finally:
@@ -1504,7 +1500,7 @@ def _analyze_image_file(media_path: str) -> str:
         return future.result(timeout=35)
     except concurrent.futures.TimeoutError:
         future.cancel()
-        return "A análise da imagem demorou demais e foi interrompida para não travar o Jarvis."
+        return "A análise da imagem demorou demais e foi interrompida para não travar o Nia."
     except Exception as e:
         raise RuntimeError(f"Falha ao analisar imagem com Gemini: {e}")
     finally:
@@ -1705,7 +1701,7 @@ def _clean_whatsapp_media_reference(raw_text: str) -> str:
             if 1 <= len(words) <= 6:
                 return cand
 
-    # Frase curta isolada depois que o Jarvis perguntou "qual arquivo?".
+    # Frase curta isolada depois que o Nia perguntou "qual arquivo?".
     clean = raw
     clean = re.sub(r"\b(o|a|um|uma)\b", " ", clean, flags=re.I)
     clean = re.sub(r"\b(arquivo|imagem|foto|video|vídeo|documento|pasta|nome|é|e|eh|esta|está|que|de|da|do|na|minha|meu|área|area|trabalho|desktop|downloads?|whatsapp|contato|mark_xlviii|enviar|envia|mande|manda|pode|para|pro)\b", " ", clean, flags=re.I)
@@ -1859,7 +1855,7 @@ def _frase_da_falha(codigo: str, detalhe: str = "", sugestoes=None, destino: str
             return "O WhatsApp demorou para confirmar. A mensagem pode ter saído; confira no celular antes de mandar de novo."
         return "O WhatsApp demorou para responder. Tente de novo em alguns segundos."
     if codigo == "banned":
-        return "O WhatsApp bloqueou esta conta para o JARVIS (código 403). Confira o WhatsApp no celular."
+        return "O WhatsApp bloqueou esta conta para o NIA (código 403). Confira o WhatsApp no celular."
     motivo = _motivo_curto(detalhe)
     if envio:
         return f"Não consegui enviar pelo WhatsApp: {motivo}."
@@ -1963,7 +1959,7 @@ def _resultado_da_falha(exc: Exception, envio: bool = False, destino: str = "", 
 # A PONTE LIGA SOZINHA QUANDO HA SESSAO SALVA (23/09/2026).
 #
 # Ela so subia quando alguem mandava ou lia mensagem. Logo depois de abrir o
-# JARVIS, "estou conectado?" consultava uma ponte que nem tinha sido ligada e
+# NIA, "estou conectado?" consultava uma ponte que nem tinha sido ligada e
 # a resposta era "WhatsApp nao esta conectado: Bridge offline" — com o
 # WhatsApp pareado e a sessao salva em `auth\`. Agora o vigia de alertas (que
 # roda desde a abertura) liga a ponte se existir sessao, no maximo uma
@@ -2006,7 +2002,7 @@ def garantir_ponte_se_tiver_sessao() -> None:
 
 # ── AVISO DE SESSAO PERDIDA (13/10/2026) ─────────────────────────────────────
 #
-# Em 06/10 o celular desconectou o JARVIS (401) e ninguem avisou: o status so
+# Em 06/10 o celular desconectou o NIA (401) e ninguem avisou: o status so
 # dizia "Bridge offline". Agora, se o node gravou last_disconnect.json com
 # logged_out e a sessao (auth\creds.json) sumiu, o main fala UMA frase por
 # queda. O 'at' ja avisado fica em aviso_sessao_perdida.json.
@@ -2016,7 +2012,7 @@ def _arquivo_aviso_sessao() -> Path:
 
 
 def _marcar_logout_manual() -> None:
-    """Desconectar pelo JARVIS nao e 'desconectado pelo celular'."""
+    """Desconectar pelo NIA nao e 'desconectado pelo celular'."""
     try:
         dados = _load_json_file(_arquivo_aviso_sessao(), {})
         if not isinstance(dados, dict):
@@ -2056,7 +2052,7 @@ def aviso_de_sessao_perdida() -> str | None:
             return None
         quando = _quando_pt(at)
         no_dia = f" no dia {quando}" if quando else ""
-        return (f"Chefe, o seu WhatsApp foi desconectado do JARVIS pelo celular{no_dia}. "
+        return (f"Chefe, o seu WhatsApp foi desconectado do NIA pelo celular{no_dia}. "
                 "Quando quiser, diga 'conectar WhatsApp' e escaneie o QR Code.")
     except Exception:
         return None
@@ -2159,15 +2155,15 @@ def _open_whatsapp_qr_page() -> bool:
 def _try_open_whatsapp_overlay(player) -> bool:
     """Ask the PyQt UI to open the WhatsApp QR overlay from a worker thread.
 
-    In the app, whatsapp_action receives JarvisUI, not MainWindow. Older builds
+    In the app, whatsapp_action receives NiaUI, not MainWindow. Older builds
     looked for _open_whatsapp_sig directly on the player and therefore voice
     commands started the bridge but did not show the QR window. This resolver
-    supports both JarvisUI and MainWindow safely.
+    supports both NiaUI and MainWindow safely.
     """
     if player is None:
         return False
 
-    # New JarvisUI wrapper method.
+    # New NiaUI wrapper method.
     try:
         meth = getattr(player, "open_whatsapp_qr", None)
         if callable(meth):
@@ -2185,7 +2181,7 @@ def _try_open_whatsapp_overlay(player) -> bool:
     except Exception:
         pass
 
-    # JarvisUI._win signal.
+    # NiaUI._win signal.
     try:
         win = getattr(player, "_win", None)
         sig = getattr(win, "_open_whatsapp_sig", None)
@@ -2304,8 +2300,8 @@ def _stt_join_schedule_words(text: str) -> str:
         (r"\bhor[aá]\s*rio\b", "horário"),
         (r"\bcont?\s*ato\b", "contato"),
         (r"\bgen\s*ti\s*leza\b", "gentileza"),
-        (r"\bcy\s*ber\s*bo\s*t\s*s?\b", "JARVIS"),
-        (r"\bcy\s*ber\s*bot\b", "JARVIS"),
+        (r"\bcy\s*ber\s*bo\s*t\s*s?\b", "NIA"),
+        (r"\bcy\s*ber\s*bot\b", "NIA"),
         (r"\bage\s*nde\b", "agende"),
         (r"\bage\s*ndo\b", "agendo"),
         (r"\bho\s*je\b", "hoje"),
@@ -2403,16 +2399,16 @@ def _clean_schedule_recipient(name: str) -> str:
     n = re.sub(r"^(?:contato|n[uú]mero)\s+(?:vai\s+ser|seria|sera|será|é|e)\s+", "", n, flags=re.I).strip(" .,:;!?")
     n = re.sub(r"^(?:o|a)\s+(?=cyber\s*bot|mark_xlviii|cyber\s*box|cyberbox|cyber\s*pot|cyberpot)", "", n, flags=re.I).strip(" .,:;!?")
     n = re.sub(r"\s+(?:e\s+)?(?:o\s+)?(?:conte[uú]do|texto|mensagem|hor[aá]rio|data)\b.*$", "", n, flags=re.I).strip(" .,:;!?")
-    n = re.sub(r"\bCyber\s*Bots?\b", "JARVIS", n, flags=re.I)
-    n = re.sub(r"\bCyberbot[s]?\b", "JARVIS", n, flags=re.I)
+    n = re.sub(r"\bCyber\s*Bots?\b", "NIA", n, flags=re.I)
+    n = re.sub(r"\bCyberbot[s]?\b", "NIA", n, flags=re.I)
     n = re.sub(r"\s+", " ", n).strip()
     n = re.sub(r"\s*,?\s+(?:a|o|e)$", "", n, flags=re.I).strip(" .,:;!?")
     compact_n = _compact_schedule_raw(n)
     if _looks_like_mark_xlviii_spoken(n) or compact_n in {"omark_xlviii", "amark_xlviii"} or ("mark_xlviii" in compact_n and len(compact_n) <= 14):
-        return "JARVIS"
+        return "NIA"
     if _is_bad_schedule_recipient(n):
         return ""
-    return n.title().replace("Cyberbot", "JARVIS").replace("Cyberbots", "JARVIS").replace("Cyber Box", "JARVIS").replace("Cyber Pot", "JARVIS")
+    return n.title().replace("Cyberbot", "NIA").replace("Cyberbots", "NIA").replace("Cyber Box", "NIA").replace("Cyber Pot", "NIA")
 
 def _clean_schedule_message(msg: str) -> str:
     """Limpa conteúdo sem cortar frases legítimas como 'é hoje o grande dia'."""
@@ -2574,7 +2570,7 @@ def _extract_schedule_parts_from_raw(raw_text: str) -> dict:
         r"(?:o\s+)?contato\s+(?:vai\s+ser|seria|sera|será|é|e)\s+(.+?)(?:\s+(?:hoje|amanha|amanhã|as|às|horario|horário|texto|conteudo|conteúdo|mensagem\s+vai|e\s+o\s+conteudo|e\s+o\s+conteúdo)|$)",
         r"(?:para\s+o\s+meu\s+)?contato\s+(.+?)(?:\s+(?:hoje|amanha|amanhã|as|às|horario|horário|texto|conteudo|conteúdo|mensagem\s+vai|e\s+o\s+conteudo|e\s+o\s+conteúdo)|$)",
         r"(?:para\s+o\s+)?(?:numero|n[uú]mero)\s+(.+?)(?:\s+(?:hoje|amanha|amanhã|as|às|horario|horário|texto|conteudo|conteúdo|mensagem\s+vai|e\s+o\s+conteudo|e\s+o\s+conteúdo)|$)",
-        r"(?:para\s+)(JARVIS|Cyberbots|Cyber Bot|Cyber Bots|Cyberbox|Cyberpot)(?:\s|$)",
+        r"(?:para\s+)(NIA|Cyberbots|Cyber Bot|Cyber Bots|Cyberbox|Cyberpot)(?:\s|$)",
     ]
     for pat in specific_patterns:
         m = re.search(pat, raw, flags=re.I) or re.search(pat, low, flags=re.I)
@@ -2730,7 +2726,7 @@ def _load_pending_schedule() -> dict:
     data = _load_json_file(PENDING_SCHEDULE_FILE, {})
     if not isinstance(data, dict):
         return {}
-    # Rascunho pendente é estado de conversa, não deve voltar depois que fecha/abre o JARVIS.
+    # Rascunho pendente é estado de conversa, não deve voltar depois que fecha/abre o NIA.
     # Também expira rapidamente para não prender comandos normais em modo agendamento.
     try:
         # Rascunho antigo sem boot_id ou de outra execução nunca deve voltar.
@@ -2818,7 +2814,7 @@ def _should_keep_existing_schedule(existing: dict, new_draft: dict) -> bool:
     # Nunca troca um contato válido por palavra de data/horário, como "Hoje".
     if old_to and (not new_to or _is_bad_schedule_recipient(new_to)):
         return True
-    # Nunca troca JARVIS por "Hoje", "O JARVIS" ruim etc.
+    # Nunca troca NIA por "Hoje", "O NIA" ruim etc.
     if old_to and new_to and _norm_for_schedule_compare(new_to) in {"hoje", "amanha", "data", "horario"}:
         return True
     # Se já tinha conteúdo completo, não deixa uma chamada seguinte cortar para prefixo.
@@ -2844,7 +2840,7 @@ def schedule_whatsapp_message(to: str = "", message: str = "", schedule_at: str 
         _save_pending_schedule({})
         return "Agendamento em preparação cancelado. Nenhuma mensagem foi enviada nem agendada."
     if _is_internal_schedule_text(raw_text) or _is_internal_schedule_text(message):
-        # Status interno do WhatsApp/Jarvis nunca pode ser salvo como texto da mensagem.
+        # Status interno do WhatsApp/Nia nunca pode ser salvo como texto da mensagem.
         raw_text = ""
         message = ""
     extracted = _extract_schedule_parts_from_raw(raw_text or "")
@@ -2857,7 +2853,7 @@ def schedule_whatsapp_message(to: str = "", message: str = "", schedule_at: str 
     to_candidate = _clean_schedule_recipient(to or extracted.get("to") or "")
     pending_to = _clean_schedule_recipient(str(pending.get("to") or ""))
     if not to_candidate and raw_text and _looks_like_mark_xlviii_spoken(raw_text):
-        to_candidate = "JARVIS"
+        to_candidate = "NIA"
     if not to_candidate and pending_to:
         to = pending_to
     elif to_candidate:
@@ -2987,8 +2983,8 @@ def _finalize_schedule_from_pending(p: dict) -> str:
     if media_type != "text":
         fname = Path(file_path).name
         cap_txt = f' Legenda: "{caption}".' if caption else ""
-        return f'Arquivo "{fname}" agendado para {to} em {when}.{cap_txt} O JARVIS precisa estar aberto e o WhatsApp conectado nesse horário.'
-    return f'Mensagem agendada para {to} em {when}. Conteúdo: "{message}". O JARVIS precisa estar aberto e o WhatsApp conectado nesse horário.'
+        return f'Arquivo "{fname}" agendado para {to} em {when}.{cap_txt} O NIA precisa estar aberto e o WhatsApp conectado nesse horário.'
+    return f'Mensagem agendada para {to} em {when}. Conteúdo: "{message}". O NIA precisa estar aberto e o WhatsApp conectado nesse horário.'
 
 
 def clear_pending_schedule() -> str:
@@ -3041,7 +3037,7 @@ def cancel_scheduled_message(schedule_id: str = "") -> str:
 # AGENDAMENTO QUE NAO SAI NAO PODE SUMIR CALADO (13/10/2026).
 #
 # Antes: qualquer erro virava 'failed' na hora, sem nova tentativa, e o main
-# nem falava quando o erro era de conexao. E mensagem de horas atras (JARVIS
+# nem falava quando o erro era de conexao. E mensagem de horas atras (NIA
 # fechado no horario) saia a qualquer momento depois. Agora:
 # - erro de conexao/sessao: continua 'pending', tenta de novo a cada 60 s e
 #   desiste depois de 15 min ('failed' com error_code e aviso);
@@ -3095,13 +3091,13 @@ def poll_due_scheduled_messages(limit: int = 5) -> list[dict]:
                 pass
         tentativas = int(x.get("attempts") or 0)
         if tentativas:
-            # Estava tentando e o JARVIS fechou no meio: nao envia horas depois.
+            # Estava tentando e o NIA fechou no meio: nao envia horas depois.
             try:
                 parado = (now - datetime.fromisoformat(str(x.get("first_try_at") or ""))).total_seconds()
             except Exception:
                 parado = 0.0
             if parado > _AGENDA_DESISTE_S + 2 * _AGENDA_ESPERA_S:
-                erro = f"O WhatsApp não conectou a tempo e o JARVIS ficou fechado depois do horário marcado ({_hora_marcada(dt, now)})"
+                erro = f"O WhatsApp não conectou a tempo e o NIA ficou fechado depois do horário marcado ({_hora_marcada(dt, now)})"
                 x["status"] = "failed"
                 x["error"] = erro
                 x["failed_at"] = datetime.now().isoformat()
@@ -3110,7 +3106,7 @@ def poll_due_scheduled_messages(limit: int = 5) -> list[dict]:
                 changed = True
                 continue
         elif (now - dt).total_seconds() > _AGENDA_ATRASO_MAX_S:
-            erro = f"O JARVIS estava fechado no horário marcado ({_hora_marcada(dt, now)})"
+            erro = f"O NIA estava fechado no horário marcado ({_hora_marcada(dt, now)})"
             x["status"] = "expired"
             x["error"] = erro
             x["error_code"] = "expired"
@@ -3151,9 +3147,9 @@ def poll_due_scheduled_messages(limit: int = 5) -> list[dict]:
                     decorrido = 0.0
                 if decorrido >= _AGENDA_DESISTE_S:
                     if codigo in {"no_session", "needs_qr"}:
-                        erro = "O WhatsApp está sem sessão no JARVIS (é preciso escanear o QR Code de novo); a mensagem não foi enviada"
+                        erro = "O WhatsApp está sem sessão no NIA (é preciso escanear o QR Code de novo); a mensagem não foi enviada"
                     else:
-                        erro = "O WhatsApp ficou sem conexão com o JARVIS por 15 minutos; a mensagem não foi enviada"
+                        erro = "O WhatsApp ficou sem conexão com o NIA por 15 minutos; a mensagem não foi enviada"
                     x["status"] = "failed"
                     x["error"] = erro
                     x["failed_at"] = datetime.now().isoformat()
@@ -3189,7 +3185,7 @@ def _load_agent_config() -> dict:
     if data.get("enabled") and data.get("boot_id") != BOOT_ID:
         data["enabled"] = False
         data["disabled_at"] = datetime.now().isoformat()
-        data["disabled_reason"] = "Desativado automaticamente ao iniciar nova sessão do JARVIS para evitar agente responder sozinho."
+        data["disabled_reason"] = "Desativado automaticamente ao iniciar nova sessão do NIA para evitar agente responder sozinho."
         try:
             _save_json_file(AGENT_FILE, data)
         except Exception:
@@ -3211,7 +3207,7 @@ def _read_text_file_safely(file_path: str) -> tuple[str, str]:
 
 
 def _persist_agent_knowledge_file(resolved: str) -> str:
-    """Copia o TXT para uma pasta permanente do JARVIS para sobreviver a reinício."""
+    """Copia o TXT para uma pasta permanente do NIA para sobreviver a reinício."""
     src = Path(resolved)
     AGENT_KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", src.name or "base_agente.txt")

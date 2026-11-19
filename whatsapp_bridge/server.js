@@ -42,7 +42,7 @@ const LAST_DISCONNECT_FILE = path.join(ROOT, 'last_disconnect.json');
 const DB_FILE = path.join(ROOT, 'mark_xlviii_whatsapp_db.json');
 const DB_BAK_FILE = DB_FILE + '.bak';
 const MEDIA_DIR = path.join(ROOT, 'media');
-const VERSION = '2026-11-11-ponte-jarvis-40';
+const VERSION = '2026-11-11-ponte-nia-40';
 const BOOT_AT = new Date().toISOString();
 const MAX_SEND_BYTES = Number(process.env.MARKXLVIII_WHATSAPP_MAX_FILE_MB || process.env.CYBERBOT_WHATSAPP_MAX_FILE_MB || 100) * 1024 * 1024;
 try { fs.mkdirSync(MEDIA_DIR, { recursive: true }); } catch (_) {}
@@ -58,7 +58,7 @@ function rodarLogSeGrande(arquivo, limite = 5 * 1024 * 1024) {
 rodarLogSeGrande(LOG_FILE);
 rodarLogSeGrande(BAILEYS_LOG_FILE);
 
-// GRAVACAO ATOMICA (13/10/2026). O JARVIS mata a ponte a qualquer hora; quem
+// GRAVACAO ATOMICA (13/10/2026). O NIA mata a ponte a qualquer hora; quem
 // lia o arquivo no meio da gravacao pegava JSON cortado. Agora grava em .tmp e
 // troca pelo nome certo (rename). No Windows o rename pode dar EPERM/EBUSY
 // (antivirus, alguem lendo): tenta 3 vezes e, se nao der, grava direto.
@@ -161,14 +161,14 @@ let aliases = {};
 let messages = [];
 let starting = false;
 let qrWatchdog = null;
-// UMA CONEXAO SO (23/09/2026, "estou conectado e o JARVIS diz que nao").
+// UMA CONEXAO SO (23/09/2026, "estou conectado e o NIA diz que nao").
 //
 // O bridge.log de 22/09 mostrou DUAS conexoes do Baileys vivas no mesmo
 // processo: o botao "GERAR QR NOVO" (/reset) encerrava a conexao atual e
 // agendava uma nova — e o evento de fechamento DESSA MESMA conexao agendava
 // outra ("reconnect"), 3 s depois. Uma conectava de verdade; a outra ficava
 // gerando QR Code a cada minuto e escrevendo `connected:false, has_qr:true` por
-// cima. O JARVIS lia isso e respondia "o WhatsApp ainda nao esta conectado,
+// cima. O NIA lia isso e respondia "o WhatsApp ainda nao esta conectado,
 // escaneie o QR". Depois as duas se derrubavam em laco (codigo 440: "outra
 // sessao substituiu esta"), e a cada queda nascia mais uma.
 //
@@ -221,7 +221,7 @@ function agendarReconexao(minha, espera) {
   return true;
 }
 // START QUE FALHOU TENTA DE NOVO (13/10/2026): 10 s, 20 s, 40 s, ate 60 s.
-// Antes o catch so registrava e a ponte ficava parada ate reiniciar o JARVIS.
+// Antes o catch so registrava e a ponte ficava parada ate reiniciar o NIA.
 function agendarNovoStart() {
   if (reconexao || desligando || paradoMotivo) return;
   falhasStart += 1;
@@ -375,7 +375,7 @@ function saveDbAgora() {
 // GRAVAR O BANCO NO MAXIMO A CADA 1,5 s (23/09/2026). Era a cada mensagem,
 // contato e grupo: um arquivo de ~3 MB escrito de uma vez, com o Node parado
 // esperando. Numa sincronizacao chegam centenas de eventos por minuto, a ponte
-// deixava de atender a porta e o JARVIS entendia "WhatsApp desconectado". Os
+// deixava de atender a porta e o NIA entendia "WhatsApp desconectado". Os
 // dados continuam na memoria na hora; so o arquivo e que espera 1,5 s.
 let saveDbTimer = null;
 function saveDb() {
@@ -682,7 +682,7 @@ function chooseGroupSenderName(msg, senderJid, chatName) {
     return name;
   }
   // Não inventar nome nem falar código/ID. Se o WhatsApp não liberar o nome do participante,
-  // o Jarvis fala apenas "participante do grupo".
+  // o Nia fala apenas "participante do grupo".
   return 'participante do grupo';
 }
 function rememberContact(jid, data = {}, options = {}) {
@@ -806,7 +806,7 @@ function uniqueJoin(parts, textoDireto = false) {
     // TEXTO DIGITADO PELA PESSOA VALE COMO VEIO (23/09/2026). O filtro de
     // `textCandidate` existe para o lixo das mensagens interativas (ids,
     // base64, link de rastreio). Aplicado ao texto de verdade ele jogava fora
-    // mensagem que e so um LINK comprido — e o JARVIS lia "[extendedTextMessage]"
+    // mensagem que e so um LINK comprido — e o NIA lia "[extendedTextMessage]"
     // em vez do link que o Diego mandou.
     const c = textoDireto ? String(p == null ? '' : p).replace(/\s+/g, ' ').trim() : textCandidate(p);
     if (!c) continue;
@@ -1045,7 +1045,7 @@ function shouldAlertMessage(item) {
   if (!item || item.from_me) return false;
   if (!isMeaningfulMessageItem(item)) return false;
 
-  // Áudio recebido precisa primeiro ser salvo. Assim o Jarvis pode falar o conteúdo transcrito direto
+  // Áudio recebido precisa primeiro ser salvo. Assim o Nia pode falar o conteúdo transcrito direto
   // e não apenas avisar "[áudio recebido]" antes do arquivo ficar disponível.
   // 'sem_chave' (13/10/2026) e falha definitiva, como 'failed'.
   if (isAudioMessageItem(item) && !item.media_path && !['failed', 'sem_chave'].includes(String(item.media_download_status || '').toLowerCase())) return false;
@@ -1441,7 +1441,7 @@ function clearQrWatchdog() { if (qrWatchdog) clearTimeout(qrWatchdog); qrWatchdo
 
 // ===== AUTH COM GRAVACAO ATOMICA (13/10/2026) =====
 // O useMultiFileAuthState do Baileys 6.7.23 grava cada chave POR CIMA do
-// arquivo. O JARVIS mata a ponte (TerminateProcess) a qualquer hora: chave
+// arquivo. O NIA mata a ponte (TerminateProcess) a qualquer hora: chave
 // cortada vira "nao existe", a sessao Signal volta para tras (Bad MAC, "Over
 // 2000 messages into the future") e creds.json cortado vira credencial nova
 // (QR de novo). Esta e a MESMA logica do Baileys (mesmos nomes de arquivo,
@@ -1682,7 +1682,7 @@ function motivoDoFechamento(statusCode, mensagem) {
 }
 function mensagemDeEstado() {
   if (currentConnected()) return 'WhatsApp conectado com sucesso.';
-  if (paradoMotivo === 'banned') return 'O WhatsApp bloqueou esta conta para o JARVIS (código 403). Confira o WhatsApp no celular.';
+  if (paradoMotivo === 'banned') return 'O WhatsApp bloqueou esta conta para o NIA (código 403). Confira o WhatsApp no celular.';
   if (paradoMotivo === 'qr_expired') return 'O QR Code expirou sem ser escaneado. Clique em "Gerar QR novo" ou peça para conectar o WhatsApp.';
   if (paradoMotivo === 'version_rejected') return 'O WhatsApp recusou a versão da ponte (código 405). Tente de novo mais tarde.';
   if (lastQr) return 'QR Code gerado. Escaneie com o WhatsApp.';
@@ -1766,7 +1766,7 @@ async function start({ fresh = false } = {}) {
       logger: baileysLogger,
       // printQRInTerminal saiu (13/10/2026): obsoleto no 6.7.x, so gerava aviso.
       // O NOME QUE O CELULAR MOSTRA em "Aparelhos conectados".
-      // v1.0.40 (11/11/2026, pedido do Diego): aparece "JARVIS" (antes era o
+      // v1.0.40 (11/11/2026, pedido do Diego): aparece "NIA" (antes era o
       // sistema: Windows / Mac OS / Linux). O WhatsApp grava o nome no
       // PAREAMENTO: vale para quem conectar (ler o QR) depois desta versao.
       // 'Desktop' = icone de computador. (O historico nao muda: syncFullHistory
@@ -1885,7 +1885,7 @@ async function start({ fresh = false } = {}) {
         if (motivo === 'version_rejected' && !tentouVersaoNova) { tentouVersaoNova = true; tentarVersaoNova = true; }
         lastDisconnectReason = motivo;
         // last_disconnect.json ANTES de apagar o auth. Logout pedido pelo
-        // proprio JARVIS (/logout) fica como 'manual_logout' e logged_out
+        // proprio NIA (/logout) fica como 'manual_logout' e logged_out
         // false: nao e "o celular derrubou", e o aviso nao deve sair.
         if (statusCode !== undefined && statusCode !== null) {
           gravarUltimoDesligamento({
@@ -2058,7 +2058,7 @@ async function resolveGroupJid(groupName) {
 
 // ERRO INTERNO NAO E DESCONEXAO (13/10/2026). Antes qualquer rejeicao do
 // Baileys ("Connection Closed", "Timed Out") gravava connected:false com o
-// socket aberto, e o JARVIS lia "nao conectado". Agora so registra o erro.
+// socket aberto, e o NIA lia "nao conectado". Agora so registra o erro.
 function registrarErroGlobal(tipo, err) {
   log(tipo, err?.stack || err);
   ultimoErro = String(err?.message || err).slice(0, 500);
@@ -2079,7 +2079,7 @@ app.get('/', (_req, res) => {
 <title>Mark-XLVIII — WhatsApp QR</title>
 <style>
 body{margin:0;background:#02070b;color:#8ffcff;font-family:Consolas,monospace;display:flex;min-height:100vh;align-items:center;justify-content:center}.box{width:min(92vw,520px);border:1px solid #0d5670;border-radius:14px;background:#010f18;padding:22px;box-shadow:0 0 30px #00384a}h1{color:#00d4ff;text-align:center;font-size:22px;margin:0 0 10px}.status{text-align:center;color:#d8f8ff;margin:8px 0 16px;min-height:24px}.qr{background:white;border-radius:12px;padding:10px;width:280px;height:280px;object-fit:contain;display:block;margin:0 auto}.ok{background:#001a0d;color:#00ff88;border:1px solid #00aa55;border-radius:12px;padding:35px 10px;text-align:center;font-size:28px;font-weight:bold}.muted{color:#5ab8cc;text-align:center;font-size:13px;line-height:1.45}.row{display:flex;gap:8px;justify-content:center;margin-top:16px}button{background:#011520;color:#00d4ff;border:1px solid #0d5670;border-radius:8px;padding:10px 12px;font-family:inherit;cursor:pointer}button:hover{border-color:#00d4ff}</style>
-</head><body><div class="box"><h1>J.A.R.V.I.S — WhatsApp</h1><div id="status" class="status">Iniciando ponte...</div><div id="area"></div><p class="muted">No celular: WhatsApp → Aparelhos conectados → Conectar aparelho. Depois escaneie o QR Code.</p><div class="row"><button onclick="resetar()">Gerar QR novo</button><button onclick="location.reload()">Atualizar</button></div></div>
+</head><body><div class="box"><h1>N.I.A — WhatsApp</h1><div id="status" class="status">Iniciando ponte...</div><div id="area"></div><p class="muted">No celular: WhatsApp → Aparelhos conectados → Conectar aparelho. Depois escaneie o QR Code.</p><div class="row"><button onclick="resetar()">Gerar QR novo</button><button onclick="location.reload()">Atualizar</button></div></div>
 <script>
 async function load(){try{const s=await fetch('/status?ts='+Date.now()).then(r=>r.json());const st=document.getElementById('status'),a=document.getElementById('area');if(s.connected){st.textContent='WhatsApp conectado com sucesso.';a.innerHTML='<div class="ok">✓<br>WHATSAPP<br>CONECTADO</div>';return;}st.textContent=s.has_qr?'Escaneie o QR Code abaixo.':(s.message||s.last_event||'Aguardando QR Code...');if(s.has_qr){a.innerHTML='<img class="qr" src="/qr?ts='+Date.now()+'">';}else{a.innerHTML='<div class="muted">QR ainda não disponível. Aguarde alguns segundos...</div>';}}catch(e){document.getElementById('status').textContent='Ponte offline ou iniciando...';document.getElementById('area').innerHTML='<div class="muted">Se demorar, rode 8_instalar_whatsapp_bridge.bat e tente novamente.</div>';}}
 async function resetar(){await fetch('/reset',{method:'POST'}).catch(()=>{});setTimeout(load,1200)}
@@ -2119,7 +2119,7 @@ app.post('/start', (_req, res) => {
   res.json({ ok: true, result: 'Conectando ao WhatsApp.', connected: false });
   start({ fresh: false }).catch(e => log('Start via /start failed', e?.stack || e));
 });
-// POST /shutdown (13/10/2026). O JARVIS matava a ponte com TerminateProcess
+// POST /shutdown (13/10/2026). O NIA matava a ponte com TerminateProcess
 // no meio da gravacao das chaves (Bad MAC, sessao estragada). Agora pede para
 // sair: cancela a religacao, fecha o socket, espera as gravacoes de credencial
 // e chave terminarem, grava o banco e o status e sai com 0 em ate 1,5 s.
@@ -2213,7 +2213,7 @@ function messageStubFromPayload(payload, fallbackText = '') {
   return { conversation: String(fallbackText || '') };
 }
 // ===== ENVIO (13/10/2026) =====
-// Toda falha de envio sai com error_code, para o JARVIS falar a frase certa:
+// Toda falha de envio sai com error_code, para o NIA falar a frase certa:
 // no_session, needs_qr, not_connected, contact_not_found, timeout,
 // send_failed, banned. O texto em ingles continua (o Python antigo procura
 // "not connected" nele). Resultado incerto (estourou o tempo ou a conexao
@@ -2529,7 +2529,7 @@ app.post('/logout', async (_req, res) => {
   saveDb();
   const msg = logoutError
     ? `WhatsApp desconectado localmente e sessão limpa. Aviso: o comando de logout real retornou: ${logoutError}. Se ainda aparecer no celular, remova em WhatsApp > Aparelhos conectados.`
-    : 'WhatsApp desconectado completamente. Sessão encerrada no Jarvis e no aparelho conectado; será necessário escanear um novo QR Code.';
+    : 'WhatsApp desconectado completamente. Sessão encerrada no Nia e no aparelho conectado; será necessário escanear um novo QR Code.';
   saveStatus({ connected:false, has_qr:false, message:msg, disconnect_reason:lastDisconnectReason, fresh_login_required:true, last_event:'manual_logout' });
   res.json({ ok:true, result: msg, real_logout: !logoutError, warning: logoutError });
 });

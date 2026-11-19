@@ -6,15 +6,15 @@ Queixa do Diego, e ela vale como regra geral do produto:
     "quando ouve um erro desse ele tem que verificar se realmente esta fechado
      ou aberto pra nao ficar inventando"
 
-O caso: a pasta Downloads estava ABERTA na frente dele e o JARVIS repetiu quatro
+O caso: a pasta Downloads estava ABERTA na frente dele e o NIA repetiu quatro
 vezes *"o pasta de download nao esta aberto — nao havia o que fechar"*. Nao era
 teimosia: o `fechar_app` so sabia olhar PROCESSO, e janela de pasta nao tem
 processo proprio — ela e uma janela do `explorer.exe`, que esta na lista dos
-protegidos justamente para o JARVIS nunca derrubar a area de trabalho inteira.
+protegidos justamente para o NIA nunca derrubar a area de trabalho inteira.
 Entao ele procurava um processo chamado "pasta de download", nao achava, e
 concluia que nada estava aberto. Concluia errado.
 
-Este arquivo da ao JARVIS o que faltava: enxergar a JANELA. Sem dependencia nova —
+Este arquivo da ao NIA o que faltava: enxergar a JANELA. Sem dependencia nova —
 e a API do proprio Windows (`user32`) por `ctypes`.
 
 Fechar e educado: `WM_CLOSE` e o mesmo que clicar no X. Nao ha forca aqui de
@@ -35,7 +35,7 @@ _WM_CLOSE = 0x0010
 # Janelas que NUNCA devem ser fechadas por casar de raspao com o que ele falou.
 # "Program Manager" e a area de trabalho; fechar derruba os icones.
 TITULOS_INTOCAVEIS = ("program manager", "windows input experience",
-                      "microsoft text input application", "ted", "jarvis")
+                      "microsoft text input application", "ted", "nia")
 
 
 def normalizar(texto: str) -> str:
@@ -147,7 +147,7 @@ def alguma_janela_com(nome: str) -> str:
     """O titulo da primeira janela que casa com o nome falado, ou "".
 
     Serve para a honestidade da resposta: antes de dizer "nao estava aberto",
-    o JARVIS olha se ha uma janela com aquela cara na tela.
+    o NIA olha se ha uma janela com aquela cara na tela.
     """
     for j in listar():
         if _casa(j["titulo"], nome):

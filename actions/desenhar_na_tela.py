@@ -3,7 +3,7 @@
 
 Por que existe
 --------------
-O Diego pediu "abre o Paint e desenha uma casa" e o JARVIS abriu o Paint e
+O Diego pediu "abre o Paint e desenha uma casa" e o NIA abriu o Paint e
 riscou quatro tracos tortos. Nao era falta de talento do modelo: era o CAMINHO.
 O computer use (`usar_computador`) manda UMA foto da tela para a VPS e recebe
 UM movimento de mouse por volta, a ~5 segundos cada. Desenhar assim e desenhar
@@ -49,7 +49,7 @@ testado, mas nao contra um Windows 10 nem contra um Photoshop de verdade.
 A partir de uma FOTO do dono
 ----------------------------
   - "desenha essa foto": a foto vira desenho AQUI no computador, com o OpenCV
-    que o JARVIS ja carrega — manchas de cor grandes primeiro, contorno por
+    que o NIA ja carrega — manchas de cor grandes primeiro, contorno por
     cima (a ordem de quem pinta de verdade). Nao passa pela rede e nao gasta
     cota.
   - "poe um chapeu nessa foto": a foto e aberta no Paint e vira a folha; o
@@ -60,7 +60,7 @@ arrastada para a janela ha uma hora sequestraria um "desenha uma casa".
 AS QUATRO ARMADILHAS DESTE ARQUIVO (custaram a tarde)
 ------------------------------------------------------
 1. **UIA so funciona em thread MTA.** Com a thread em STA (que e o padrao do
-   comtypes, e o JARVIS ja importa comtypes por causa do pycaw) a PRIMEIRA
+   comtypes, e o NIA ja importa comtypes por causa do pycaw) a PRIMEIRA
    chamada trava para sempre, sem erro e sem tempo limite. Por isso todo o
    trabalho roda numa thread NOVA que comeca com `CoInitializeEx(None, 0)` — e
    o comtypes e importado ANTES dela, senao o import estoura la dentro.
@@ -292,7 +292,7 @@ def _clique(x: int = None, y: int = None, espera: float = 0.05) -> None:
 
 
 # O freio do ESC, enquanto um desenho esta em andamento. Fica aqui em cima
-# porque o `_tecla` precisa dele: o PROPRIO JARVIS aperta ESC (fechar menu,
+# porque o `_tecla` precisa dele: o PROPRIO NIA aperta ESC (fechar menu,
 # soltar selecao) e o freio nao distingue tecla de gente de tecla de programa —
 # sem este aviso ele se pararia sozinho. Mesma pedra do computer use.
 _FREIO = None
@@ -1407,7 +1407,7 @@ def _area_branca(hwnd) -> tuple | None:
         foto = ImageGrab.grab(bbox=(l, t, r, b), all_screens=True)
         arr = np.asarray(foto.convert("L"))
         claro = (arr >= 235).astype(np.uint8)
-        # a maior mancha clara conexa; o cv2 ja vem com o JARVIS (vision)
+        # a maior mancha clara conexa; o cv2 ja vem com o NIA (vision)
         import cv2  # noqa: PLC0415
         n, _rot, dados, _cent = cv2.connectedComponentsWithStats(claro, 8)
         if n <= 1:
@@ -1574,9 +1574,9 @@ def _veredito(jpeg: bytes, pedido: str, olhar, log) -> tuple:
 
 # ────────────────────────────────────────────────────────────── entrada
 def _faixa_na_tela(player, ligado: bool, texto: str = "") -> None:
-    """A faixa "JARVIS ESTA DESENHANDO" no alto da tela.
+    """A faixa "NIA ESTA DESENHANDO" no alto da tela.
 
-    Cobranca do Diego na 2a rodada: *"nao fica nome la em cima, JARVIS esta
+    Cobranca do Diego na 2a rodada: *"nao fica nome la em cima, NIA esta
     usando computador, aperte ESC para parar"*. E a mesma faixa do computer
     use (`AvisoComputador`, em ui.py) — ela nao aparece na foto da tela e nao
     rouba clique. Voz o dono esquece; a faixa fica ali o tempo todo.
@@ -1604,12 +1604,12 @@ def _pedido_cita(pedido: str, chaves) -> str:
 # ═══════════════════════════ DESENHAR A PARTIR DE UMA FOTO ═══════════════
 #
 # Pedido do Diego em 07/09/2026: *"o cliente pode ter uma imagem ou uma foto de
-# uma pessoa como exemplo para o JARVIS desenhar em cima daquela imagem que foi
+# uma pessoa como exemplo para o NIA desenhar em cima daquela imagem que foi
 # enviada como referencia"*.
 #
 # Duas coisas diferentes, e as duas estao aqui:
 #   A) DESENHAR A FOTO — a foto vira um desenho: manchas de cor grandes e o
-#      contorno por cima. Feito AQUI no computador, com o OpenCV que o JARVIS
+#      contorno por cima. Feito AQUI no computador, com o OpenCV que o NIA
 #      ja carrega para a visao. Nao passa pela rede, nao gasta cota e nao
 #      depende de o modelo "enxergar" bem.
 #   B) DESENHAR EM CIMA DA FOTO — a foto e aberta no Paint e vira a folha; o
@@ -1751,7 +1751,7 @@ def _plano_da_foto(caminho: str, estilo: str = "colorido", log=None) -> dict:
 
 # O dono TEM de citar a foto para ela virar referencia. Sem isto, uma imagem
 # que ele arrastou para a janela ha uma hora, para outra coisa, sequestraria um
-# "desenha uma casa" e o JARVIS desenharia a foto antiga.
+# "desenha uma casa" e o NIA desenharia a foto antiga.
 _CITA_A_FOTO = re.compile(
     r"\b(essa|esta|aquela|a) (foto|imagem|figura|referencia)\b|"
     r"\b(foto|imagem|figura) que (eu )?(te )?(mandei|enviei|passei|arrastei|"
@@ -1760,7 +1760,7 @@ _CITA_A_FOTO = re.compile(
 
 
 def _achar_referencia(p: dict, player) -> str:
-    """De onde vem a foto: do pedido, ou do quadro de arquivo do JARVIS."""
+    """De onde vem a foto: do pedido, ou do quadro de arquivo do NIA."""
     from pathlib import Path  # noqa: PLC0415
     for chave in ("referencia", "imagem", "foto", "image", "arquivo"):
         bruto = str(p.get(chave) or "").strip().strip('"')
@@ -1769,7 +1769,7 @@ def _achar_referencia(p: dict, player) -> str:
     pedido = str(p.get("pedido") or p.get("description") or "")
     if pedido and not _CITA_A_FOTO.search(pedido):
         return ""
-    # o arquivo que o dono arrastou para a janela do JARVIS
+    # o arquivo que o dono arrastou para a janela do NIA
     try:
         atual = getattr(player, "current_file", None)
         if atual and Path(str(atual)).is_file():
@@ -1893,7 +1893,7 @@ def _trabalho(p: dict, gerar, log, deve_parar, saida: dict, player=None,
         except Exception as exc:
             log(f"[desenhar] nao consegui avisar: {str(exc)[:60]}")
     _faixa_na_tela(player, True,
-                   "JARVIS ESTA DESENHANDO  ·  ESC interrompe  ·  "
+                   "NIA ESTA DESENHANDO  ·  ESC interrompe  ·  "
                    "nao mexa no mouse nem no teclado")
 
     # ESC PARA NA HORA, em qualquer janela — o mesmo freio do computer use.
@@ -2073,7 +2073,7 @@ def _desenhar_mesmo(p, gerar, log, deve_parar, saida, player, falar, pedido,
     # pode voltar a usar.
     from actions.narrador_pc import FIM_DESENHO  # noqa: PLC0415
     # O QUE FICOU DE FORA E DITO. Ver o comentario do TETO_DE_PECAS: teto que
-    # corta calado faz o JARVIS dizer "terminei" com o desenho pela metade.
+    # corta calado faz o NIA dizer "terminei" com o desenho pela metade.
     faltou = ""
     se_faltaram = cortadas + max(0, len(plano["formas"]) - feitas)
     if aviso == "faltou tempo":

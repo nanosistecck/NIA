@@ -1,25 +1,25 @@
 # -*- coding: utf-8 -*-
-"""SECRETARIA DO WHATSAPP — o motor (processo separado do JARVIS). 05/11/2026.
+"""SECRETARIA DO WHATSAPP — o motor (processo separado do NIA). 05/11/2026.
 
 Por que processo separado: o navegador, o som da ligacao e a conversa ao vivo
-ficam aqui. Se algo travar ou cair, o JARVIS continua de pe' (igual ao globo).
+ficam aqui. Se algo travar ou cair, o NIA continua de pe' (igual ao globo).
 
 O que ele faz:
-  1. Abre o WhatsApp Web no NAVEGADOR INTERNO do JARVIS (Chromium do Qt, o mesmo
+  1. Abre o WhatsApp Web no NAVEGADOR INTERNO do NIA (Chromium do Qt, o mesmo
      do globo), numa janela fora da tela e fora da barra de tarefas. O QR Code da
-     primeira vez aparece no cartao do JARVIS. Se o navegador interno nao abrir,
+     primeira vez aparece no cartao do NIA. Se o navegador interno nao abrir,
      usa o Edge (perfil proprio, janela minimizada) — ver navegador_qt.py.
   2. O pagina.js (injetado antes da pagina) avisa quando uma ligacao toca.
   3. Pelas opcoes (config/secretaria.json) e pela decisao do dono, a ligacao e'
      atendida pela secretaria, pelo dono, recusada ou deixada tocando.
   4. Atendida pela secretaria: abre a voz ao vivo da Gemini (chave do cliente),
      a voz de quem ligou entra nela e a resposta dela vira o "microfone" da
-     ligacao. Ela pode perguntar ao dono (o JARVIS fala a pergunta e manda a
+     ligacao. Ela pode perguntar ao dono (o NIA fala a pergunta e manda a
      resposta de volta), anotar recado e encerrar.
-  5. No fim grava a conversa e o resumo em Documentos\\JARVIS Secretaria e conta
-     ao JARVIS.
+  5. No fim grava a conversa e o resumo em Documentos\\NIA Secretaria e conta
+     ao NIA.
 
-Fala com o JARVIS por HTTP em 127.0.0.1 (porta e senha em config/.secretaria.json):
+Fala com o NIA por HTTP em 127.0.0.1 (porta e senha em config/.secretaria.json):
   POST /api/cmd {acao, dados}     GET /api/eventos?desde=N     POST /api/host {acao: fechar}
 """
 from __future__ import annotations
@@ -101,14 +101,11 @@ def log(msg: str) -> None:
 
 
 def _chave_gemini() -> str:
-    teste = os.environ.get("JARVIS_SECRETARIA_CHAVE_TESTE")      # so' a bancada (chave errada de proposito)
+    teste = os.environ.get("NIA_SECRETARIA_CHAVE_TESTE")      # so' a bancada (chave errada de proposito)
     if teste is not None:
         return teste
-    try:
-        d = json.loads((RAIZ / "config" / "api_keys.json").read_text(encoding="utf-8"))
-        return str(d.get("gemini_api_key") or d.get("GEMINI_API_KEY") or d.get("google_api_key") or "").strip()
-    except (OSError, ValueError):
-        return ""
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 
 def _em_ingles() -> bool:
@@ -120,7 +117,7 @@ def _em_ingles() -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# EVENTOS PARA O JARVIS (o JARVIS pergunta "o que ha de novo desde N")
+# EVENTOS PARA O NIA (o NIA pergunta "o que ha de novo desde N")
 # ─────────────────────────────────────────────────────────────────────────────
 class Eventos:
     def __init__(self) -> None:
@@ -401,7 +398,7 @@ class Motor:
         while not self.saindo.is_set():
             await asyncio.sleep(2.0)
             if not psutil.pid_exists(self.pai):
-                log("o JARVIS fechou: saindo")
+                log("o NIA fechou: saindo")
                 self.saindo.set()
 
     # -- navegador -------------------------------------------------------------
@@ -484,14 +481,14 @@ class Motor:
                     str(perfil), channel=canal, headless=False, bypass_csp=True, viewport=None,
                     args=args, ignore_default_args=["--enable-automation"],
                     permissions=["microphone", "notifications"])
-                log(f"navegador aberto: {canal or 'chromium do JARVIS'}")
+                log(f"navegador aberto: {canal or 'chromium do NIA'}")
                 if canal is None and not self.teste:
-                    # v1.0.39: o Chromium do JARVIS (sem H.264 e com outra "marca") pode nem fazer o WhatsApp
+                    # v1.0.39: o Chromium do NIA (sem H.264 e com outra "marca") pode nem fazer o WhatsApp
                     # tocar. Acontece no Linux sem Chrome/Edge: o cliente fica sabendo o que instalar.
                     self.eventos.por("erro", texto=SEC.txt(
-                        "A secretária abriu no navegador do JARVIS, que pode não receber ligações do WhatsApp. "
+                        "A secretária abriu no navegador do NIA, que pode não receber ligações do WhatsApp. "
                         "Para ela atender, instale o Google Chrome ou o Microsoft Edge.",
-                        "The assistant opened in JARVIS's own browser, which may not receive WhatsApp calls. "
+                        "The assistant opened in NIA's own browser, which may not receive WhatsApp calls. "
                         "To let her answer, install Google Chrome or Microsoft Edge."))
                 break
             except Exception as exc:  # noqa: BLE001
@@ -586,7 +583,7 @@ class Motor:
             return
         tipo = ev.get("tipo")
         if tipo == "qr":
-            # O QR Code vai para o cartao do JARVIS: no navegador interno o dono nunca ve a janela.
+            # O QR Code vai para o cartao do NIA: no navegador interno o dono nunca ve a janela.
             img = str(ev.get("img") or "")
             if img and img != self.qr:
                 self.qr = img
@@ -613,7 +610,7 @@ class Motor:
             self.eventos.por("login", estado=self.login)
             if self.login == "conectado":
                 self.qr = ""
-            # O QR vai para a janela do CONECTAR WHATSAPP do JARVIS: o Edge nunca aparece sozinho.
+            # O QR vai para a janela do CONECTAR WHATSAPP do NIA: o Edge nunca aparece sozinho.
             return
         if tipo == "notificacao":
             log(f"notificacao: {ev.get('titulo')!r} {ev.get('corpo')!r}")
@@ -968,8 +965,8 @@ class Motor:
 
         chave = _chave_gemini()
         if not chave:
-            self.eventos.por("erro", id=lig.id, texto=SEC.txt("A secretária precisa da chave da Gemini cadastrada no JARVIS.",
-                                                              "The assistant needs the Gemini key saved in JARVIS."))
+            self.eventos.por("erro", id=lig.id, texto=SEC.txt("A secretária precisa da chave da Gemini cadastrada no NIA.",
+                                                              "The assistant needs the Gemini key saved in NIA."))
             lig.decidida = False
             return
         self.cfg = SEC.carregar()
@@ -1768,7 +1765,7 @@ class Motor:
         except ValueError:
             desde = 0
         if desde > self.eventos.n:
-            desde = 0          # o motor reiniciou e o JARVIS ainda lembra da contagem velha
+            desde = 0          # o motor reiniciou e o NIA ainda lembra da contagem velha
         eventos = await self.eventos.desde(desde, 25.0)
         return web.json_response({"ok": True, "eventos": eventos})
 
@@ -1899,7 +1896,7 @@ def main() -> None:
             if sys.platform == "win32":
                 try:
                     import ctypes  # noqa: PLC0415
-                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("JARVIS.CyberBot.Secretaria")
+                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("NIA.CyberBot.Secretaria")
                 except Exception:
                     pass
             app = QApplication(sys.argv[:1])

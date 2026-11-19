@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Cofre de acessos do dono — usuario e senha dos sistemas que o JARVIS opera.
+"""Cofre de acessos do dono — usuario e senha dos sistemas que o NIA opera.
 
 Por que existe (03/09/2026)
 ---------------------------
@@ -31,7 +31,7 @@ _CAMPOS = ("usuario", "senha", "url", "observacao")
 
 def _cifrar(texto: str) -> str:
     import win32crypt  # noqa: PLC0415
-    bruto = win32crypt.CryptProtectData(texto.encode("utf-8"), "JARVIS CyberBot",
+    bruto = win32crypt.CryptProtectData(texto.encode("utf-8"), "NIA CyberBot",
                                         None, None, None, 0)
     return base64.b64encode(bruto).decode("ascii")
 

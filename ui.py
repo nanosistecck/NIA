@@ -18,15 +18,15 @@ import psutil
 if platform.system() == "Windows":
     _WIN_HIDE: dict = {"creationflags": subprocess.CREATE_NO_WINDOW}
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("JarvisCyberBot.MarkXLVIII.App")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("NiaCyberBot.MarkXLVIII.App")
     except Exception:
         pass
 else:
     _WIN_HIDE: dict = {}
 
 from PyQt6.QtCore import (
-    QEasingCurve, QEvent, QLineF, QMimeData, QObject, QPointF, QRectF, QSize, Qt,
-    QTimer, QUrl, QVariantAnimation, pyqtSignal,
+    QEasingCurve, QEvent, QLineF, QPointF, QRectF, Qt,
+    QTimer, QVariantAnimation, pyqtSignal,
 )
 from PyQt6.QtGui import (
     QBrush, QColor, QConicalGradient, QDragEnterEvent, QDropEvent, QFont,
@@ -37,11 +37,11 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
-    QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
+    QStackedWidget, QTextEdit, QVBoxLayout, QWidget,
     QDialog, QGridLayout, QGraphicsDropShadowEffect, QMenu, QSystemTrayIcon,
 )
 
-# SEGUNDO PLANO (01/11/2026, v1.0.37): botao e tecla F9 que deixam o JARVIS so
+# SEGUNDO PLANO (01/11/2026, v1.0.37): botao e tecla F9 que deixam o NIA so
 # no icone perto do relogio, sem ouvir nem fazer nada. Ver core/segundo_plano.py.
 from core import segundo_plano as _segundo_plano
 
@@ -77,7 +77,7 @@ def _base_dir() -> Path:
     return Path(__file__).resolve().parent
 
 def _app_icon_path() -> Path:
-    return _base_dir() / "assets" / "icons" / "jarvis_installer_icon.ico"
+    return _base_dir() / "assets" / "icons" / "nia_installer_icon.ico"
 
 BASE_DIR   = _base_dir()
 CONFIG_DIR = BASE_DIR / "config"
@@ -92,7 +92,7 @@ _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
 
 class C:
-    # VISUAL PREMIUM (05/10/2026): mesma familia de cores (ciano do JARVIS,
+    # VISUAL PREMIUM (05/10/2026): mesma familia de cores (ciano do NIA,
     # ambar, verde), em tons mais profundos — azul-noite no fundo, vidro nos
     # paineis e o ciano um pouco mais suave, para brilhar sem cansar a vista.
     BG        = "#00060a"
@@ -385,7 +385,7 @@ _metrics = _SysMetrics()
 #  Fundo preto + desenho por SOMA DE LUZ (CompositionMode_Plus): o preto nao
 #  soma nada, entao nao precisa de transparencia nem aparece quadrado.
 #
-#  Parado ele fica PEQUENO; quando o JARVIS fala ele CRESCE no ritmo do volume
+#  Parado ele fica PEQUENO; quando o NIA fala ele CRESCE no ritmo do volume
 #  real da voz (main.py manda o volume de cada 20 ms). Os aneis crescem pela
 #  fala inteira (envelope lento); a energia do meio salta a cada silaba.
 #      dono falando -> pecas ficam verdes e saem ondas
@@ -396,7 +396,7 @@ _metrics = _SysMetrics()
 
 _NUCLEO_COR = {            # cor dos detalhes de cada estado (paleta original)
     "ocioso":   "#00d4ff",
-    "jarvis":   "#00d4ff",
+    "nia":   "#00d4ff",
     "dono":     "#00ff88",
     "pensando": "#ffcc00",
     "mudo":     "#ff3366",
@@ -419,7 +419,7 @@ def _misturar(a: QColor, b: QColor, k: float) -> QColor:
 #  Pedido do Diego: "nao e para mudar a cor, e para mudar realmente os
 #  FORMATOS; todos com formatos diferentes, diversificados; porem todos
 #  animados e bem produzidos, bem alinhados" — e "todos tem que ter animacao
-#  conforme o JARVIS e o cliente fala". Todos na MESMA cor do JARVIS (arte em
+#  conforme o NIA e o cliente fala". Todos na MESMA cor do NIA (arte em
 #  ciano com pouco laranja, igual ao reator; os estados e a cor da aba CORES
 #  continuam tingindo por cima). O que muda e a ARTE (ChatGPT, uma pasta por
 #  nucleo em assets/nucleo/<id>/) e o JEITO DE MEXER (`_MotorNucleo`).
@@ -441,14 +441,14 @@ _NUCLEO_PADRAO = "reator"
 # id -> nome na tela, pasta da arte (None = a do reator), r_int / r_en = raio
 # do anel de dentro e da energia em relacao ao de fora (medidos no furo de cada
 # arte: o de dentro cabe no buraco do de fora), ondas = forma das ondas que
-# saem com a voz do JARVIS / do dono, pontos = pontinhos de luz em volta,
+# saem com a voz do NIA / do dono, pontos = pontinhos de luz em volta,
 # en2 = a segunda copia da energia ("contra": gira ao contrario e parece que
 # ferve; "eco": fantasma que cresce a cada silaba; "rastro": borrao de giro
 # rapido), esc_max = maior escala que a peca chega (resolucao da copia).
 _NUCLEOS: dict = {
     "reator": {
         "nome": "Reator", "pasta": None, "r_int": 0.555, "r_en": 0.40,
-        "ondas": {"jarvis": "circulo", "dono": "circulo"}, "pontos": True, "en2": "contra",
+        "ondas": {"nia": "circulo", "dono": "circulo"}, "pontos": True, "en2": "contra",
         # o anel de dentro do reator esta 17 px (de 800) acima do centro na
         # arte e balancava ~3-5 px ao girar. LIGADO (13/10/2026): o Diego pediu
         # os nucleos "bem alinhados", e o reator e um deles.
@@ -456,22 +456,22 @@ _NUCLEOS: dict = {
     },
     "hexagono": {
         "nome": "Hexágono", "pasta": "hexagono", "r_int": 0.565, "r_en": 0.48, "passo": 60.0,
-        "ondas": {"jarvis": "hexagono", "dono": "hexagono"}, "pontos": True, "en2": "eco",
+        "ondas": {"nia": "hexagono", "dono": "hexagono"}, "pontos": True, "en2": "eco",
         "esc_max": 1.04,
     },
     "prisma": {
         "nome": "Prisma", "pasta": "prisma", "r_int": 0.50, "r_en": 0.45,
-        "ondas": {"jarvis": "triangulo", "dono": "triangulo"}, "pontos": True, "en2": "eco",
+        "ondas": {"nia": "triangulo", "dono": "triangulo"}, "pontos": True, "en2": "eco",
         "esc_max": 1.08,
     },
     "cubo": {
         "nome": "Cubo", "pasta": "cubo", "r_int": 0.45, "r_en": 0.40, "passo": 90.0,
-        "ondas": {"jarvis": "quadrado", "dono": "quadrado"}, "pontos": True, "en2": "eco",
+        "ondas": {"nia": "quadrado", "dono": "quadrado"}, "pontos": True, "en2": "eco",
         "esc_max": 1.04,
     },
     "iris": {
         "nome": "Íris", "pasta": "iris", "r_int": 0.46, "r_en": 0.38,
-        "ondas": {"jarvis": "circulo"}, "pontos": True, "en2": "eco", "esc_max": 1.05,
+        "ondas": {"nia": "circulo"}, "pontos": True, "en2": "eco", "esc_max": 1.05,
     },
     "engrenagem": {
         "nome": "Engrenagem", "pasta": "engrenagem", "r_int": 0.49, "r_en": 0.42,
@@ -569,7 +569,7 @@ def _arte_nucleo(nid: str, nome: str, guardar: bool = True):
 def _giros_base(modo: str, v: float) -> tuple:
     """Velocidade de giro (graus/s) das camadas do reator em cada estado:
     externo, interno, energia, segunda energia. `v` = volume da voz."""
-    if modo == "jarvis":
+    if modo == "nia":
         return (10 + 40 * v, -(22 + 90 * v), 25 + 60 * v, -(40 + 80 * v))
     if modo == "dono":
         return (8 + 20 * v, -(18 + 40 * v), 20, -32)
@@ -728,7 +728,7 @@ class _MotorNucleo:
 
     # ── movimento ───────────────────────────────────────────────────────────
     def passo(self, dt, modo, v, mic, voz_lenta, pulso, ang, giros) -> None:
-        """`v` = volume da voz do JARVIS, `mic` = voz do dono ja na escala do
+        """`v` = volume da voz do NIA, `mic` = voz do dono ja na escala do
         microfone dele, `ang`/`giros` = angulos e velocidades do reator."""
         self.fase += dt
         self._tick += 1
@@ -737,7 +737,7 @@ class _MotorNucleo:
         # silaba = subida rapida do volume (o mesmo "tranco" das ondas)
         self._desde_sil += dt
         sil = 0.0
-        if modo == "jarvis":
+        if modo == "nia":
             self._vale = min(self._vale, v)
             if v - self._vale > 0.20 and self._desde_sil > 0.14:
                 sil, self._vale, self._desde_sil = v - self._vale, v, 0.0
@@ -767,13 +767,13 @@ class _MotorNucleo:
         return self._a[i]
 
     def _mov_passos(self, dt, modo, sil) -> None:
-        """Moldura aos saltos: um passo a cada silaba do JARVIS, um a cada
+        """Moldura aos saltos: um passo a cada silaba do NIA, um a cada
         ~4 s parado (0,9 s pensando); mudo nao salta. O salto da um "soco"
         leve na moldura."""
         ps = self._passos
         if sil > 0.0 and ps.desde > 0.20:
             ps.dar()
-        elif modo not in ("jarvis", "mudo") and ps.desde > (0.9 if modo == "pensando" else 4.0):
+        elif modo not in ("nia", "mudo") and ps.desde > (0.9 if modo == "pensando" else 4.0):
             ps.dar()
         ps.andar(dt)
         self.ang_ext = ps.valor()
@@ -786,7 +786,7 @@ class _MotorNucleo:
 
     def _mov_prisma(self, dt, modo, v, mic, voz_lenta, pulso, giros, sil, sil_mic) -> None:
         self.ang_ext = self._girar(0, giros[0] * 0.6, dt)
-        if modo == "jarvis":
+        if modo == "nia":
             resp = 0.08 * min(1.0, voz_lenta * 1.6 + 0.3 * v)
         elif modo == "pensando":
             resp = 0.04 + 0.03 * math.sin(self.fase * 3.0)
@@ -801,7 +801,7 @@ class _MotorNucleo:
         vr = self._vira
         if sil > 0.26 and vr.desde > 0.35:
             vr.dar()
-        elif modo not in ("jarvis", "mudo") and vr.desde > (1.0 if modo == "pensando" else 5.0):
+        elif modo not in ("nia", "mudo") and vr.desde > (1.0 if modo == "pensando" else 5.0):
             vr.dar()
         vr.andar(dt)
         self.ang_en = vr.valor()
@@ -810,7 +810,7 @@ class _MotorNucleo:
         self._mov_passos(dt, modo, sil)
         self.ang_int = self._girar(1, giros[1], dt)
         # o cubo do meio "gira em 3D": largura = |cos|, mais rapido com a voz
-        alvo = {"jarvis": 0.9 + 5.5 * v, "dono": 0.9 + 1.6 * mic,
+        alvo = {"nia": 0.9 + 5.5 * v, "dono": 0.9 + 1.6 * mic,
                 "pensando": 2.8, "mudo": 0.08}.get(modo, 0.9)
         self._vel += (alvo - self._vel) * min(1.0, dt * 4.0)
         self._fase_3d = (self._fase_3d + self._vel * dt) % math.pi
@@ -820,7 +820,7 @@ class _MotorNucleo:
     def _mov_iris(self, dt, modo, v, mic, voz_lenta, pulso, giros, sil, sil_mic) -> None:
         # a iris ABRE com a voz: as laminas giram (e voltam ao soltar) e a
         # pupila dilata; parada, ela contrai
-        if modo == "jarvis":
+        if modo == "nia":
             alvo = min(1.0, 1.15 * v)
         elif modo == "dono":
             alvo = 0.45 * mic
@@ -838,14 +838,14 @@ class _MotorNucleo:
 
     def _mov_engrenagem(self, dt, modo, v, mic, voz_lenta, pulso, giros, sil, sil_mic) -> None:
         # as duas engrenagens em relacao de dentes: quase paradas em silencio
-        alvo = {"jarvis": 6.0 + 55.0 * voz_lenta + 35.0 * v, "dono": 4.0 + 22.0 * mic,
+        alvo = {"nia": 6.0 + 55.0 * voz_lenta + 35.0 * v, "dono": 4.0 + 22.0 * mic,
                 "pensando": 34.0, "mudo": 0.3}.get(modo, 1.5)
         self._vel += (alvo - self._vel) * min(1.0, dt * 5.0)
         self._fase_g = (self._fase_g + self._vel * dt) % 1800.0     # 1800 x 1,8 = 9 voltas
         self.ang_ext = self._fase_g % 360.0
         self.ang_int = (-self._fase_g * 1.8) % 360.0
         # a turbina do meio gira rapido, com rastro
-        alvo = {"jarvis": 120.0 + 650.0 * v, "dono": 70.0 + 220.0 * mic,
+        alvo = {"nia": 120.0 + 650.0 * v, "dono": 70.0 + 220.0 * mic,
                 "pensando": 420.0, "mudo": 4.0}.get(modo, 35.0)
         self._vel2 += (alvo - self._vel2) * min(1.0, dt * 6.0)
         self.ang_en = self._girar(2, self._vel2, dt)
@@ -874,7 +874,7 @@ class _MotorNucleo:
         self.ang_ext = self._girar(0, giros[0] * 0.25, dt)
         self.esc_ext = 1.0 + 0.10 * self.dono          # dono: as orbitas abrem
         self.ang_int = self._girar(1, giros[1] * 0.5, dt)
-        alvo = {"jarvis": 1.8 + 7.0 * v, "dono": 1.6 + 2.5 * mic,
+        alvo = {"nia": 1.8 + 7.0 * v, "dono": 1.6 + 2.5 * mic,
                 "pensando": 6.0, "mudo": 0.12}.get(modo, 1.3)
         self._vel += (alvo - self._vel) * min(1.0, dt * 5.0)
         for i, k in enumerate((1.0, 1.13, 0.88)):
@@ -898,7 +898,7 @@ class _MotorNucleo:
 
     def _mov_mandala(self, dt, modo, v, mic, voz_lenta, pulso, giros, sil, sil_mic) -> None:
         # FLORESCE: o de fora abre com a voz enquanto o de dentro fecha
-        if modo == "jarvis":
+        if modo == "nia":
             alvo = 0.75 * min(1.0, voz_lenta * 1.6) + 0.25 * v
         elif modo == "pensando":
             alvo = 0.5 + 0.5 * math.sin(self.fase * 2.4)
@@ -928,7 +928,7 @@ class _MotorNucleo:
         rui, bar = self._ruido, self._bar
         for i in range(n):
             rui[i] += (self._ruido_alvo[i] - rui[i]) * 0.30
-            if modo == "jarvis":
+            if modo == "nia":
                 alvo = min(1.0, 1.5 * v * (0.30 + 0.70 * rui[i]))
             elif modo == "pensando":
                 alvo = 0.16 + 0.12 * math.sin(6 * math.pi * i / n - t * 4.0)
@@ -948,7 +948,7 @@ class _MotorNucleo:
     def _mov_vortice(self, dt, modo, v, mic, voz_lenta, pulso, giros, sil, sil_mic) -> None:
         # redemoinho: tudo no MESMO sentido, o de dentro mais rapido
         s = self.sentido
-        alvo = {"jarvis": 12.0 + 120.0 * v + 40.0 * voz_lenta, "dono": 10.0 + 40.0 * mic,
+        alvo = {"nia": 12.0 + 120.0 * v + 40.0 * voz_lenta, "dono": 10.0 + 40.0 * mic,
                 "pensando": 48.0, "mudo": 1.0}.get(modo, 9.0)
         self._vel += (alvo - self._vel) * min(1.0, dt * 4.0)
         w = self._vel * s
@@ -956,9 +956,9 @@ class _MotorNucleo:
         self.ang_int = self._girar(1, w * 2.3, dt)
         self.ang_en = self._girar(2, w * 5.0, dt)
         self.rastro = min(14.0, self._vel * 5.0 * 0.016)
-        # particulas: para dentro com a voz do JARVIS, para fora com a do dono
+        # particulas: para dentro com a voz do NIA, para fora com a do dono
         para_fora = modo == "dono"
-        taxa = {"dono": 40.0 * self.dono, "jarvis": 6.0 + 45.0 * v, "pensando": 14.0,
+        taxa = {"dono": 40.0 * self.dono, "nia": 6.0 + 45.0 * v, "pensando": 14.0,
                 "mudo": 0.0}.get(modo, 3.0)
         self._acum = min(4.0, self._acum + taxa * dt)
         while self._acum >= 1.0:
@@ -968,7 +968,7 @@ class _MotorNucleo:
                     self._parts.append([random.uniform(0, 2 * math.pi), random.uniform(0.10, 0.22), 1.0, 0.0])
                 else:
                     self._parts.append([random.uniform(0, 2 * math.pi), random.uniform(1.02, 1.16), -1.0, 0.0])
-        forca = 0.35 + (0.9 * v if modo == "jarvis" else 0.8 * self.dono)
+        forca = 0.35 + (0.9 * v if modo == "nia" else 0.8 * self.dono)
         vivas = []
         for q in self._parts:
             q[1] += q[2] * forca * (0.35 + q[1]) * dt
@@ -1111,7 +1111,7 @@ class _MotorNucleo:
         p.drawPixmapFragments(frag, luz)
 
     def _atras_espectro(self, p, cx, cy, r, alcance, cor, luz, branco, e) -> None:
-        # equalizador em volta do circulo, no volume da voz do JARVIS
+        # equalizador em volta do circulo, no volume da voz do NIA
         # curtas de proposito: embaixo fica o nome do estado
         r0 = r * 0.975
         L = max(4.0, min(r * 0.15, alcance - r0 - 3.0))
@@ -1175,7 +1175,7 @@ class _MotorNucleo:
 
 
 class HudCanvas(QWidget):
-    """O nucleo do JARVIS: reator que cresce com a voz. Desde 13/10/2026 sao
+    """O nucleo do NIA: reator que cresce com a voz. Desde 13/10/2026 sao
     dez formatos (`_NUCLEOS`), trocados ao vivo por `trocar_nucleo`."""
 
     _PECAS = ("anel_externo", "anel_interno", "energia")
@@ -1204,7 +1204,7 @@ class HudCanvas(QWidget):
         self.nivel_mic = 0.0
         self._mic_ref = 0.25        # pico recente da voz do dono (escala do grafico)
         self._mic_mostrar = 0.0     # nivel do dono ja na escala do microfone dele
-        # O QUANTO O JARVIS ESTA FALANDO, de 0 a 1 (05/10/2026). Vem do som que
+        # O QUANTO O NIA ESTA FALANDO, de 0 a 1 (05/10/2026). Vem do som que
         # vai para a caixa (main.py, antes do stream.write), em fatias de 20 ms
         # com a hora em que cada uma toca.
         self.nivel_voz = 0.0
@@ -1230,7 +1230,7 @@ class HudCanvas(QWidget):
         self._ultima_onda = 0.0
         # MEDIDOR DE VOZ (05/10/2026, pedido do Diego: "igual o antigo"). Uma
         # fileira de barras embaixo do nome do estado que sobe com a voz: a do
-        # JARVIS (ciano, volume real da caixa) ou a do dono (verde, microfone).
+        # NIA (ciano, volume real da caixa) ou a do dono (verde, microfone).
         self._barras = [0.0] * self._N_BARRAS
         self._ruido = [random.random() for _ in range(self._N_BARRAS)]
         self._ruido_alvo = list(self._ruido)
@@ -1261,7 +1261,7 @@ class HudCanvas(QWidget):
         # QUADROS POR SEGUNDO SOB DEMANDA (22/10/2026, v1.0.35). Eram 60 por
         # segundo SEMPRE — inclusive parado e minimizado, onde o `_step` fazia
         # a conta toda so para nao desenhar. Medido no perfil: o `_step` era a
-        # maior fatia da CPU do JARVIS parado. Agora: 60 com voz, ouvindo,
+        # maior fatia da CPU do NIA parado. Agora: 60 com voz, ouvindo,
         # pensando ou trocando de voz; 25 quieto; 4 minimizado. Toda a conta
         # usa o relogio de verdade (dt), entao a velocidade dos giros nao muda.
         self._intervalo = self._MS_ATIVO
@@ -1395,7 +1395,7 @@ class HudCanvas(QWidget):
             self.nivel_mic = min(1.0, v)
 
     def falou(self, niveis, passo: float, inicio: float) -> None:
-        """Volume da voz do JARVIS: uma fatia a cada `passo` segundos a partir
+        """Volume da voz do NIA: uma fatia a cada `passo` segundos a partir
         de `inicio` (relogio time.monotonic). Chamado da linha do audio: so
         guarda na fila (deque.append e seguro entre linhas)."""
         try:
@@ -1412,7 +1412,7 @@ class HudCanvas(QWidget):
         if self.muted:
             return "mudo"
         if self.speaking:
-            return "jarvis"
+            return "nia"
         if st in ("THINKING", "PROCESSING", "EDITING_IMAGE", "CREATING_IMAGE",
                   "CREATING_SITE", "SEARCHING_LEADS"):
             return "pensando"
@@ -1434,7 +1434,7 @@ class HudCanvas(QWidget):
         # O GRAFICO SE ADAPTA AO MICROFONE DE CADA UM (05/10/2026). Com escala
         # fixa, o microfone do Diego (que capta baixo: o ouvido aplica ganho de
         # 3 a 8 vezes) fazia o grafico dele mal sair do chao, enquanto o do
-        # JARVIS ia ao teto. Aqui guardo o PICO recente da voz do dono (desce
+        # NIA ia ao teto. Aqui guardo o PICO recente da voz do dono (desce
         # devagar, ~8 s para cair pela metade) e o grafico mostra o nivel em
         # relacao a ele. O piso de 0.10 impede que chiado vire grafico cheio.
         self._mic_ref = max(0.10, self._mic_ref * (0.9985 ** (dt * 60)), self.nivel_mic)
@@ -1476,7 +1476,7 @@ class HudCanvas(QWidget):
 
         respira = math.sin(self._fase * 1.4)
         v = 0.0
-        if modo == "jarvis":
+        if modo == "nia":
             v = self.nivel_voz
             alvo_tam = 0.62 + 0.38 * min(1.0, self._voz_lenta * 1.6) + 0.05 * v
             alvo_e = 0.55 + 0.45 * v
@@ -1498,7 +1498,7 @@ class HudCanvas(QWidget):
         self._tam += (alvo_tam - self._tam) * (0.16 if alvo_tam > self._tam else 0.06)
         self._energia += (alvo_e - self._energia) * (0.30 if alvo_e > self._energia else 0.08)
         # a energia do meio salta com a silaba (rapido) e volta
-        alvo_pulso = self.nivel_voz if modo == "jarvis" else (0.5 * self._mic_mostrar if modo == "dono" else 0.0)
+        alvo_pulso = self.nivel_voz if modo == "nia" else (0.5 * self._mic_mostrar if modo == "dono" else 0.0)
         self._pulso += (alvo_pulso - self._pulso) * (0.55 if alvo_pulso > self._pulso else 0.18)
         for i, g in enumerate(giros):
             self._ang[i] = (self._ang[i] + g * dt) % 360
@@ -1533,7 +1533,7 @@ class HudCanvas(QWidget):
             self._ritmo(self._MS_ESCONDIDO)
             return
         self._mover_barras(modo)
-        ativo = (modo in ("jarvis", "dono", "pensando") or self._trans is not None
+        ativo = (modo in ("nia", "dono", "pensando") or self._trans is not None
                  or bool(self._ondas) or self.nivel_voz > 0.02 or self._voz_lenta > 0.02)
         self._ritmo(self._MS_ATIVO if ativo else self._MS_QUIETO)
         self.update()
@@ -1543,7 +1543,7 @@ class HudCanvas(QWidget):
         if self._tick % 4 == 0:
             self._ruido_alvo = [random.random() for _ in range(n)]
         t = self._fase
-        if modo == "jarvis":
+        if modo == "nia":
             nivel = self.nivel_voz
         elif modo == "dono":
             nivel = self._mic_mostrar
@@ -1553,7 +1553,7 @@ class HudCanvas(QWidget):
             self._ruido[i] += (self._ruido_alvo[i] - self._ruido[i]) * 0.35
             u = (i + 0.5) / n
             corcova = math.sin(math.pi * u) ** 0.6       # o meio sobe mais
-            if modo in ("jarvis", "dono"):
+            if modo in ("nia", "dono"):
                 onda = 0.55 + 0.45 * math.sin(t * 9.0 + i * 0.7)
                 alvo = min(1.0, 1.6 * nivel * corcova * (0.30 + 0.45 * self._ruido[i] + 0.25 * onda))
             elif modo == "pensando":
@@ -1580,7 +1580,7 @@ class HudCanvas(QWidget):
         self._geo = (cx, cy, R, alcance)
         dpr = self.devicePixelRatioF()
 
-        # Fundo do JARVIS de sempre: quase preto, grade de pontinhos e uma luz
+        # Fundo do NIA de sempre: quase preto, grade de pontinhos e uma luz
         # no centro que some na cor da janela (sem emenda com o resto).
         fundo = QPixmap(max(1, int(W * dpr)), max(1, int(H * dpr)))
         fundo.setDevicePixelRatio(dpr)
@@ -1835,7 +1835,7 @@ class HudCanvas(QWidget):
         p.setFont(f)
         ret = QRectF(0, y, W, 28)
         pri = QColor(_tc(C.PRI))
-        # um halo fraco na cor do JARVIS atras do nome, depois o nome claro
+        # um halo fraco na cor do NIA atras do nome, depois o nome claro
         p.setPen(QPen(QColor(pri.red(), pri.green(), pri.blue(), int(70 * alfa)), 1))
         for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
             p.drawText(ret.translated(dx, dy), Qt.AlignmentFlag.AlignCenter, nome)
@@ -1843,7 +1843,7 @@ class HudCanvas(QWidget):
         p.drawText(ret, Qt.AlignmentFlag.AlignCenter, nome)
 
     def _desenhar_status(self, p, W, H, cx, cy, R, forcado: str | None = None) -> None:
-        # Tarefa longa aparece na frente de "FALANDO": enquanto o JARVIS
+        # Tarefa longa aparece na frente de "FALANDO": enquanto o NIA
         # desenha uma imagem ou busca leads, o cliente precisa ver o que esta
         # sendo feito.
         _TAREFAS = {
@@ -1901,7 +1901,7 @@ class HudCanvas(QWidget):
         base = topo + alto
         cor = self._cor
         r, g, b = cor.red(), cor.green(), cor.blue()
-        ativo = self._modo in ("jarvis", "dono")
+        ativo = self._modo in ("nia", "dono")
         grad = QLinearGradient(QPointF(0, base), QPointF(0, topo))
         grad.setColorAt(0.0, QColor(r, g, b, 150 if ativo else 70))
         grad.setColorAt(1.0, QColor(min(255, r + 120), min(255, g + 60), min(255, b + 40),
@@ -1926,7 +1926,7 @@ class HudCanvas(QWidget):
         p.drawLine(QPointF(x0 - 30, base + 1), QPointF(x0 + total + 30, base + 1))
 
 
-class _MarcaJarvis(QWidget):
+class _MarcaNia(QWidget):
     """O simbolo no alto da barra lateral: um mini nucleo que gira devagar."""
 
     def __init__(self, parent=None):
@@ -2077,7 +2077,7 @@ def _sem_acento_simples(texto: str) -> str:
 
 def _nome_assistente() -> str:
     """Como o assistente se chama nos textos da tela (aba NOMES)."""
-    return _nome_tela("nome_chat", "") or _nome_tela("janela", "JARVIS") or "JARVIS"
+    return _nome_tela("nome_chat", "") or _nome_tela("janela", "NIA") or "NIA"
 
 
 def _dica_arquivo() -> str:
@@ -2399,7 +2399,7 @@ def _translate_log_text(text: str) -> str:
         pass
 
     exact = {
-        "SYS: JARVIS online.": "SIS: JARVIS ativo.",
+        "SYS: NIA online.": "SIS: NIA ativo.",
         "SYS: Startup greeting sent. News briefing disabled.": "SIS: Saudação inicial enviada. Notícias desativadas.",
         "SYS: Briefing phase 2 (news) sent.": "SIS: Resumo de notícias enviado.",
         "SYS: Interrupted — listening...": "SIS: Interrompido — ouvindo...",
@@ -2430,7 +2430,7 @@ _SET_TEXT_CRU = QLabel.setText
 class LogWidget(QScrollArea):
     """A conversa em baloes (visual novo, 05/10/2026).
 
-    Quem fala (JARVIS ou a voz escolhida) fica a esquerda, o dono a direita, e
+    Quem fala (NIA ou a voz escolhida) fica a esquerda, o dono a direita, e
     os avisos do sistema no meio, pequenos. Continua recebendo tudo pelo
     `append_log` (de qualquer linha, via sinal) e "digitando" aos poucos.
     """
@@ -2507,7 +2507,7 @@ class LogWidget(QScrollArea):
     @classmethod
     def _separar(cls, texto: str):
         """(tipo, quem, corpo). A fala da IA vem assinada com o nome da voz
-        ("JARVIS: ...", "Leda: ..."), por isso qualquer nome curto que NAO
+        ("NIA: ...", "Leda: ..."), por isso qualquer nome curto que NAO
         seja etiqueta do sistema conta como a IA."""
         cab, sep, resto = texto.partition(":")
         chave = cab.strip().lower()
@@ -2781,7 +2781,7 @@ class FileDropZone(QWidget):
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Selecionar arquivo para o JARVIS", str(Path.home()),
+            self, "Selecionar arquivo para o NIA", str(Path.home()),
             "Todos os arquivos (*.*);;"
             "Imagens (*.jpg *.jpeg *.png *.gif *.webp *.bmp *.svg);;"
             "Documentos (*.pdf *.docx *.txt *.md *.pptx);;"
@@ -2806,7 +2806,7 @@ class FileDropZone(QWidget):
 
         O quadro do arquivo e redesenhado 25 vezes por segundo pela animacao.
         Redimensionar a foto a cada desenho consumia processador sem parar e
-        fazia a VOZ do JARVIS engasgar durante a conversa. Agora o resultado
+        fazia a VOZ do NIA engasgar durante a conversa. Agora o resultado
         fica guardado e o desenho so copia.
         """
         if self._thumb is None or self._thumb.isNull():
@@ -3070,11 +3070,11 @@ class SetupOverlay(QWidget):
         layout.addWidget(_lbl("◈  CONFIGURAÇÃO", 13, True))
         layout.addWidget(_lbl("Você pode começar sem chave nenhuma.", 9, color=C.PRI_DIM))
         # O OPENROUTER SAIU DAQUI (05/09/2026, ordem do Diego). O cérebro do
-        # JARVIS agora é a Gemini do cliente e, quando ela não dá, o Codex da
+        # NIA agora é a Gemini do cliente e, quando ela não dá, o Codex da
         # nossa VPS — que não tem cota. Pedir uma chave que não é mais usada só
         # atrasava o cliente na primeira tela. A do Gemini ficou, e virou
-        # OPCIONAL: sem ela o JARVIS pensa, vê e fala do mesmo jeito, pela VPS.
-        layout.addWidget(_lbl("A chave do Gemini é opcional: deixa o JARVIS mais rápido.", 8,
+        # OPCIONAL: sem ela o NIA pensa, vê e fala do mesmo jeito, pela VPS.
+        layout.addWidget(_lbl("A chave do Gemini é opcional: deixa o NIA mais rápido.", 8,
                               color=C.TEXT_DIM))
         layout.addSpacing(6)
 
@@ -3166,7 +3166,7 @@ class SetupOverlay(QWidget):
 
     def _submit(self):
         # CAMPO VAZIO NAO TRAVA MAIS A ABERTURA (05/09/2026). Antes o botao nao
-        # fazia nada sem a chave do Gemini — e hoje o JARVIS funciona inteiro
+        # fazia nada sem a chave do Gemini — e hoje o NIA funciona inteiro
         # sem chave nenhuma do cliente (pensa, ve e fala pela nossa VPS). Quem
         # tiver a chave ganha o degrau rapido; quem nao tiver, entra assim mesmo.
         key = self._key_input.text().strip()
@@ -3364,7 +3364,7 @@ class RemoteKeyOverlay(QWidget):
         self._qr_label.setStyleSheet(
             "color: #00ff88; background: #001a0d; border-radius: 10px;"
         )
-        self._timer_lbl.setText("Celular conectado — JARVIS pronto")
+        self._timer_lbl.setText("Celular conectado — NIA pronto")
         self._timer_lbl.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
 
     def _refresh_key(self):
@@ -3845,9 +3845,9 @@ class WhatsAppQrOverlay(QWidget):
 
 
 class AvisoComputador(QWidget):
-    """A faixa "JARVIS ESTA USANDO O COMPUTADOR", enquanto ele mexe sozinho.
+    """A faixa "NIA ESTA USANDO O COMPUTADOR", enquanto ele mexe sozinho.
 
-    Por que existe: quando o JARVIS assume o mouse, o dono precisa saber que
+    Por que existe: quando o NIA assume o mouse, o dono precisa saber que
     aquilo NAO e travamento nem virus, e precisa NAO encostar no mouse (um
     clique dele no meio do caminho manda o proximo passo para o lugar errado).
     A voz avisa, mas voz o dono esquece; a faixa fica na tela o tempo todo.
@@ -3895,7 +3895,7 @@ class AvisoComputador(QWidget):
 
         interna = QHBoxLayout(caixa)
         interna.setContentsMargins(16, 6, 16, 6)
-        self._texto = QLabel("JARVIS ESTÁ USANDO O COMPUTADOR  ·  ESC interrompe  ·  "
+        self._texto = QLabel("NIA ESTÁ USANDO O COMPUTADOR  ·  ESC interrompe  ·  "
                              "não mexa no mouse nem no teclado")
         self._texto.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         self._texto.setStyleSheet(f"color: {C.PRI}; background: transparent;")
@@ -4084,7 +4084,7 @@ class _SeletorCor(QWidget):
 
 
 class _PreviaTema(QWidget):
-    """Miniatura do JARVIS com as cores de agora — ou com a cor debaixo do
+    """Miniatura do NIA com as cores de agora — ou com a cor debaixo do
     mouse, antes de clicar (`prever`)."""
 
     def __init__(self, parent=None):
@@ -4166,7 +4166,7 @@ class _PreviaTema(QWidget):
         p.setFont(_fx(8.2, QFont.Weight.Bold))
         p.setPen(QPen(QColor(_tc(C.PRI))))
         p.drawText(QRectF(painel.x() + 8, painel.y() + 5, painel.width() - 10, 16),
-                   Qt.AlignmentFlag.AlignLeft, "JARVIS")
+                   Qt.AlignmentFlag.AlignLeft, "NIA")
         p.setFont(_ftexto(7.6))
         p.setPen(QPen(QColor(_tc(C.TEXT))))
         p.drawText(QRectF(painel.x() + 8, painel.y() + 21, painel.width() - 10, 14),
@@ -4232,18 +4232,18 @@ class _CartaoNucleo(QWidget):
         if c < 3.0:
             env = math.sin(math.pi * c / 3.0) ** 0.5
             alvo = env * (0.30 + 0.70 * abs(math.sin(c * 8.5 + 1.6 * math.sin(c * 2.3))))
-            modo = "jarvis"
+            modo = "nia"
         else:
             alvo, modo = 0.0, "ocioso"
         self._v += (alvo - self._v) * (0.6 if alvo > self._v else 0.35)
-        lenta = self._v if modo == "jarvis" else 0.0
+        lenta = self._v if modo == "nia" else 0.0
         self._lenta += (lenta - self._lenta) * (0.18 if lenta > self._lenta else 0.07)
         self._pulso += (self._v - self._pulso) * (0.6 if self._v > self._pulso else 0.25)
         giros = _giros_base(modo, self._v)
         for i, g in enumerate(giros):
             self._ang[i] = (self._ang[i] + g * dt) % 360
         self._motor.passo(dt, modo, self._v, 0.0, self._lenta, self._pulso, self._ang, giros)
-        alvo_tam = 0.82 + 0.18 * min(1.0, self._lenta * 1.6) if modo == "jarvis" else 0.82
+        alvo_tam = 0.82 + 0.18 * min(1.0, self._lenta * 1.6) if modo == "nia" else 0.82
         self._tam += (alvo_tam - self._tam) * 0.15
 
     def _garantir_pecas(self) -> None:
@@ -4375,7 +4375,7 @@ class _PaginaNucleo(QWidget):
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(0, 8, 0, 0)
         raiz.setSpacing(10)
-        exp = QLabel("Escolha o núcleo do JARVIS. Ele muda na hora.")
+        exp = QLabel("Escolha o núcleo do NIA. Ele muda na hora.")
         exp.setWordWrap(True)
         exp.setFont(_fx(8.6))
         exp.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
@@ -4434,7 +4434,7 @@ class _PaginaNucleo(QWidget):
                 _gravar_nucleo(nid)
             self._marcar(nid)
         except Exception as exc:
-            print(f"[JARVIS] nao troquei o nucleo: {exc}")
+            print(f"[NIA] nao troquei o nucleo: {exc}")
 
 
 class MainWindow(QMainWindow):
@@ -4462,16 +4462,16 @@ class MainWindow(QMainWindow):
         # E SEMPRE COMECA DESLIGADO, tambem de proposito. Ele chegou a ser
         # lembrado entre uma abertura e outra, mas um portao de microfone que
         # volta ligado sozinho e uma armadilha: o dono abre, fala, nao e
-        # respondido, e a conclusao natural e "o JARVIS quebrou" — nao
+        # respondido, e a conclusao natural e "o NIA quebrou" — nao
         # "esqueci que deixei ligado ontem". Ligar custa um clique; descobrir
         # por que ele emudeceu custa a tarde.
         self._so_com_nome = False
         # Avisado pelo main.py quando o valor muda (para gravar e aplicar).
         self.on_so_nome_changed = None
-        self._nome_da_ia = "JARVIS"
+        self._nome_da_ia = "NIA"
         super().__init__()
         self._face_path = face_path
-        self.setWindowTitle(_nome_tela("janela", "JARVIS"))
+        self.setWindowTitle(_nome_tela("janela", "NIA"))
         icon_path = _app_icon_path()
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -4488,7 +4488,7 @@ class MainWindow(QMainWindow):
         self.on_text_command     = None
         self.on_remote_clicked   = None   # callable: () -> (url, key) | None
         self.on_whatsapp_clicked = None   # callable: () -> None — open/connect WhatsApp QR
-        self.on_interrupt        = None   # callable: () -> None — stop JARVIS mid-speech
+        self.on_interrupt        = None   # callable: () -> None — stop NIA mid-speech
         self.on_cowork_acao      = None   # callable: (acao, valor) — botoes do Cowork
         self.on_computer_use        = None   # callable: () — botao COMPUTER USE do dock
         self.on_computer_use_estado = None   # callable: () -> "livre" | "esperando" | "trabalhando"
@@ -4508,8 +4508,8 @@ class MainWindow(QMainWindow):
         # da direita (sistema + conversa). Fundo liso na cor da janela: a luz
         # atras da esfera some nessa mesma cor, sem emenda.
         central = QWidget()
-        central.setObjectName("JarvisFundo")
-        central.setStyleSheet(f"QWidget#JarvisFundo {{ background: {C.BG}; }}")
+        central.setObjectName("NiaFundo")
+        central.setStyleSheet(f"QWidget#NiaFundo {{ background: {C.BG}; }}")
         self.setCentralWidget(central)
 
         root = QVBoxLayout(central)
@@ -4523,8 +4523,8 @@ class MainWindow(QMainWindow):
         root.addLayout(corpo, 1)
 
         shell = QWidget()
-        shell.setObjectName("JarvisShell")
-        shell.setStyleSheet("QWidget#JarvisShell { background: transparent; }")
+        shell.setObjectName("NiaShell")
+        shell.setStyleSheet("QWidget#NiaShell { background: transparent; }")
         shell_lay = QVBoxLayout(shell)
         shell_lay.setContentsMargins(0, 0, 0, 0)
         shell_lay.setSpacing(0)
@@ -4668,13 +4668,13 @@ class MainWindow(QMainWindow):
         # nova) simplesmente nao tinha por onde.
         sc_cfg = QShortcut(QKeySequence("F2"), self)
         sc_cfg.activated.connect(self._show_setup)
-        # SEGUNDO PLANO (01/11/2026): a tecla que esconde o JARVIS perto do
+        # SEGUNDO PLANO (01/11/2026): a tecla que esconde o NIA perto do
         # relogio. Volta pelo clique no icone dele (ou no atalho da area de
         # trabalho — ver `_conferir_pedido_abrir`).
         sc_fundo = QShortcut(QKeySequence(_segundo_plano.TECLA), self)
         sc_fundo.activated.connect(self._ir_para_segundo_plano)
         QShortcut(QKeySequence("F6"), self).activated.connect(self._abrir_globo)
-        # Alguem clicou no atalho com este JARVIS aberto (o segundo JARVIS nao
+        # Alguem clicou no atalho com este NIA aberto (o segundo NIA nao
         # abre: deixa um pedido para este aparecer). Barato: um `exists` a
         # cada 0,7 s, e e o unico relogio que nao para no segundo plano.
         self._tmr_pedido_abrir = QTimer(self)
@@ -4876,9 +4876,9 @@ class MainWindow(QMainWindow):
     # Icon generation — arc-reactor style, rendered with Pillow
     # ------------------------------------------------------------------
     @staticmethod
-    def _build_jarvis_icon(out_path: Path) -> bool:
+    def _build_nia_icon(out_path: Path) -> bool:
         """
-        Render a JARVIS arc-reactor icon at 4× resolution and downsample
+        Render a NIA arc-reactor icon at 4× resolution and downsample
         for crisp results at all sizes. Saves a multi-res .ico to out_path.
         Returns True on success.
         """
@@ -4991,7 +4991,7 @@ class MainWindow(QMainWindow):
             sc.TargetPath       = target
             sc.Arguments        = f'"{args}"'
             sc.WorkingDirectory = work_dir
-            sc.Description      = "J.A.R.V.I.S AI Assistant"
+            sc.Description      = "N.I.A AI Assistant"
             sc.IconLocation     = icon_loc
             sc.save()
             return
@@ -5006,7 +5006,7 @@ class MainWindow(QMainWindow):
             f'sc.TargetPath = "{target}"',
             f'sc.Arguments = Chr(34) & "{args}" & Chr(34)',
             f'sc.WorkingDirectory = "{work_dir}"',
-            'sc.Description = "J.A.R.V.I.S AI Assistant"',
+            'sc.Description = "N.I.A AI Assistant"',
             f'sc.IconLocation = "{icon_loc}"',
             'sc.Save',
         ])
@@ -5037,9 +5037,9 @@ class MainWindow(QMainWindow):
         desktop = Path.home() / "Desktop"
 
         # Arc-reactor icon (.ico — also exported as .png for Linux/macOS)
-        ico_path = Path(__file__).resolve().parent / "config" / "jarvis.ico"
+        ico_path = Path(__file__).resolve().parent / "config" / "nia.ico"
         if not ico_path.exists():
-            self._build_jarvis_icon(ico_path)
+            self._build_nia_icon(ico_path)
 
         try:
             _os = platform.system()
@@ -5048,14 +5048,14 @@ class MainWindow(QMainWindow):
             if _os == "Windows":
                 pythonw  = python.parent / "pythonw.exe"
                 target   = str(pythonw if pythonw.exists() else python)
-                lnk      = str(desktop / "J.A.R.V.I.S.lnk")
+                lnk      = str(desktop / "N.I.A.lnk")
                 icon_loc = str(ico_path) if ico_path.exists() else f"{target},0"
                 self._create_lnk_windows(lnk, target, str(script),
                                          str(script.parent), icon_loc)
 
             # ── macOS — proper .app bundle (no Terminal window) ───────────────
             elif _os == "Darwin":
-                app     = desktop / "J.A.R.V.I.S.app"
+                app     = desktop / "N.I.A.app"
                 mac_dir = app / "Contents" / "MacOS"
                 res_dir = app / "Contents" / "Resources"
                 mac_dir.mkdir(parents=True, exist_ok=True)
@@ -5063,7 +5063,7 @@ class MainWindow(QMainWindow):
 
                 # Launcher executable (bash — runs as background process,
                 # macOS does NOT open Terminal for executables inside .app bundles)
-                launcher = mac_dir / "JARVIS"
+                launcher = mac_dir / "NIA"
                 launcher.write_text(
                     "#!/usr/bin/env bash\n"
                     f'cd "{script.parent}"\n'
@@ -5078,10 +5078,10 @@ class MainWindow(QMainWindow):
                     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                     '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
                     '<plist version="1.0"><dict>\n'
-                    '  <key>CFBundleExecutable</key><string>JARVIS</string>\n'
+                    '  <key>CFBundleExecutable</key><string>NIA</string>\n'
                     '  <key>CFBundleIdentifier</key>'
-                    '<string>com.jarvis.assistant</string>\n'
-                    '  <key>CFBundleName</key><string>J.A.R.V.I.S</string>\n'
+                    '<string>com.nia.assistant</string>\n'
+                    '  <key>CFBundleName</key><string>N.I.A</string>\n'
                     '  <key>CFBundlePackageType</key><string>APPL</string>\n'
                     '  <key>CFBundleVersion</key><string>1.0</string>\n'
                     '</dict></plist>\n'
@@ -5119,10 +5119,10 @@ class MainWindow(QMainWindow):
                         png_path = ico_path  # fallback to .ico
 
                 icon_line = f"Icon={png_path}\n" if png_path.exists() else ""
-                desk = desktop / "J.A.R.V.I.S.desktop"
+                desk = desktop / "N.I.A.desktop"
                 desk.write_text(
                     "[Desktop Entry]\n"
-                    "Name=J.A.R.V.I.S\n"
+                    "Name=N.I.A\n"
                     f"Exec={python} {script}\n"
                     f"Path={script.parent}\n"
                     "Type=Application\n"
@@ -5145,7 +5145,7 @@ class MainWindow(QMainWindow):
     # ── SEGUNDO PLANO (01/11/2026, v1.0.37) ──────────────────────────────────
     #
     # Pedido do Diego: "um botao, uma tecla para ele minimizar, ficar em segundo
-    # plano e o iconezinho do Jarvis aparecer aqui" (a setinha ao lado do
+    # plano e o iconezinho do Nia aparecer aqui" (a setinha ao lado do
     # relogio do Windows). "Nesse segundo plano ele nao escuta nada, nao
     # responde nada, nao executa nada — fica so ali, esperando abrir."
     #
@@ -5156,12 +5156,12 @@ class MainWindow(QMainWindow):
     # trabalho — e tudo volta como estava.
     #
     # SEM BANDEJA (Linux sem area de notificacao, como o GNOME sem a extensao
-    # AppIndicator): o JARVIS minimiza na barra de tarefas em vez de sumir.
+    # AppIndicator): o NIA minimiza na barra de tarefas em vez de sumir.
     # Sumir sem icone deixaria o dono sem caminho de volta. Restaurar a janela
     # pela barra traz tudo de volta (ver `changeEvent`).
 
     def _textos_da_bandeja(self) -> dict:
-        nome = self.windowTitle() or "JARVIS"
+        nome = self.windowTitle() or "NIA"
         try:
             from core.idioma import em_ingles as _em_ingles_b  # noqa: PLC0415
             ingles = _em_ingles_b()
@@ -5244,7 +5244,7 @@ class MainWindow(QMainWindow):
                 "SIS: segundo plano — não estou ouvindo nem fazendo nada. "
                 "Clique no meu ícone perto do relógio para eu voltar.")
             # O balao so na primeira vez de cada abertura: e ele que mostra ONDE
-            # o JARVIS foi parar. Depois disso o dono ja sabe.
+            # o NIA foi parar. Depois disso o dono ja sabe.
             if not self._avisou_bandeja:
                 self._avisou_bandeja = True
                 t = self._textos_da_bandeja()
@@ -5316,7 +5316,7 @@ class MainWindow(QMainWindow):
             app.quit()
 
     def _conferir_pedido_abrir(self) -> None:
-        """O dono clicou no atalho com este JARVIS ja aberto (ver
+        """O dono clicou no atalho com este NIA ja aberto (ver
         `core/segundo_plano.py`): este aparece, escondido ou minimizado."""
         if not _segundo_plano.tem_pedido_para_aparecer():
             return
@@ -5368,7 +5368,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         super().closeEvent(event)
-        # FECHAR A JANELA E FECHAR O JARVIS, sempre. Sozinho, o Qt so encerra
+        # FECHAR A JANELA E FECHAR O NIA, sempre. Sozinho, o Qt so encerra
         # quando nao sobra nenhuma janela aberta — e a faixa do computer use ou
         # uma caixa de dialogo esquecida seguravam o programa vivo sem janela.
         # (E no segundo plano o "ultima janela fechada" fica desligado.)
@@ -5376,7 +5376,7 @@ class MainWindow(QMainWindow):
             if self._bandeja is not None:
                 self._bandeja.hide()
             # FECHAR = TUDO: o globo vai junto (ele tambem se fecha sozinho se o
-            # JARVIS cair, ver `_pai_vivo` no globo/janela.py).
+            # NIA cair, ver `_pai_vivo` no globo/janela.py).
             try:
                 from core import globo as _globo  # noqa: PLC0415
                 _globo.fechar()
@@ -5519,11 +5519,11 @@ class MainWindow(QMainWindow):
         el = QHBoxLayout(esquerda)
         el.setContentsMargins(0, 0, 0, 0)
         el.setSpacing(10)
-        el.addWidget(_MarcaJarvis(), 0, Qt.AlignmentFlag.AlignVCenter)
+        el.addWidget(_MarcaNia(), 0, Qt.AlignmentFlag.AlignVCenter)
         nomes = QVBoxLayout()
         nomes.setSpacing(0)
         nomes.addStretch()
-        title = QLabel(_nome_tela("titulo", "J.A.R.V.I.S"))
+        title = QLabel(_nome_tela("titulo", "N.I.A"))
         self._lbl_titulo_topo = title
         title.setFont(_espacado(_fx(15, QFont.Weight.Light), 5.0))
         title.setStyleSheet(f"color: {C.WHITE}; background: transparent; border: none;")
@@ -5540,7 +5540,7 @@ class MainWindow(QMainWindow):
             _flag = None
         sub_lin = QHBoxLayout()
         sub_lin.setSpacing(6)
-        self._sub_topo_padrao = "JARVIS Intelligent System" if _flag else "Sistema Inteligente do JARVIS"
+        self._sub_topo_padrao = "NIA Intelligent System" if _flag else "Sistema Inteligente do NIA"
         sub = QLabel(_nome_tela("subtitulo", self._sub_topo_padrao))
         self._lbl_sub_topo = sub
         fsub = _espacado(_fx(6.6, QFont.Weight.DemiBold), 2.2)
@@ -5695,7 +5695,7 @@ class MainWindow(QMainWindow):
             f" background: rgba(0,212,255,0.18); }}")
 
         def _abrir():
-            # Rede de seguranca: excecao aqui nao pode fechar o JARVIS.
+            # Rede de seguranca: excecao aqui nao pode fechar o NIA.
             try:
                 self._show_personas()
             except Exception as exc:
@@ -5876,7 +5876,7 @@ class MainWindow(QMainWindow):
         self._style_webcam_btn()
         row.addWidget(self._webcam_btn)
 
-        # COWORK (05/10/2026): o programador do JARVIS. Sem pasta, o clique
+        # COWORK (05/10/2026): o programador do NIA. Sem pasta, o clique
         # pede para escolher uma; com pasta, mostra/esconde o cartao dele.
         self._cowork_btn = self._make_control_button("cowork", "⌨\nCOWORK\nSEM PASTA", C.ACC, "#1a0d00")
         self._cowork_btn.clicked.connect(self._cowork_clicou)
@@ -5887,7 +5887,7 @@ class MainWindow(QMainWindow):
         # frase (falada ou digitada) e a tarefa. Rodando, o clique para.
         self._cu_btn = self._make_control_button(
             "computer_use", "\U0001f5b1\nCOMPUTER USE\nATIVAR", C.PRI, "#00091a")
-        self._cu_btn.setToolTip("Computer use: clique e diga (ou digite) o que o JARVIS deve fazer no computador")
+        self._cu_btn.setToolTip("Computer use: clique e diga (ou digite) o que o NIA deve fazer no computador")
         self._cu_btn.clicked.connect(self._computer_use_clicou)
         self._cu_estado = "livre"
         row.addWidget(self._cu_btn)
@@ -5901,14 +5901,14 @@ class MainWindow(QMainWindow):
         self._globo_btn.clicked.connect(self._abrir_globo)
         row.addWidget(self._globo_btn)
 
-        # SEGUNDO PLANO (01/11/2026, v1.0.37, pedido do Diego): o JARVIS sai da
+        # SEGUNDO PLANO (01/11/2026, v1.0.37, pedido do Diego): o NIA sai da
         # tela e fica so no icone perto do relogio, sem ouvir nem fazer nada.
         # "SEGUNDO PLANO" inteiro nao cabe na linha do titulo (85 px medidos
         # para 78): o titulo e "SEGUNDO" e a linha de baixo "PLANO [F9]".
         self._fundo_btn = self._make_control_button(
             "segundo_plano", f"◐\nSEGUNDO\nPLANO [{_segundo_plano.TECLA}]", C.PRI, "#00091a")
         self._fundo_btn.setToolTip(
-            f"Segundo plano [{_segundo_plano.TECLA}]: o JARVIS sai da tela e fica só no "
+            f"Segundo plano [{_segundo_plano.TECLA}]: o NIA sai da tela e fica só no "
             "ícone perto do relógio, sem ouvir, falar ou fazer nada. "
             "Clique no ícone para ele voltar.")
         self._fundo_btn.clicked.connect(self._ir_para_segundo_plano)
@@ -5996,7 +5996,7 @@ class MainWindow(QMainWindow):
             return
         self._dormindo = escondida
         if escondida:
-            donos = (HudCanvas, _MarcaJarvis, FileDropZone)
+            donos = (HudCanvas, _MarcaNia, FileDropZone)
             self._relogios_parados = [
                 t for t in self.findChildren(QTimer)
                 if t.isActive() and not t.isSingleShot()
@@ -6088,7 +6088,7 @@ class MainWindow(QMainWindow):
             self.hud.update()
         except Exception:
             pass
-        print(f"[JARVIS] cores aplicadas: {n} estilos em {time.monotonic() - t0:.2f}s")
+        print(f"[NIA] cores aplicadas: {n} estilos em {time.monotonic() - t0:.2f}s")
 
     def _pagina_nucleo(self) -> QWidget:
         """A aba NUCLEO da engrenagem (13/10/2026): os dez formatos."""
@@ -6098,7 +6098,7 @@ class MainWindow(QMainWindow):
         """A aba CORES da engrenagem: item a esquerda, quadro de cor a direita.
 
         Passar o mouse no quadro mostra a cor EXATA (RGB e #hex) e a previa;
-        clicar aplica no JARVIS inteiro, na hora, e guarda."""
+        clicar aplica no NIA inteiro, na hora, e guarda."""
         pag = QWidget()
         raiz = QVBoxLayout(pag)
         raiz.setContentsMargins(0, 8, 0, 0)
@@ -6240,7 +6240,7 @@ class MainWindow(QMainWindow):
             numeros.setText(f"R {cor.red():>3}   G {cor.green():>3}   B {cor.blue():>3}    {cor.name().upper()}")
             quando.setText({"passando": "passando o mouse — clique para aplicar",
                             "agora": "cor que está valendo agora",
-                            "aplicada": "aplicada no JARVIS inteiro"}.get(como, ""))
+                            "aplicada": "aplicada no NIA inteiro"}.get(como, ""))
 
         # RGB e #hex digitados
         from PyQt6.QtWidgets import QSpinBox  # noqa: PLC0415
@@ -6511,9 +6511,10 @@ class MainWindow(QMainWindow):
         if (getattr(self, "_cw_estado", {}) or {}).get("ocupado"):
             self._log.append_log("SIS: Espere o Cowork terminar antes de trocar de pasta.")
             return
-        inicio = Path.home() / "Documents" / "JARVIS Cowork"
+        inicio = Path.home() / "Documents" / "NIA Cowork"
+        antiga = Path.home() / "Documents" / "JARVIS Cowork"
         if not inicio.is_dir():
-            inicio = Path.home() / "Documents"
+            inicio = antiga if antiga.is_dir() else Path.home() / "Documents"
         pasta = QFileDialog.getExistingDirectory(
             self, "Escolha (ou crie) a pasta do projeto para o Cowork", str(inicio))
         if pasta:
@@ -6650,7 +6651,7 @@ class MainWindow(QMainWindow):
         return row
 
     def nivel_do_microfone(self, nivel: float) -> None:
-        """A faixa de baixo mexe com a voz do DONO, nao so com a do JARVIS.
+        """A faixa de baixo mexe com a voz do DONO, nao so com a do NIA.
 
         Vem da linha do audio, ~25 vezes por segundo. De proposito NAO passa
         por sinal nem chama `update()`: e so guardar um numero, e quem repinta
@@ -6812,13 +6813,13 @@ class MainWindow(QMainWindow):
         # caminhos para a mesma janela so confundiam o cliente.
 
         lay.addStretch()
-        lay.addWidget(_fl("JARVIS Industries  ·  CONFIDENCIAL"))
+        lay.addWidget(_fl("NIA Industries  ·  CONFIDENCIAL"))
         lay.addStretch()
         lay.addWidget(_fl("© STARK INDUSTRIES", C.PRI_DIM))
         return w
 
     def _on_files_selected(self, caminhos: list):
-        """Varios arquivos soltos de uma vez: UM aviso so para o JARVIS, com o
+        """Varios arquivos soltos de uma vez: UM aviso so para o NIA, com o
         principal em `path=` e os outros em `extra=` (caminho do Windows nao
         tem "|"). Um aviso por arquivo faria ele responder tres vezes."""
         if not caminhos:
@@ -6966,9 +6967,9 @@ class MainWindow(QMainWindow):
     def _toggle_so_nome(self):
         self._so_com_nome = not self._so_com_nome
         self._style_nome_btn()
-        nome = getattr(self, "_nome_da_ia", None) or "JARVIS"
+        nome = getattr(self, "_nome_da_ia", None) or "NIA"
         # O nome da VOZ DE AGORA, com apelido (22/10/2026). O `_nome_da_ia`
-        # ficava sempre "JARVIS": ninguem o atualizava.
+        # ficava sempre "NIA": ninguem o atualizava.
         try:
             from core.personas import nome_da_ia as _nda  # noqa: PLC0415
             _casca = getattr(self, "_ui", None)
@@ -7043,7 +7044,7 @@ class MainWindow(QMainWindow):
     # Enquanto uma tarefa longa roda, estes avisos comuns são ignorados. Sem
     # isto o painel voltava para OUVINDO no meio da edição de uma imagem: nove
     # pontos diferentes do programa mandam "LISTENING", e qualquer um deles
-    # atropelava o aviso da tarefa. O cliente ficava sem saber se o JARVIS
+    # atropelava o aviso da tarefa. O cliente ficava sem saber se o NIA
     # estava trabalhando ou parado.
     _AVISOS_COMUNS = {"LISTENING", "SPEAKING", "THINKING", "PROCESSING"}
     _TETO_DA_TAREFA_S = 900   # rede de segurança: 15 min e o painel se solta
@@ -7097,7 +7098,7 @@ class MainWindow(QMainWindow):
         try:
             d = json.loads(API_FILE.read_text(encoding="utf-8"))
             # A CHAVE DO GEMINI DEIXOU DE SER OBRIGATORIA (05/09/2026): o
-            # JARVIS pensa, ve e fala pela nossa VPS mesmo sem chave nenhuma do
+            # NIA pensa, ve e fala pela nossa VPS mesmo sem chave nenhuma do
             # cliente. Exigi-la aqui so barrava quem nao tem — ver `_submit`.
             return bool(d.get("os_system"))
         except Exception:
@@ -7174,10 +7175,13 @@ class MainWindow(QMainWindow):
         lay_chave = QVBoxLayout(pag_chave)
         lay_chave.setContentsMargins(0, 8, 0, 0)
         exp_chave = QLabel(
-            "As chaves de IA ficam guardadas so neste computador.\n"
-            "Sem a chave ele ainda ouve e fala, mas nao pensa.")
+            "Cadastro multi-key e multi-provedor: escolha o provedor no catalogo\n"
+            "(Gemini, OpenAI, Groq, Cerebras, Mistral e mais) e adicione quantas\n"
+            "chaves quiser. Ficam num banco local; o roteador escolhe a chave com\n"
+            "folga e troca sozinho quando uma falha ou estoura o limite.")
         exp_chave.setFont(_fx(9))
         exp_chave.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        exp_chave.setWordWrap(True)
         lay_chave.addWidget(exp_chave)
         b_chave = QPushButton("ABRIR O CADASTRO DE CHAVES")
         b_chave.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -7190,12 +7194,11 @@ class MainWindow(QMainWindow):
 
         def _abrir_chaves():
             try:
-                dlg.accept()
-                self._show_setup()
+                self._abrir_cadastro_chaves()
             except Exception as exc:
                 _aviso_chave = getattr(self, "_ui", None)
                 if _aviso_chave is not None:
-                    _aviso_chave.write_log(f"ERR: nao abri as chaves — {str(exc)[:90]}")
+                    _aviso_chave.write_log(f"ERR: nao abri o cadastro de chaves — {str(exc)[:90]}")
         b_chave.clicked.connect(_abrir_chaves)
         lay_chave.addWidget(b_chave)
         lay_chave.addStretch()
@@ -7387,7 +7390,7 @@ class MainWindow(QMainWindow):
         #
         # Ela entrou no lugar dos dois recados de tecnico que apareciam no chat
         # ao abrir. Nem todo mundo quer ser cumprimentado toda vez — quem nao
-        # quiser desliga aqui, e o JARVIS abre calado.
+        # quiser desliga aqui, e o NIA abre calado.
         #
         # Um botao SO, que alterna: dois botoes (LIGAR/DESLIGAR) obrigam o
         # cliente a descobrir qual esta valendo. O rotulo ja diz o estado.
@@ -7463,9 +7466,9 @@ class MainWindow(QMainWindow):
                     ok, motivo = _ini.ligar(querer)
                     if ok:
                         _ini_estado["ligada"] = querer
-                        _aviso(f"SIS: o JARVIS vai abrir sozinho quando o {_sistema} ligar."
+                        _aviso(f"SIS: o NIA vai abrir sozinho quando o {_sistema} ligar."
                                if querer else
-                               f"SIS: o JARVIS nao abre mais sozinho com o {_sistema}.")
+                               f"SIS: o NIA nao abre mais sozinho com o {_sistema}.")
                     else:
                         _ini_estado["ligada"] = _ini.esta_ligado()
                         _aviso(f"ERR: nao consegui mudar o iniciar com o {_sistema} — {motivo}")
@@ -7556,7 +7559,7 @@ class MainWindow(QMainWindow):
         col_mic.addWidget(btn_testar)
 
         # ── SAIDA DE SOM ─────────────────────────────────────────────────────
-        # O JARVIS escolhia sozinho para onde falar e errava: o Diego ouve o PC
+        # O NIA escolhia sozinho para onde falar e errava: o Diego ouve o PC
         # pelo notebook (AudioRelay) e a voz ia para os alto-falantes USB.
         # Falava certo, no lugar errado — e parecia mudo. Testar por medicao nao
         # serve aqui: so o ouvido do cliente sabe se o som chegou nele, entao
@@ -7602,7 +7605,7 @@ class MainWindow(QMainWindow):
 
         # ── SOBRE VOCE ───────────────────────────────────────────────────────
         #
-        # Ate 01/09/2026 o JARVIS chamava TODO cliente de "Diego": o nome estava
+        # Ate 01/09/2026 o NIA chamava TODO cliente de "Diego": o nome estava
         # escrito na pedra dentro do prompt. Aqui o dono diz quem e, e as treze
         # personalidades passam a falar com ELE.
         #
@@ -7733,9 +7736,9 @@ class MainWindow(QMainWindow):
     def aplicar_nomes(self) -> None:
         """Poe na tela os nomes da aba NOMES (chamado ao salvar, sem reabrir)."""
         try:
-            self.setWindowTitle(_nome_tela("janela", "JARVIS"))
+            self.setWindowTitle(_nome_tela("janela", "NIA"))
             if getattr(self, "_lbl_titulo_topo", None) is not None:
-                self._lbl_titulo_topo.setText(_nome_tela("titulo", "J.A.R.V.I.S"))
+                self._lbl_titulo_topo.setText(_nome_tela("titulo", "N.I.A"))
             if getattr(self, "_lbl_sub_topo", None) is not None:
                 self._lbl_sub_topo.setText(_nome_tela("subtitulo", getattr(self, "_sub_topo_padrao", "")))
             for texto, rotulos in _ROTULOS_CARTAO.items():
@@ -7786,7 +7789,7 @@ class MainWindow(QMainWindow):
             campo = QLineEdit(atual.get(chave, ""))
             campo.setMaxLength(maximo)
             if chave == "subtitulo":
-                campo.setPlaceholderText(getattr(self, "_sub_topo_padrao", "") or "Sistema Inteligente do JARVIS")
+                campo.setPlaceholderText(getattr(self, "_sub_topo_padrao", "") or "Sistema Inteligente do NIA")
             elif chave == "nome_chat":
                 campo.setPlaceholderText("o nome da voz escolhida")
             else:
@@ -7884,9 +7887,8 @@ class MainWindow(QMainWindow):
         # tambem serve para trocar a chave depois de instalado.
         # (o `openrouter_key` continua no argumento so para nao mexer no sinal
         #  do Qt; ele chega sempre vazio desde 05/09/2026 e nao e mais gravado.)
-        gemini_final = key.strip() or data.get("gemini_api_key", "")
-        data.pop("openrouter_api_key", None)
-        data.pop("openrouter_vision_model", None)
+        # A chave digitada só substitui a cópia legada após teste conclusivo.
+        gemini_final = data.get("gemini_api_key", "")
         API_FILE.write_text(
             json.dumps({
                 **data,
@@ -7896,11 +7898,35 @@ class MainWindow(QMainWindow):
             encoding="utf-8",
         )
         self._ready = True
+        # F2 compartilha o cadastro e a validação assíncrona das APIs. A cópia
+        # legada só é substituída após confirmação da nova credencial.
+        if key.strip():
+            try:
+                from core.config_apis_ui import testar_configuracao_legada
+                testar_configuracao_legada(self, 'google', key.strip(), self._log.append_log)
+            except Exception:
+                pass
         if self._overlay:
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._log.append_log(f"SIS: Inicializado. SO={os_name.upper()}. JARVIS online.")
+        self._log.append_log(f"SIS: Inicializado. SO={os_name.upper()}. NIA online.")
+
+    def _abrir_cadastro_chaves(self):
+        from core.config_apis_ui import ConfigAPIsDialog
+        dlg = ConfigAPIsDialog(self)
+        dlg.setFont(_fx(9))
+        dlg.setStyleSheet(
+            f"QDialog, QGroupBox, QScrollArea, QWidget {{ background: {C.BG}; color: {C.TEXT}; }}"
+            f"QLineEdit, QComboBox {{ border: 1px solid {C.BORDER}; padding: 5px; }}"
+            f"QPushButton {{ border: 1px solid {C.BORDER}; border-radius: 5px; padding: 5px 8px; }}"
+            f"QPushButton:hover {{ border-color: {C.PRI}; color: {C.PRI}; }}"
+            f"QTabWidget::pane {{ border: 1px solid {C.BORDER}; }}"
+            f"QTabBar::tab {{ background: {C.BG}; color: {C.TEXT}; padding: 8px 18px; }}"
+            f"QTabBar::tab:selected {{ border-bottom: 2px solid {C.PRI}; }}"
+        )
+        dlg.exec()
+
 
 class _RootShim:
     def __init__(self, app: QApplication):
@@ -7911,7 +7937,7 @@ class _RootShim:
         pass
 
 
-class JarvisUI:
+class NiaUI:
     def __init__(self, face_path: str, size=None):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
@@ -8011,7 +8037,7 @@ class JarvisUI:
 
     def nome_da_ia_e(self, nome: str) -> None:
         """O main diz qual e o nome da voz atual, para o aviso da tela."""
-        self._win._nome_da_ia = str(nome or "JARVIS")
+        self._win._nome_da_ia = str(nome or "NIA")
 
     def acordado_por(self, segundos: float) -> None:
         self._win._acordado_ate(segundos)
@@ -8107,8 +8133,8 @@ class JarvisUI:
     def on_cowork_acao(self, cb):
         self._win.on_cowork_acao = cb
 
-    def voz_do_jarvis(self, niveis, passo: float, inicio: float) -> None:
-        """Volume da voz do JARVIS para o nucleo pulsar junto (05/10/2026).
+    def voz_do_nia(self, niveis, passo: float, inicio: float) -> None:
+        """Volume da voz do NIA para o nucleo pulsar junto (05/10/2026).
 
         `niveis`: uma fatia a cada `passo` segundos, a primeira tocando em
         `inicio` (relogio time.monotonic). Vem da linha do audio, entao o
@@ -8120,7 +8146,7 @@ class JarvisUI:
             pass
 
     def mostrar_aviso_pc(self, ligado: bool, texto: str = "") -> None:
-        """A faixa "JARVIS esta usando o computador" — repassada para a janela.
+        """A faixa "NIA esta usando o computador" — repassada para a janela.
 
         ESTE REPASSE E O CONSERTO (04/09/2026). O laco do computer use recebe
         o `player`, que e ESTA classe (a casca), e procura nele o metodo

@@ -88,7 +88,7 @@ def data_por_extenso(agora: datetime | None = None) -> str:
 def _o_que_foi_pedido(pergunta: str) -> str:
     """'hora', 'data' ou 'tudo' — pelo que o dono perguntou.
 
-    01/09/2026: "que hora e agora?" e o JARVIS respondia hora, dia da semana e
+    01/09/2026: "que hora e agora?" e o NIA respondia hora, dia da semana e
     data completa. Ele pediu SO a hora. Quem pergunta a hora quer a hora; quem
     pergunta o dia quer o dia. Os dois juntos so quando ele pedir os dois — ou
     quando nao der para saber o que ele pediu (a ferramenta foi chamada sem

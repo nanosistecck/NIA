@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""'Pode desfazer': volta a ULTIMA coisa que o JARVIS fez, seja qual for.
+"""'Pode desfazer': volta a ULTIMA coisa que o NIA fez, seja qual for.
 
 Hoje duas acoes tem volta: organizar uma pasta (`organizar_pasta`, diario em
 config/organizacoes) e excluir arquivo ou pasta (`lixeira`, diario em

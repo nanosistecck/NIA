@@ -37,9 +37,8 @@ def _get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 def _get_api_key() -> str:
-    path = _get_base_dir() / "config" / "api_keys.json"
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from core.llm_router import resolver
+    return resolver("gemini") or ""
 
 def _get_macos_wifi_interface() -> str:
     try:
@@ -1067,7 +1066,7 @@ def computer_settings(
             # "+10" E "-10" SAO RELATIVOS (01/10/2026). Pedido "aumenta o volume",
             # o cerebro mandou volume_set com value="+10" — e o numero era lido
             # como ABSOLUTO: o volume ia para 10%. Ele pedia para subir e o
-            # JARVIS baixava. Sinal na frente (ou "mais"/"menos") = degrau.
+            # NIA baixava. Sinal na frente (ou "mais"/"menos") = degrau.
             _rel = re.match(r"^\s*(\+|-|mais|menos)\s*(\d{1,3})?\s*%?\s*$",
                             str(value or "").strip().lower())
             if _rel:

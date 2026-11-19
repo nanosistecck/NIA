@@ -39,3 +39,6 @@ whatsapp_bridge/mark_xlviii_whatsapp_db.json
 # Sistema operacional
 .DS_Store
 Thumbs.db
+config/api_keys.json
+memory/long_term.json
+config/api_keys.json

@@ -1,53 +1,11 @@
-"""O CEREBRO DO NIA — hoje ele pensa pelo Codex da VPS, nao mais pelo OpenRouter.
+"""Motor de conversa da NIA: escada externa ou preferência explícita por Ollama.
 
-MUDANCA DE 04/09/2026 (decisao do Diego, com os tres caminhos medidos):
-
-    Gemini gratuita do cliente ..... 0,7 a 1,0 s   ~20 perguntas/dia, 429 direto
-    OpenRouter gratuito do cliente . 1,1 a 1,9 s   50 pedidos/dia, as vezes vazio
-    Codex CLI na nossa VPS ......... 4,5 a 5,4 s   SEM cota, no plano do dono
-
-O OpenRouter saiu INTEIRO daqui — chave, modelos, fila de reserva. A escada
-agora e: Gemini do cliente (quando a cota dela deixa) -> Codex da VPS (sempre).
-O preco combinado sao os ~5 s por resposta; o ganho e que o NIA nao fica sem
-responder no meio do dia de trabalho do cliente.
-
-O NOME DO ARQUIVO E DA CLASSE FICOU. Nao e descuido: o que este arquivo faz
-nunca foi "falar com o OpenRouter" — e orquestrar o prompt, a personalidade, o
-historico, as travas anti-mentira e o corte do texto para a voz. Trocar o nome
-mexeria em 30 pontos do main.py sem mudar uma linha de comportamento.
-
-O computer use NAO passa por aqui (ordem do dono, e ele esta aprovado): ele fala
-com o `jarvis-olhar.js` da VPS pelo seu proprio caminho.
-
-Cerebro do NIA pelo OpenRouter — rapido e fora da cota da Gemini.
-
-Medido em 30/08/2026 com a chave do Diego:
-    openai/gpt-4.1-mini      1,1 s
-    google/gemini-2.5-flash  1,3 s
-    llama-3.3-70b            4,6 s
-Contra 3 a 5 s da Gemini ao vivo (quando saudavel) e 12 a 19 s do Codex na VPS.
-
-Com o whisper local (0,5 s) e o Kokoro local (1,0 s), a conversa inteira fica em
-torno de 3 s **sem gastar um byte da cota de audio da Gemini**, que e cobrada por
-SEGUNDO e era o que estrangulava tudo.
-
-Conversa fica aqui; TRABALHO vai para o Codex na VPS. O proprio modelo decide,
-por chamada de ferramenta — nada de adivinhar por palavra-chave, que erra tanto
-para mais ("que horas sao" virando pesquisa) quanto para menos.
-
-Ferramentas ligadas (30/08/2026, a pedido do Diego):
-    hora_agora     respondida AQUI mesmo, do relogio do PC: instantanea
-    pesquisar      noticias e qualquer coisa que precise da internet -> Codex
-    criar_imagem   -> Codex (kind image)
-    editar_imagem  -> Codex (kind image_edit), usa a foto arrastada na janela
-    buscar_leads   -> Codex (kind leads)
+Preserva personalidade, histórico e execução de ferramentas. O nome do módulo
+continua estável para os consumidores existentes; não há cliente OpenRouter aqui.
 """
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
-from pathlib import Path
 
 # Verbos que indicam PEDIDO DE ACAO. Se o cliente usou um destes e o modelo nao
 # chamou ferramenta, ele esta inventando que fez.
@@ -259,11 +217,6 @@ MODELO_PADRAO = "codex"
 # conversa INTEIRA enquanto o programa estiver aberto — meia hora falando
 # passa facil de 20 trocas. Zera quando o programa fecha, como ele quer.
 MEMORIA_MAX = 120
-
-# O OpenRouter gratuito, quando entra como ultimo recurso, continua no aperto:
-# la o teto por pedido e real e derruba a resposta inteira.
-MEMORIA_GRATUITO = 6
-
 
 # O RELOGIO VAI NA CONVERSA, NAO NO PROMPT DE SISTEMA (03/09/2026).
 #
@@ -692,6 +645,7 @@ class CerebroOpenRouter:
         Chamada SEM ferramenta e SEM historico: e pergunta tecnica seca, e a
         personalidade (malandro, brincalhao) so atrapalharia.
         """
+        self._sincronizar_credenciais()
         from actions.tarefa_comando import PEDIDO_AO_CODEX, SISTEMA_DO_COMANDO  # noqa: PLC0415
         mensagens = [
             {"role": "system", "content": SISTEMA_DO_COMANDO},
@@ -706,7 +660,7 @@ class CerebroOpenRouter:
         # minusculo — algumas centenas de fichas, fracao de centavo. Medido nas
         # mesmas tres tarefas: Luna 3/3, Gemini 2/3 (e uma levou 19,5 s).
         # Economizar meio centavo para o comando sair torto nao vale.
-        if self.usar_openai:
+        if self.usar_openai and not getattr(self, "_openai_bloqueada", False):
             try:
                 from core.cerebro_openai import CerebroOpenAI  # noqa: PLC0415
                 if getattr(self, "_openai", None) is None:
@@ -724,9 +678,9 @@ class CerebroOpenRouter:
                     return texto
             except Exception as exc:
                 if _openai_morta(str(exc)):
-                    self.usar_openai = False
+                    self._openai_bloqueada = True
                 print(f"[NIA] nossa API nao escreveu o comando: {str(exc)[:120]}")
-        if self.usar_gemini and _t.time() >= self._gemini_ate:
+        if self.usar_gemini and not getattr(self, "_gemini_bloqueada", False) and _t.time() >= self._gemini_ate:
             try:
                 from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
                 if getattr(self, "_gemini", None) is None:
@@ -785,8 +739,9 @@ class CerebroOpenRouter:
         instrucao dele + esta chamada. Ordem: nossa OpenAI -> Gemini do cliente
         -> Codex da VPS.
         """
+        self._sincronizar_credenciais()
         import time as _t  # noqa: PLC0415
-        if self.usar_openai:
+        if self.usar_openai and not getattr(self, "_openai_bloqueada", False):
             try:
                 from core.cerebro_openai import CerebroOpenAI  # noqa: PLC0415
                 if getattr(self, "_openai", None) is None:
@@ -796,9 +751,9 @@ class CerebroOpenRouter:
                     return t
             except Exception as exc:
                 if _openai_morta(str(exc)):
-                    self.usar_openai = False
+                    self._openai_bloqueada = True
                 print(f"[NIA] nossa API nao escreveu o texto: {str(exc)[:120]}")
-        if self.usar_gemini and _t.time() >= self._gemini_ate:
+        if self.usar_gemini and not getattr(self, "_gemini_bloqueada", False) and _t.time() >= self._gemini_ate:
             try:
                 from core.cerebro_gemini import CerebroGemini  # noqa: PLC0415
                 if getattr(self, "_gemini", None) is None:
@@ -923,7 +878,9 @@ class CerebroOpenRouter:
         except Exception:
             return []
         for provedor in disponiveis:
-            if provedor in nativos or not base_url_do_provedor(provedor):
+            selecionado = self.router.escolher(provedor)
+            url = selecionado[1].base_url if selecionado else ''
+            if provedor in nativos or not (url or base_url_do_provedor(provedor)):
                 continue
             saida.append(provedor)
         return saida[:maximo]
@@ -972,6 +929,28 @@ class CerebroOpenRouter:
         return str(cfg.get("prioridade") or "reserva").lower() == "preferido"
 
     def _pensar(self, mensagens: list, forcar: bool = False):
+        from core.llm_client import registrar_motor_conversa, preferencia_conversa
+        self._sincronizar_credenciais()
+        try:
+            resultado = self._pensar_configurada(mensagens, forcar)
+        except Exception:
+            if preferencia_conversa() == 'ollama':
+                registrar_motor_conversa('Ollama indisponível')
+            raise
+        if resultado is not None:
+            registrar_motor_conversa(getattr(self, 'ultimo_cerebro', 'externo'))
+        return resultado
+
+    def _sincronizar_credenciais(self):
+        from core.db_chaves import listar_chaves
+        revisao = tuple((r['id'], r['revision'], r['enabled']) for r in listar_chaves())
+        if revisao != getattr(self, '_revisao_credenciais', None):
+            self._revisao_credenciais = revisao
+            self._openai = self._gemini = None
+            self._gemini_ate = 0.0
+            self._openai_bloqueada = self._gemini_bloqueada = False
+
+    def _pensar_configurada(self, mensagens: list, forcar: bool = False):
         """O CODEX PRIMEIRO. Gemini e OpenAI so se a ponte estiver fora.
 
         ORDEM INVERTIDA EM 05/09/2026, decisao do Diego: "toda tarefa tem que
@@ -992,6 +971,34 @@ class CerebroOpenRouter:
         """
         import time as _t  # noqa: PLC0415
 
+        from core.llm_client import preferencia_conversa, call_llm, get_llm_provider
+        if preferencia_conversa() == 'ollama':
+            if get_llm_provider() != 'ollama':
+                raise RuntimeError('A preferência local exige o backend Ollama; reative um modelo instalado.')
+            # A ativação local é uma preferência de privacidade: falhas não
+            # autorizam enviar a conversa para a escada externa.
+            self.ultimo_cerebro = 'ollama'
+            conversa = list(mensagens)
+            ferramentas = self._ferramentas_para(mensagens)
+            chamou = False
+            for _ in range(3):
+                r = call_llm(conversa, ferramentas)
+                chamadas = r.get('tool_calls') or []
+                if not chamadas:
+                    return {'texto': r.get('content', ''), 'chamou_ferramenta': chamou}
+                chamou = True
+                conversa.append({'role': 'assistant', 'content': r.get('content', ''),
+                                 'tool_calls': chamadas})
+                for chamada in chamadas:
+                    fn = chamada.get('function') or {}
+                    args = fn.get('arguments') or {}
+                    if isinstance(args, str):
+                        args = json.loads(args)
+                    resultado = self.executor(fn.get('name', ''), args)
+                    conversa.append({'role': 'tool', 'content': str(resultado),
+                                     'tool_name': fn.get('name', '')})
+            return {'texto': 'Limite de chamadas de ferramentas atingido.', 'chamou_ferramenta': chamou}
+
         # "preferido": os provedores do catalogo entram na frente do Codex.
         # Só quem escolheu isso no config muda de comportamento; o padrão
         # ("reserva") continua exatamente como era.
@@ -1002,11 +1009,11 @@ class CerebroOpenRouter:
         r = self._pensar_com_codex(mensagens, forcar)
         if r is not None:
             return r
-        if self.usar_gemini and _t.time() >= self._gemini_ate:
+        if self.usar_gemini and not getattr(self, "_gemini_bloqueada", False) and _t.time() >= self._gemini_ate:
             r = self._pensar_com_gemini(mensagens, forcar)
             if r is not None:
                 return r
-        if self.usar_openai:
+        if self.usar_openai and not getattr(self, "_openai_bloqueada", False):
             r = self._pensar_com_openai(mensagens, forcar)
             if r is not None:
                 return r
@@ -1120,7 +1127,7 @@ class CerebroOpenRouter:
             # erro. Desliga o degrau ate a proxima abertura do programa.
             # Desde 01/10/2026 vale tambem para a conta SEM CREDITO.
             if _openai_morta(str(exc)):
-                self.usar_openai = False
+                self._openai_bloqueada = True
             print(f"[NIA] a nossa API tambem falhou: {str(exc)[:140]}")
         return None
 
@@ -1180,7 +1187,7 @@ class CerebroOpenRouter:
                 # uma ida a rede jogada fora por mensagem, com o dono
                 # esperando. Desliga ate a proxima abertura do programa; o
                 # Codex responde igual e sem cota.
-                self.usar_gemini = False
+                self._gemini_bloqueada = True
                 try:
                     from main import _voice_diag  # noqa: PLC0415
                     _voice_diag("gemini_chave_recusada",

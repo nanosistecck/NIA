@@ -1,134 +1,301 @@
 # -*- coding: utf-8 -*-
-"""A chave que o dono colou e aceita pelo provedor? (18/11/2026)
+"""Validação de credenciais sem geração de texto nem alteração de registros.
 
-POR QUE EXISTE
---------------
-Em 18/11/2026 a voz do NIA estava muda com uma chave "cadastrada" no banco.
-O roteador tinha um defeito (corrigido: `resolver()` nao lia o banco), mas
-havia um SEGUNDO problema, este aqui: a chave guardada era um token de outro
-tipo (`AQ.Ab8...`, de OAuth/CLI) e o Google respondia **401 API key not valid**
-em toda chamada. A tela dizia "cadastrada"; a voz nao saia.
-
-Nada aqui adivinha: faz UMA chamada de leitura no endpoint de modelos, que nao
-gasta cota de geracao, e traduz a resposta para o dono.
-
-REGRA DE OURO: chave nao se perde. Mesmo "invalida", ela fica no banco — quem
-decide apagar e o dono. Este modulo so INFORMA.
+Distingue autenticação, conectividade, permissões, cota e falhas de rede.
+Catálogos genéricos também são consultados sem autenticação para identificar
+respostas públicas. Mensagens do servidor não são reproduzidas na interface.
 """
 from __future__ import annotations
 
 import json
 import urllib.error
 import urllib.request
+from dataclasses import dataclass, replace
+from urllib.parse import urlencode, urlsplit, urljoin, quote
+import time
+from core.http_seguranca import abrir, validar_endpoint
 
 from core.llm_router import provedor_canonico
 
 _PRAZO_S = 6.0
 
 # Como cada familia prova que a chave vale: uma leitura barata do catalogo.
-_GEMINI = "https://generativelanguage.googleapis.com/v1beta/models"
-
-# O QUE FAZER QUANDO O GOOGLE RECUSA (18/11/2026)
-#
-# O Google passou a emitir no AI Studio, desde 28/05/2026, chaves que comecam
-# com `AQ.` (autorizacao) em vez das antigas `AIza`. Em algumas contas/versoes
-# do endpoint essas chaves voltam **401 API key not valid / ACCESS_TOKEN_TYPE
-# _UNSUPPORTED** mesmo estando boas no site. Nao ha o que configurar no NIA:
-# quem precisa emitir outra chave e o dono. O recado abaixo diz exatamente isso.
-_AJUDA_GEMINI = ("confira em https://aistudio.google.com/apikey se a chave esta "
-                 "inteira (copiar de novo) e, se continuar recusada, gere uma "
-                 "chave NOVA e cole aqui")
+ROTULOS_STATUS = {'validado': 'Validado', 'invalido': 'Inválido', 'esgotado': 'Esgotado',
+                  'limitado': 'Limite temporário', 'inconclusivo': 'Inconclusivo',
+                  'nao_verificada': 'Não verificada'}
 
 
-def _dica_gemini(chave: str) -> str:
-    """Uma frase a mais quando a chave tem cara de `AQ.` (token de autorizacao)."""
-    if chave.startswith("AQ."):
-        return ("esta chave comeca com AQ. (formato novo do AI Studio) e o Google "
-                f"a recusou neste endpoint; {_AJUDA_GEMINI}")
-    return _AJUDA_GEMINI
-
+def status_registro(row):
+    if row['status'] == 'invalida':
+        return 'invalido'
+    if row['status'] == 'esgotada' and row.get('validacao_estado') != 'limitado':
+        return 'esgotado'
+    return row.get('validacao_estado', 'nao_verificada')
 
 def _get(url: str, cabecalho: dict) -> tuple[int, str]:
-    pedido = urllib.request.Request(url, headers=cabecalho, method="GET")
+    headers = {'Accept': 'application/json', 'User-Agent': 'NIA/1.0 API-Configuration'}
+    headers.update(cabecalho)
+    pedido = urllib.request.Request(url, headers=headers, method="GET")
+    return _http(pedido)
+
+
+def _http(pedido, timeout=_PRAZO_S):
     try:
-        with urllib.request.urlopen(pedido, timeout=_PRAZO_S) as r:
-            return int(getattr(r, "status", 200)), r.read(4000).decode("utf-8", "ignore")
+        with abrir(pedido, timeout=timeout) as r:
+            return int(getattr(r, "status", 200)), r.read(16_000_000).decode("utf-8", "ignore")
     except urllib.error.HTTPError as exc:
         try:
             corpo = exc.read(4000).decode("utf-8", "ignore")
         except Exception:
             corpo = ""
         return int(exc.code), corpo
-    except Exception as exc:
-        raise RuntimeError(f"sem resposta do provedor ({type(exc).__name__})") from exc
-
-
-def _mensagem_do_erro(corpo: str) -> str:
-    """A frase util do JSON de erro, sem despejar o corpo inteiro na tela."""
-    try:
-        dados = json.loads(corpo)
+    except TimeoutError:
+        raise TimeoutError('tempo esgotado') from None
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            raise TimeoutError('tempo esgotado') from None
+        raise RuntimeError('sem resposta do provedor') from None
     except Exception:
-        return corpo.strip()[:120]
-    erro = dados.get("error") if isinstance(dados, dict) else None
-    if isinstance(erro, dict):
-        return str(erro.get("message") or erro.get("status") or "")[:140]
-    if isinstance(erro, str):
-        return erro[:140]
-    return str(dados)[:140]
+        raise RuntimeError('sem resposta do provedor') from None
 
 
 def validar(provedor: str, chave: str, base_url: str = "") -> tuple[bool, str]:
-    """``(ok, recado)``. ``ok=False`` so quando o provedor RECUSOU a chave.
+    """Compatibilidade da assinatura; somente sucesso verificável retorna True."""
+    resultado = testar(provedor, chave, base_url)
+    return resultado.apta, resultado.mensagem
 
-    Rede fora, tempo esgotado ou provedor sem endpoint conhecido devolvem
-    ``True`` com um aviso: nao da para condenar uma chave por causa da internet
-    do momento.
-    """
-    chave = str(chave or "").strip()
-    if not chave:
-        return False, "chave vazia"
-    nome = provedor_canonico(provedor)
 
-    if nome.startswith("gemini") or nome == "google":
-        try:
-            status, corpo = _get(_GEMINI, {"x-goog-api-key": chave})
-        except RuntimeError as exc:
-            return True, str(exc)
-        if 200 <= status < 300:
-            return True, "chave aceita pelo Google"
-        if status in (400, 401, 403):
-            return False, (f"Google recusou a chave ({status}): "
-                           f"{_mensagem_do_erro(corpo)} — {_dica_gemini(chave)}")
-        if status == 429:
-            return True, "chave valida, mas sem cota neste momento"
-        return False, f"Google respondeu {status}: {_mensagem_do_erro(corpo)}"
+@dataclass(frozen=True)
+class ResultadoValidacao:
+    estado: str
+    mensagem: str
+    http_status: int = 0
+    codigo: str = ''
+    temporario: bool = False
+    modelos: tuple[str, ...] = ()
+    catalogo_completo: bool = False
+    catalogo_mensagem: str = ''
+    catalogo_publico: bool = False
 
-    if nome == "openai":
-        base = "https://api.openai.com/v1"
-    else:
-        from core.provedores import base_url_do_provedor  # noqa: PLC0415
-        base = str(base_url or base_url_do_provedor(provedor) or "").rstrip("/")
-    if not base:
-        return True, "sem endpoint conhecido: chave guardada, nao verificada"
-    if not base.endswith("/v1") and "/v1" not in base:
-        base += "/v1"
+    @property
+    def apta(self):
+        return self.estado == 'verificada'
 
+    @property
+    def status_exibicao(self):
+        if self.apta:
+            return 'validado'
+        if self.estado == 'recusada':
+            return 'invalido'
+        if self.estado == 'cota':
+            return 'limitado' if self.temporario else 'esgotado'
+        return 'inconclusivo'
+
+
+def _json(corpo):
     try:
-        status, corpo = _get(base + "/models", {"Authorization": f"Bearer {chave}"})
-    except RuntimeError as exc:
-        return True, str(exc)
-    if 200 <= status < 300:
-        return True, "chave aceita pelo provedor"
-    if status in (400, 401, 403):
-        return False, f"provedor recusou a chave ({status}): {_mensagem_do_erro(corpo)}"
+        return json.loads(corpo)
+    except (ValueError, TypeError):
+        return None
+
+
+def interpretar_resposta(status, corpo):
+    """Interpreta HTTP e códigos do provedor sem persistir mensagens arbitrárias."""
+    dados = _json(corpo)
+    erro = dados.get('error') if isinstance(dados, dict) else None
+    falha_explicita = isinstance(dados, dict) and dados.get('success') is False
+    if 200 <= status < 300 and not erro and not falha_explicita:
+        return ResultadoValidacao('verificada', 'Autenticação confirmada pelo provedor.', status)
+    if isinstance(erro, dict):
+        texto = json.dumps(erro, ensure_ascii=False).lower()
+    else:
+        texto = str(erro or corpo or '').lower()
+    # Não transformar 'quota exceeded' em chave inválida nem confundir 403 com 401.
+    invalidas = ('api_key_invalid', 'invalid_api_key', 'api key not valid', 'invalid api key',
+                 'authentication_error', 'invalid_token', 'invalid api token', 'expired_api_key',
+                 'api key expired', 'revoked_api_key')
+    sem_saldo = ('insufficient_quota', 'insufficient_balance', 'credit_balance',
+                 'insufficient credits', 'insufficient credit', 'insufficient funds',
+                 'billing_hard_limit', 'quota_exceeded', 'quota exceeded', 'resource_exhausted')
+    if status == 401 or any(c in texto for c in invalidas):
+        return ResultadoValidacao('recusada', 'Credencial inválida, expirada ou revogada.', status, 'autenticacao')
+    if status == 429 and any(c in texto for c in ('perminute', 'per_minute', 'rate_limit_exceeded', 'rate limit')):
+        return ResultadoValidacao('cota', 'Limite temporário de requisições; tente novamente mais tarde.', status, 'rate_limit', True)
+    if status == 402 or any(c in texto for c in sem_saldo):
+        return ResultadoValidacao('cota', 'Créditos ou cota esgotados; a chave não foi marcada como inválida.', status, 'cota')
+    if status == 403:
+        if dados is None and any(c in texto for c in ('cloudflare', 'access denied', 'captcha', 'error code: 1010')):
+            return ResultadoValidacao('indisponivel', 'Acesso bloqueado pelo serviço ou proxy; validade da chave não confirmada.', status, 'bloqueio_acesso')
+        return ResultadoValidacao('permissao', 'Credencial sem permissão para esta operação.', status, 'permissao')
     if status == 429:
-        return True, "chave valida, mas sem cota neste momento"
-    if status == 404:
-        return False, "endpoint de modelos nao existe nesta URL (confira a base_url)"
-    return False, f"provedor respondeu {status}: {_mensagem_do_erro(corpo)}"
+        return ResultadoValidacao('cota', 'Limite temporário de requisições; tente novamente mais tarde.', status, 'rate_limit', True)
+    if status in (408, 504):
+        return ResultadoValidacao('timeout', 'Tempo de resposta esgotado.', status, 'timeout', True)
+    if status >= 500:
+        return ResultadoValidacao('indisponivel', 'Provedor temporariamente indisponível.', status, 'servidor', True)
+    if not 200 <= status < 300 or erro or falha_explicita:
+        return ResultadoValidacao('endpoint', 'Endpoint incorreto ou resposta incompatível.', status, 'endpoint')
+    return ResultadoValidacao('verificada', 'Autenticação confirmada pelo provedor.', status)
 
 
-def recado_curto(provedor: str, chave: str, base_url: str = "") -> str:
-    """Uma linha pronta para o log da interface."""
-    ok, texto = validar(provedor, chave, base_url)
-    return ("CHAVE: " if ok else "CHAVE RECUSADA: ") + texto
+def _consultar(url, headers):
+    # Uma repetição limitada para falhas transitórias, apenas nos workers/CLI.
+    for tentativa in range(2):
+        try:
+            status, corpo = _get(url, headers)
+            resultado = interpretar_resposta(status, corpo)
+        except TimeoutError:
+            status, corpo = 0, ''
+            resultado = ResultadoValidacao('timeout', 'Tempo de resposta esgotado.', temporario=True)
+        except RuntimeError:
+            status, corpo = 0, ''
+            resultado = ResultadoValidacao('rede', 'Sem resposta; confira a rede e teste novamente.', temporario=True)
+        if not resultado.temporario or resultado.estado == 'cota' or tentativa:
+            return resultado, _json(corpo)
+        time.sleep(0.15)
+
+
+def _catalogo(alvo, headers, gemini=False):
+    modelos = []
+    visitadas = set()
+    atual = alvo
+    primeiro = None
+    for _ in range(50):
+        if atual in visitadas:
+            break
+        visitadas.add(atual)
+        resultado, dados = _consultar(atual, headers)
+        if primeiro is None:
+            primeiro = resultado
+        if not resultado.apta:
+            diagnostico = resultado if resultado.estado in ('recusada', 'cota') else (primeiro if modelos else resultado)
+            return replace(diagnostico, modelos=tuple(modelos),
+                           catalogo_mensagem='Catálogo incompleto: ' + resultado.mensagem)
+        itens = dados.get('models' if gemini else 'data') if isinstance(dados, dict) else None
+        if not isinstance(itens, list):
+            return replace(resultado, estado='endpoint', modelos=tuple(modelos),
+                           mensagem='Resposta de catálogo inválida.', catalogo_mensagem='Catálogo indisponível.')
+        for item in itens:
+            if not isinstance(item, dict) or item.get('active') is False:
+                continue
+            nome = item.get('name' if gemini else 'id')
+            if isinstance(nome, str) and nome.strip():
+                segredos = [v.removeprefix('Bearer ') for v in headers.values()]
+                if any(segredo and segredo in nome for segredo in segredos):
+                    continue
+                nome = nome.removeprefix('models/') if gemini else nome
+                if nome not in modelos:
+                    modelos.append(nome)
+        token = dados.get('nextPageToken') or dados.get('next_page_token') or dados.get('next_cursor')
+        if token:
+            campo = 'pageToken' if gemini else ('page_token' if 'next_page_token' in dados else 'cursor')
+            atual = alvo + ('&' if '?' in alvo else '?') + urlencode({campo: token})
+        elif dados.get('has_more') and itens:
+            cursor = itens[-1].get('id')
+            if not cursor:
+                break
+            atual = alvo + ('&' if '?' in alvo else '?') + urlencode({'after_id': cursor})
+        elif dados.get('next'):
+            seguinte = urljoin(atual, str(dados['next']))
+            origem, destino = urlsplit(alvo), urlsplit(seguinte)
+            if ((origem.scheme, origem.netloc) != (destino.scheme, destino.netloc)
+                    or destino.username or destino.password
+                    or not destino.path.startswith(origem.path)):
+                break  # Nunca repassa o segredo para outra conexão.
+            atual = seguinte
+        else:
+            return replace(resultado, modelos=tuple(modelos), catalogo_completo=True,
+                           catalogo_mensagem='Catálogo remoto atualizado.')
+    return replace(primeiro, modelos=tuple(modelos), catalogo_mensagem='Catálogo parcial: paginação interrompida.')
+
+
+def testar(provedor, chave, base_url=''):
+    """Autentica e descobre modelos da mesma conexão, sem gerar texto."""
+    from core.provedores import base_url_do_provedor, PROVEDORES
+    nome = provedor_canonico(provedor)
+    if not str(chave or '').strip():
+        return ResultadoValidacao('recusada', 'Chave vazia.')
+    try:
+        base = validar_endpoint(base_url or base_url_do_provedor(provedor))
+    except ValueError:
+        return ResultadoValidacao('endpoint', 'URL do endpoint inválida ou não configurada.')
+    spec = PROVEDORES.get('google' if nome == 'gemini' else nome, {})
+    if spec.get('tipo', 'llm') != 'llm':
+        return ResultadoValidacao('indisponivel', 'Este serviço não expõe um catálogo LLM; teste específico indisponível.')
+    headers = {'x-goog-api-key': chave} if nome == 'gemini' else {'Authorization': f'Bearer {chave}'}
+    oficial = not base_url or base == base_url_do_provedor(provedor).rstrip('/')
+    autenticacao = None
+    if nome == 'openrouter' and oficial:
+        autenticacao, conta = _consultar(base + '/key', headers)
+        if not autenticacao.apta:
+            return autenticacao
+        info = conta.get('data') if isinstance(conta, dict) else None
+        if not isinstance(info, dict):
+            return ResultadoValidacao('endpoint', 'Resposta de autenticação inválida.', autenticacao.http_status)
+        if info.get('is_management_key') or info.get('is_provisioning_key'):
+            return ResultadoValidacao('permissao', 'Chave de gerenciamento; use uma chave de inferência.', autenticacao.http_status)
+        gratuitos = info.get('free_model_daily_requests') or {}
+        saldo = info.get('limit_remaining')
+        if isinstance(saldo, (int, float)) and saldo <= 0 and gratuitos.get('remaining') == 0:
+            autenticacao = replace(autenticacao, estado='cota', codigo='cota',
+                                  mensagem='Limites pagos e gratuitos esgotados.')
+    catalogo = _catalogo(base + '/models', headers, gemini=nome == 'gemini')
+    # Os catálogos dos principais provedores nativos exigem autenticação.
+    if autenticacao is not None:
+        return replace(autenticacao, modelos=catalogo.modelos, catalogo_completo=catalogo.catalogo_completo,
+                       catalogo_mensagem=catalogo.catalogo_mensagem or catalogo.mensagem)
+    if not catalogo.apta:
+        return catalogo
+    if nome in ('gemini', 'openai', 'groq') and oficial:
+        return catalogo
+    sem_auth, _ = _consultar(base + '/models', {})
+    if sem_auth.estado in ('recusada', 'permissao'):
+        return catalogo
+    return replace(catalogo, estado='conectividade', catalogo_publico=True,
+                   mensagem='Catálogo público acessível; a validade da chave exige uma chamada autenticada de uso.')
+
+
+def testar_geracao(provedor, chave, modelo, base_url=''):
+    """Uma chamada explícita de uso, com prompt fixo e possível consumo de cota."""
+    from core.provedores import base_url_do_provedor
+    nome = provedor_canonico(provedor)
+    if not chave or not modelo:
+        return ResultadoValidacao('endpoint', 'Informe a chave e selecione um modelo para testar o uso.')
+    try:
+        base = validar_endpoint(base_url or base_url_do_provedor(provedor))
+    except ValueError:
+        return ResultadoValidacao('endpoint', 'Endpoint inválido ou não configurado.')
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json',
+               'User-Agent': 'NIA/1.0 API-Configuration'}
+    prompt = 'Responda apenas OK.'
+    if nome == 'gemini':
+        alvo = base + '/models/' + quote(modelo.removeprefix('models/'), safe='') + ':generateContent'
+        headers['x-goog-api-key'] = chave
+        payload = {'contents': [{'parts': [{'text': prompt}]}], 'generationConfig': {'maxOutputTokens': 8}}
+        campo = 'candidates'
+    elif nome == 'openai':
+        alvo = base + '/responses'
+        headers['Authorization'] = 'Bearer ' + chave
+        payload = {'model': modelo, 'input': prompt, 'max_output_tokens': 16}
+        campo = 'output'
+    else:
+        alvo = base + '/chat/completions'
+        headers['Authorization'] = 'Bearer ' + chave
+        payload = {'model': modelo, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 8}
+        campo = 'choices'
+    pedido = urllib.request.Request(alvo, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+    try:
+        status, corpo = _http(pedido, timeout=30)
+    except TimeoutError:
+        return ResultadoValidacao('timeout', 'Teste de uso excedeu o tempo de resposta.', temporario=True)
+    except RuntimeError:
+        return ResultadoValidacao('rede', 'Sem resposta no teste de uso.', temporario=True)
+    resultado = interpretar_resposta(status, corpo)
+    if status in (404, 410) and resultado.estado == 'endpoint':
+        return replace(resultado, estado='modelo', codigo='modelo', mensagem='Modelo ou operação indisponível; a credencial não foi invalidada.')
+    if not resultado.apta:
+        return resultado
+    dados = _json(corpo)
+    if not isinstance(dados, dict) or not isinstance(dados.get(campo), list):
+        return ResultadoValidacao('endpoint', 'Resposta inesperada no teste de uso.', status)
+    return replace(resultado, mensagem='Chamada autenticada de uso confirmada no modelo selecionado.')

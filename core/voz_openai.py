@@ -26,8 +26,6 @@ import http.client
 import json
 import ssl
 import threading
-import urllib.request
-from pathlib import Path
 
 from core.velocidade_fala import VELOCIDADE, Acelerador
 
@@ -162,7 +160,6 @@ MODELO = "gpt-4o-mini-tts"
 #
 # Se ele falhar por qualquer motivo, a fala cai sozinha no modelo de leitura, que
 # e mais barato e sempre esteve funcionando. O cliente nunca fica mudo.
-URL_NATURAL = "https://api.openai.com/v1/chat/completions"
 MODELO_NATURAL = "gpt-audio-mini"
 
 # As vozes do ChatGPT, conferidas uma a uma nesta chave em 31/08/2026 — as treze
@@ -277,6 +274,7 @@ class VozOpenAI:
         # tem a chave. Os dois caminhos entregam o mesmo PCM 24 kHz, entao o
         # resto do NIA nao percebe diferenca.
         self.ponte = ponte
+        self._chave_gerenciada = not bool(chave)
         self.chave = (chave or self._chave_do_config() or "").strip()
         if not self.chave and self.ponte is None:
             raise RuntimeError("Sem chave da OpenAI e sem ponte para falar")
@@ -370,6 +368,10 @@ class VozOpenAI:
         return corpo
 
     def _cabecalho(self) -> dict:
+        if self._chave_gerenciada:
+            self.chave = self._chave_do_config()
+            if not self.chave:
+                raise RuntimeError('Chave OpenAI pausada, excluída ou indisponível')
         return {"Authorization": f"Bearer {self.chave}",
                 "Content-Type": "application/json"}
 
@@ -458,6 +460,10 @@ class VozOpenAI:
         texto = str(texto or "").strip()
         if not texto:
             return
+        if self._chave_gerenciada:
+            self.chave = self._chave_do_config()
+            if not self.chave and self.ponte is None:
+                raise RuntimeError('Chave OpenAI pausada, excluída ou indisponível')
         self.ultima_transcricao = ""
         # SEM CHAVE AQUI: quem fala e a VPS. E o caso de todo cliente.
         if not self.chave:

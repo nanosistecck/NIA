@@ -713,27 +713,33 @@ PROVEDORES: dict[str, dict] = {
 }
 
 
+def _spec_provedor(provedor):
+    from core.llm_router import provedor_canonico
+    nome = provedor_canonico(provedor)
+    return PROVEDORES.get('google' if nome == 'gemini' else nome) or {}
+
+
 def nome_do_provedor(provedor: str) -> str:
     """Nome amigavel do provedor (ou o proprio id se desconhecido)."""
-    spec = PROVEDORES.get(provedor)
-    return str(spec.get("nome") if spec else None) or str(provedor or "").upper()
+    spec = _spec_provedor(provedor)
+    return str(spec.get('nome') or str(provedor or '').upper())
 
 
 def modelos_do_provedor(provedor: str) -> list[str]:
     """Modelos conhecidos do provedor (lista vazia se desconhecido)."""
-    spec = PROVEDORES.get(provedor) or {}
+    spec = _spec_provedor(provedor)
     return list(spec.get("modelos") or [])
 
 
 def base_url_do_provedor(provedor: str) -> str:
     """Endpoint do provedor ("" quando o usuario precisa informar)."""
-    spec = PROVEDORES.get(provedor) or {}
+    spec = _spec_provedor(provedor)
     return str(spec.get("base_url") or "")
 
 
 def aceita_chave(provedor: str) -> bool:
     """True quando o provedor exige chave (nao e keyless)."""
-    spec = PROVEDORES.get(provedor) or {}
+    spec = _spec_provedor(provedor)
     return not bool(spec.get("keyless"))
 
 

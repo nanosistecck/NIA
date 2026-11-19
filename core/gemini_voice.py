@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import threading
 import re
 import unicodedata
@@ -13,7 +12,6 @@ from core.preguica import Preguicoso as _Preguicoso
 genai = _Preguicoso("google.genai")
 types = _Preguicoso("google.genai.types")
 
-from core.velocidade_fala import acelerar_pcm16
 
 
 LIVE_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
@@ -380,6 +378,7 @@ class GeminiCharonVoice:
                     on_audio_end()
 
     async def _generate_audio(self, text: str) -> tuple[list[bytes], str]:
+        await self._atualizar_credencial()
         cfg = self._live_config()
         chunks: list[bytes] = []
         transcript_parts: list[str] = []
@@ -561,7 +560,18 @@ class GeminiCharonVoice:
             except Exception:
                 pass
 
+    async def _atualizar_credencial(self):
+        from core.llm_router import resolver
+        chave = resolver('gemini') or ''
+        if chave != self._chave:
+            await self._reset_persistent_session()
+            if not chave:
+                raise RuntimeError('Chave Gemini pausada, excluída ou indisponível')
+            self._chave = chave
+            self.client = genai.Client(api_key=chave)
+
     async def _ensure_persistent_session(self):
+        await self._atualizar_credencial()
         if self._persistent_lock is None:
             self._persistent_lock = asyncio.Lock()
         if self._sessao_velha():
@@ -1393,6 +1403,13 @@ class GeminiCharonTTS:
         proximo assume com a MESMA voz Charon. So depois de todos falharem e que
         o NIA cai para a voz local.
         """
+        from core.llm_router import resolver
+        chave = resolver('gemini') or ''
+        if not chave:
+            raise RuntimeError('Chave Gemini pausada, excluída ou indisponível')
+        if chave != self._chave:
+            self._chave = chave
+            self.client = genai.Client(api_key=chave)
         ultimo = None
         for passo in range(len(TTS_MODELOS)):
             indice = (GeminiCharonTTS._modelo_atual + passo) % len(TTS_MODELOS)

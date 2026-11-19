@@ -38,12 +38,14 @@ def _ver_provedor(nome: str, rotulo: str) -> bool:
         print("  acao: Configuracoes > Chaves de API e cadastre a chave")
         return False
     print(f"  chave: {_marca(chave)}")
-    ok, texto = valida_chave.validar(nome, chave)
-    print(f"  provedor: {'ACEITA' if ok else 'RECUSOU'} — {texto}")
-    if not ok:
+    resultado = valida_chave.testar(nome, chave)
+    print(f"  provedor: {valida_chave.ROTULOS_STATUS[resultado.status_exibicao]} — {resultado.mensagem}")
+    if resultado.estado == 'recusada':
         print("  acao: gere outra chave no site do provedor e cadastre na tela")
-        print("        de chaves (a recusada pode ficar guardada: ela sai da fila sozinha)")
-    return ok
+        print('        ou use Testar novamente após corrigir a credencial.')
+    elif not resultado.apta:
+        print('  acao: confira rede, permissões e cota antes de substituir a chave.')
+    return resultado.apta
 
 
 def main() -> int:
@@ -70,16 +72,16 @@ def main() -> int:
                 curto = modelo.replace("models/", "")
                 print(f"  {'OK     ' if curto in nomes else 'AUSENTE'} {curto}")
         except Exception as exc:
-            print(f"\n  (nao consegui listar os modelos: {str(exc)[:120]})")
+            print(f"\n  (nao consegui listar os modelos: {type(exc).__name__})")
 
     print("\n== conclusao ==")
     if gemini_ok or openai_ok:
         print("  Ha pelo menos uma voz com chave aceita. Se ainda nao sair som,")
-        print("  o problema nao e a chave: abra o log e procure 'voz_' ")
+        print("  confira também permissões, cota e os registros 'voz_' ")
         print("  (voz_de_fora_falhou / voz_chave_fora / charon_trocou_de_chave).")
         return 0
-    print("  NENHUMA voz tem chave valida. Enquanto isso o NIA fica mudo")
-    print("  (a resposta continua escrita no chat).")
+    print('  Nenhuma autenticação de voz foi confirmada nesta verificação.')
+    print('  Um teste inconclusivo não significa que a credencial seja inválida.')
     print("  Gemini: pegue a chave em https://aistudio.google.com/apikey.")
     print("  Copie a chave INTEIRA. Se ela comecar com AQ. e o Google a recusar")
     print("  (401 API key not valid), gere uma chave NOVA no mesmo site e cole")

@@ -3,18 +3,20 @@
 
     python verificar_chaves.py
 
-Faz so LEITURA. Responde tres perguntas, sem rodeios:
+Por padrão, faz somente leitura. Responde três perguntas:
 
   1. Quais chaves existem no banco (`config/nia.db`) e em que estado estao?
   2. O provedor ACEITA cada uma? (leitura do catalogo de modelos, sem gastar cota)
   3. Cada area do NIA puxa a chave da fonte certa (banco/roteador) ou ficou
      presa no `config/api_keys.json` antigo?
 
-Nunca imprime a chave inteira. Nao altera nada.
+Nunca imprime a chave inteira. Por padrão, não altera registros.
+Use --atualizar para persistir diagnósticos e catálogos no banco.
 """
 from __future__ import annotations
 
 import json
+import argparse
 import sys
 from pathlib import Path
 
@@ -77,7 +79,10 @@ def _ler_json_antigo() -> dict:
         return {}
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description='Valida credenciais e consulta modelos sem gerar texto.')
+    parser.add_argument('--atualizar', action='store_true', help='Salva os resultados no banco sem retomar chaves pausadas.')
+    args = parser.parse_args(argv)
     print("NIA · diagnostico das chaves")
     print(f"banco: {db_chaves.DB_PATH}")
     print(f"config antigo: {RAIZ / 'config' / 'api_keys.json'}")
@@ -96,17 +101,21 @@ def main() -> int:
 
     # 2. O provedor aceita? Uma leitura por chave, sem gastar cota de geracao.
     print("\n== o provedor aceita cada chave? ==")
-    aceitas: dict[str, str] = {}
     alguma_aceita = False
     for row in todas:
         provedor = str(row.get("platform") or "")
         chave = str(row.get("key") or "")
-        ok, texto = valida_chave.validar(provedor, chave,
-                                         str(row.get("base_url") or ""))
+        resultado = valida_chave.testar(provedor, chave, str(row.get('base_url') or ''))
+        ok, texto = resultado.apta, resultado.mensagem
+        aplicado = db_chaves.aplicar_validacao(row['id'], row['revision'], resultado) if args.atualizar else None
         print(f"  {provedor:12s} {_marca(chave)}: "
-              f"{'ACEITA' if ok else 'RECUSOU'} — {texto}")
-        if ok and provedor not in aceitas:
-            aceitas[provedor] = chave
+              f"{valida_chave.ROTULOS_STATUS[resultado.status_exibicao]} "
+              f"(HTTP {resultado.http_status or 'sem resposta'}) — {texto}")
+        print(f"    modelos: {len(resultado.modelos)}; catálogo "
+              f"{'completo' if resultado.catalogo_completo else 'parcial/indisponível'}")
+        if args.atualizar and not aplicado:
+            print('    Resultado ignorado: registro alterado durante o teste.')
+        if ok:
             alguma_aceita = True
 
     # 3. O que cada area recebe HOJE.
@@ -135,13 +144,13 @@ def main() -> int:
     print("\n== conclusao ==")
     if alguma_aceita:
         print("  Ha pelo menos uma chave aceita pelo provedor.")
-        print("  Se alguma area ainda falhar, o problema NAO e a chave: procure no")
-        print("  log por 'voz_', 'cerebro_' ou o nome do provedor.")
+        print('  Autenticação ou catálogo acessível não garantem saldo nem permissão')
+        print('  de geração em todos os modelos. Consulte os detalhes de cada API.')
         if problemas:
             print("  Atencao: estas areas ainda leem o arquivo antigo:", ", ".join(problemas))
         return 0
-    print("  NENHUMA chave foi aceita pelo provedor. Enquanto isso as areas que")
-    print("  dependem dela respondem por escrito ou caem no socorro da VPS.")
+    print('  Nenhuma autenticação foi confirmada nesta verificação; resultados')
+    print('  inconclusivos não significam que as chaves sejam inválidas.')
     print("  Abra Configuracoes > Chaves de API, confira a chave (copiada inteira)")
     print("  e, se o provedor continuar recusando, gere outra no site dele.")
     return 1

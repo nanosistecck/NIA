@@ -1,36 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Pool de chaves por provedor + roteador com failover automatico (FASE 1).
+"""Pool de credenciais e roteamento com estratégias e failover limitado.
 
-A ideia central do FreeLLMAPI, portada para o motor Python do NIA:
-
-  - multi-key por provedor  -> ``KeyPool``: lista de chaves por provedor, cada uma
-                               com estado proprio (cooldown, erro, falhas, uso).
-  - roteamento automatico   -> ``Router``: escolhe o provedor/chave pelo estrategia.
-  - failover automatico      -> ``Router.executar_fallback``: tenta a cadeia ate
-                               encontrar resposta util.
-  - cooldowns                -> por chave e por provedor, com recuperacao.
-
-A integracao com os cerebros (CerebroGemini, CerebroOpenAI, CerebroOpenRouter,
-CerebroCodex) e a configuracao independente ficaram nas FASES seguintes.
-
-CHAVE UNICA PARA TODO MUNDO (18/11/2026)
-----------------------------------------
-`resolver()` e o ponto por onde TODO modulo pede a chave — cerebro, busca,
-visao e, o que motivou esta revisao, a VOZ. Antes ele criava um `Router()`
-vazio e so caia no `config/api_keys.json`: as chaves cadastradas no banco
-(`config/nia.db`, tela de chaves do `ui.py`) NUNCA chegavam na fala, e as
-vozes ficavam mudas mesmo com chave cadastrada.
-
-Agora existe UM roteador de processo (`_global()`), montado a partir do banco +
-config e recarregado sozinho quando o banco ou o config mudam (mtime). Assim:
-  - cadastrou chave na tela  -> a proxima fala ja usa;
-  - a chave levou 429        -> `anotar_falha()` poe em cooldown e a proxima
-                               da fila assume (`proxima_chave()`);
-  - deu certo                 -> `anotar_sucesso()` limpa o castigo.
+O roteador do processo combina SQLite e fontes JSON legadas, preserva sua
+identidade nas recargas e aplica cooldowns por credencial. Consumidores de endpoint
+fixo usam resolver(); clientes configuráveis recebem resolver_conexao().
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import time
@@ -48,20 +25,17 @@ T_MODELO = "modelo_indisponivel"
 T_SERVIDOR = "servidor"
 T_TIMEOUT = "timeout"
 T_DESCONHECIDA = "desconhecida"
+T_PERMISSAO = 'permissao'
 
-# Cooldowns sugeridos por classe de falha (em segundos).
-#
-# CHAVE INVALIDA NAO SE CURA ESPERANDO (18/11/2026): era 600 s e a chave voltava
-# a ser tentada a cada 10 min — uma ida a rede por tentativa, para sempre, com o
-# dono esperando o erro chegar. Chave recusada so volta a valer se o dono trocar
-# a chave na tela (que ja poe tudo em dia); por isso o castigo e longo.
+# Esperas das falhas de credencial. Modelos têm controle por operação no cliente;
+# credenciais recusadas só retornam após reteste ou substituição explícita.
 _SEGUNDOS = {
     T_INVALIDA: 12 * 3600.0,
     T_QUOTA: 60.0,
-    T_MODELO: 6 * 3600.0,
     T_SERVIDOR: 30.0,
     T_TIMEOUT: 20.0,
     T_DESCONHECIDA: 30.0,
+    T_PERMISSAO: 60.0,
 }
 
 # CAMINHOS SEMPRE ABSOLUTOS (18/11/2026). O NIA roda de pastas diferentes
@@ -69,6 +43,7 @@ _SEGUNDOS = {
 # "config vazio" em silencio — o roteador ficava sem chave e ninguem via o erro.
 _RAIZ = Path(__file__).resolve().parents[1]
 CONFIG_PADRAO = _RAIZ / "config" / "llm_routing.json"
+API_CONFIG_PATH = _RAIZ / 'config' / 'api_keys.json'
 
 # APELIDOS DE PROVEDOR (18/11/2026) — o achado que travava a voz de vez.
 #
@@ -98,7 +73,7 @@ class Chave:
     """Estado de UMA chave dentro do pool."""
 
     provedor: str
-    chave: str
+    chave: str = field(repr=False)
     rotulo: str = ""
     status: str = CHAVE_ATIVA
     cooldown_ate: float = 0.0
@@ -111,6 +86,8 @@ class Chave:
     id: int = 0
     modelo: str = ""
     base_url: str = ""
+    revision: int = 0
+    validacao_estado: str = 'nao_verificada'
 
 
 class KeyPool:
@@ -131,10 +108,8 @@ class KeyPool:
     def disponiveis(self, provedor: str) -> list[Chave]:
         """Chaves prontas para uso agora, nesta ordem.
 
-        CASTIGO VENCIDO VOLTA A VALER (18/11/2026): a chave entrava em
-        `invalida`/`esgotada` e o status ficava gravado no banco para sempre —
-        passado o cooldown ela continuava fora da fila ate alguem apagar e
-        cadastrar de novo. Agora o proprio relogio devolve a chave ao pool.
+        Falhas transitórias e cota voltam após o cooldown. Credenciais recusadas
+        exigem reteste ou substituição; a espera não as reativa.
 
         A ORDEM E' A DO CADASTRO. Uma chave recem-colada so' assume depois que
         a anterior falha (e ai a falha a poe em castigo) — trocar a ordem faria
@@ -143,7 +118,7 @@ class KeyPool:
         agora = time.time()
         prontas: list[Chave] = []
         for c in self._por_provedor.get(provedor, []):
-            if c.status != CHAVE_ATIVA and c.cooldown_ate and agora >= c.cooldown_ate:
+            if c.status in (CHAVE_COOLDOWN, CHAVE_ESGOTADA) and c.cooldown_ate and agora >= c.cooldown_ate:
                 c.status = CHAVE_ATIVA
                 c.cooldown_ate = 0.0
             if c.status == CHAVE_ATIVA and agora >= c.cooldown_ate:
@@ -162,6 +137,14 @@ class KeyPool:
 
     def registrar_falha(self, chave: Chave, motivo: str, segundos: float = 0.0) -> None:
         """Marca a chave como problematica e agenda o cooldown de recuperacao."""
+        if motivo == T_MODELO:
+            return  # erro da operação/modelo não condena a credencial inteira
+        if not chave.id:
+            # Evidência concreta de falha também deve valer para fontes JSON
+            # após reinício. Importação aditiva não desfaz exclusão explícita.
+            from core.db_chaves import adicionar_chave
+            chave.id = adicionar_chave(chave.provedor, chave.chave, chave.rotulo,
+                chave.modelo, chave.base_url, explicita=False) or 0
         chave.falhas += 1
         chave.erro = motivo
         segs = segundos or _SEGUNDOS.get(motivo, 30.0)
@@ -176,13 +159,14 @@ class KeyPool:
         try:
             if chave.id > 0:
                 from core.db_chaves import registrar_falha as _gravar  # noqa: PLC0415
-                _gravar(chave.id, segs, chave.status)
+                _gravar(chave.id, segs, chave.status, revision=chave.revision)
         except Exception:
             pass
 
     def registrar_sucesso(self, chave: Chave) -> None:
         """Chamada apos resposta boa: chave volta a ficar ativa."""
         chave.status = CHAVE_ATIVA
+        chave.validacao_estado = 'validado'
         chave.erro = ""
         chave.sucessos += 1
         # FALHAS SAO CONSECUTIVAS (18/11/2026): sem zerar, uma chave que foi
@@ -193,7 +177,7 @@ class KeyPool:
         try:
             if chave.id > 0:
                 from core.db_chaves import registrar_sucesso as _gravar  # noqa: PLC0415
-                _gravar(chave.id)
+                _gravar(chave.id, revision=chave.revision)
         except Exception:
             pass
 
@@ -201,10 +185,12 @@ class KeyPool:
 def classificar_erro(texto: str) -> str:
     """Traduz a mensagem de erro do provedor para a classe de falha."""
     baixo = str(texto or "").lower()
-    if any(s in baixo for s in ("api key not valid", "api_key_invalid", "permission_denied",
-                               "api key expired", "invalid_api_key", "billing", "credit_balance")):
+    if any(s in baixo for s in ("api key not valid", "api_key_invalid", '401', 'unauthorized',
+                               "api key expired", "invalid_api_key")):
         return T_INVALIDA
-    if any(s in baixo for s in ("429", "resource_exhausted", "quota", "rate limit", "too many requests")):
+    if any(s in baixo for s in ('403', 'permission_denied', 'permission denied')):
+        return T_PERMISSAO
+    if any(s in baixo for s in ("429", "resource_exhausted", "quota", "rate limit", "too many requests", 'billing', 'credit_balance')):
         return T_QUOTA
     if "404" in baixo or "not_found" in baixo or "no longer available" in baixo:
         return T_MODELO
@@ -255,15 +241,20 @@ class Router:
         banco. Devolve quantas chaves foram carregadas.
         """
         try:
-            from core.db_chaves import listar_chaves
+            from core.db_chaves import listar_chaves, identidade_bloqueada
         except Exception:
             return 0
         n = 0
-        for row in listar_chaves():
-            if not row.get("enabled"):
+        rows = listar_chaves()
+        pausadas = {(provedor_canonico(r['platform']), r['key']) for r in rows if not r.get('enabled')}
+        for row in rows:
+            identidade = (provedor_canonico(row['platform']), row['key'])
+            if identidade in pausadas or identidade_bloqueada(*identidade):
                 continue
             c = self.registrar(str(row.get("platform")), str(row.get("key") or ""),
                                str(row.get("label") or ""))
+            if c.id:
+                continue  # duplicatas legadas preservam a prioridade do primeiro ID
             c.falhas = int(row.get("falhas") or 0)
             c.sucessos = int(row.get("sucessos") or 0)
             c.uso_tokens = int(row.get("uso_tokens") or 0)
@@ -272,6 +263,8 @@ class Router:
             c.id = int(row.get("id") or 0)
             c.modelo = str(row.get("modelo") or "")
             c.base_url = str(row.get("base_url") or "")
+            c.revision = int(row.get('revision') or 0)
+            c.validacao_estado = row.get('validacao_estado', 'nao_verificada')
             n += 1
         return n
 
@@ -306,7 +299,11 @@ class Router:
                 if isinstance(chaves, list):
                     for k in chaves:
                         if k:
-                            roteador.registrar(str(nome), str(k), str(spec.get("rotulo") or ""))
+                            from core.db_chaves import fonte_legada_permitida
+                            if fonte_legada_permitida(str(nome), str(k)):
+                                c = roteador.registrar(str(nome), str(k), str(spec.get("rotulo") or ""))
+                                c.modelo = str(spec.get('modelo') or '')
+                                c.base_url = str(spec.get('base_url') or '')
         # Ranks por provedor (inteligencia/velocidade) para as estrategias.
         ranks: dict[str, dict] = {}
         for nome, spec in (provedores.items() if isinstance(provedores, dict) else {}):
@@ -360,12 +357,14 @@ class Router:
         # balanced / auto / decision
         return 0.4 * intel + 0.3 * vel + 0.3 * confi
 
-    def _proximo(self, preferido: str | None = None) -> tuple[str, Chave] | None:
+    def _proximo(self, preferido: str | None = None, excluir=None) -> tuple[str, Chave] | None:
         ordem = [preferido] if preferido else list(self.cadeia)
         candidatos: list[tuple[str, Chave]] = []
         for provedor in ordem:
+            provedor = provedor_canonico(provedor)
             for c in self.pool.disponiveis(provedor):
-                candidatos.append((provedor, c))
+                if not excluir or id(c) not in excluir:
+                    candidatos.append((provedor, c))
         if not candidatos:
             return None
         if self.estrategia == "priority":
@@ -388,9 +387,13 @@ class Router:
     def chave_ativa(self, provedor: str = "gemini") -> str | None:
         """Chave ativa para o provedor: pool (config independente) ou chave do usuario."""
         provedor = provedor_canonico(provedor)
-        c = self.pool.obter(provedor)
-        if c is not None:
-            return c.chave
+        from core.provedores import base_url_do_provedor
+        padrao = base_url_do_provedor('google' if provedor == 'gemini' else provedor).rstrip('/')
+        for c in self.pool.disponiveis(provedor):
+            # Consumidores que pedem só o segredo usam endpoint nativo fixo.
+            # Conexões personalizadas exigem resolver_conexao().
+            if not c.base_url or c.base_url.rstrip('/') == padrao:
+                return c.chave
         return _chave_do_usuario(provedor)
 
     def executar_fallback(self, gerar, contexto: dict | None = None) -> tuple[bool, object, str]:
@@ -404,11 +407,13 @@ class Router:
         max_tentativas = max(4, len(self.cadeia) * 4)
         ultimo_erro = ""
         tentativas = 0
+        tentadas = set()
         while tentativas < max_tentativas:
-            par = self._proximo()
+            par = self._proximo(excluir=tentadas)
             if par is None:
                 break
             provedor, chave = par
+            tentadas.add(id(chave))
             ok, resultado, erro = gerar(provedor, chave, **contexto)
             tentativas += 1
             if ok:
@@ -502,6 +507,7 @@ def _achar_chave(roteador: Router, provedor: str, chave: str | None) -> Chave | 
         for c in roteador.pool._por_provedor.get(provedor, []):  # noqa: SLF001
             if c.chave == alvo:
                 return c
+        return None
     return roteador.pool.obter(provedor)
 
 
@@ -515,6 +521,10 @@ def anotar_falha(provedor: str, erro: str, chave: str | None = None) -> str | No
     try:
         roteador = _global()
         alvo = _achar_chave(roteador, provedor, chave)
+        if alvo is None:
+            legado = _chave_do_usuario(provedor)
+            if legado and (not chave or chave == legado):
+                alvo = Chave(provedor_canonico(provedor), legado, 'legada')
         if alvo is None:
             return None
         tipo = classificar_erro(erro)
@@ -531,7 +541,7 @@ def anotar_sucesso(provedor: str, chave: str | None = None) -> None:
         alvo = _achar_chave(roteador, provedor, chave)
         if alvo is None:
             return
-        if alvo.status == CHAVE_ATIVA and not alvo.cooldown_ate and alvo.falhas == 0:
+        if alvo.status == CHAVE_ATIVA and not alvo.cooldown_ate and alvo.falhas == 0 and alvo.validacao_estado == 'validado':
             return
         roteador.pool.registrar_sucesso(alvo)
     except Exception:
@@ -548,7 +558,9 @@ def proxima_chave(provedor: str, atual: str | None = None) -> str | None:
         roteador = _global()
         provedor = provedor_canonico(provedor)
         for c in roteador.pool.disponiveis(provedor):
-            if c.chave != atual:
+            from core.provedores import base_url_do_provedor
+            padrao = base_url_do_provedor('google' if provedor == 'gemini' else provedor).rstrip('/')
+            if c.chave != atual and (not c.base_url or c.base_url.rstrip('/') == padrao):
                 return c.chave
         do_usuario = _chave_do_usuario(provedor)
         if do_usuario and do_usuario != atual:
@@ -576,15 +588,17 @@ def _chave_do_usuario(provedor: str) -> str | None:
         "gemini": ("gemini_api_key", "GEMINI_API_KEY", "google_api_key"),
         "openai": ("openai_api_key",),
         "openrouter": ("openrouter_api_key",),
-    }.get(provedor, ("gemini_api_key", "GEMINI_API_KEY", "google_api_key"))
+    }.get(provedor_canonico(provedor), ())
     try:
         dados = json.loads(
-            (Path(__file__).resolve().parents[1] / "config" / "api_keys.json")
+            API_CONFIG_PATH
             .read_text(encoding="utf-8"))
         for campo in campos:
             valor = str(dados.get(campo) or "").strip()
             if valor:
-                return valor
+                from core.db_chaves import fonte_legada_permitida
+                if fonte_legada_permitida(provedor, valor):
+                    return valor
     except Exception:
         pass
     return None
@@ -601,3 +615,16 @@ def resolver(provedor: str = "gemini") -> str | None:
         return _global().chave_ativa(provedor)
     except Exception:
         return _chave_do_usuario(provedor)
+
+
+def resolver_conexao(provedor, router=None):
+    """Resolve segredo, modelo e endpoint como uma única conexão."""
+    provedor = provedor_canonico(provedor)
+    # Atualiza também quem mantém referência ao roteador global.
+    atual = _global()
+    roteador = router if router is not None else atual
+    escolhido = roteador.escolher(provedor)
+    if escolhido:
+        return escolhido[1]
+    chave = _chave_do_usuario(provedor)
+    return Chave(provedor, chave) if chave else None

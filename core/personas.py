@@ -553,6 +553,19 @@ PERSONALIDADES = {
 
 PERSONALIDADE_PADRAO = "equilibrado"
 
+# A escolha completa que o motor e as duas interfaces de configuração leem.
+# "nao-definido" = nunca escolhido (o motor pode escolher sozinho); None = o
+# padrão do sistema escolhido de propósito. Manter as duas telas na mesma fonte
+# evita que o dashboard experimental e a engrenagem clássica divirjam.
+ESCOLHA_PADRAO = {
+    "personagem": PERSONAGEM_PADRAO,
+    "personalidade": PERSONALIDADE_PADRAO,
+    "microfone": "nao-definido",
+    "saida": "nao-definido",
+    "so_com_nome": False,
+    "saudacao": True,
+}
+
 
 # COMO A VOZ LIDA COM RISADA E SUSPIRO (01/09/2026).
 #

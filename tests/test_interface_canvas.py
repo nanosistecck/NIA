@@ -102,14 +102,12 @@ def test_dock_edit_save_restart_missing_app_and_explicit_launch(app,tmp_path,mon
     path=tmp_path/'interface.json'; executable=tmp_path/'app.exe'; executable.write_text('fixture')
     buttons=[('mic',QPushButton('Microfone')),('camera',QPushButton('Câmera'))]
     dock=VerticalDock(buttons,path); dock.show(); app.processEvents()
-    def edit():
-        dlg=dock.findChild(QDialog)
-        listing=dlg.findChild(QListWidget)
-        listing.item(0).setCheckState(Qt.CheckState.Unchecked)
-        listing.item(1).setCheckState(Qt.CheckState.Checked)
-        listing.insertItem(0,listing.takeItem(1))
-        dlg.accept()
-    QTimer.singleShot(0,edit); dock.edit_dock()
+    # O editor virou a página Aparência do dashboard: a dock só encaminha.
+    destinos=[]
+    dock.abrir_configuracoes=lambda pagina: destinos.append(pagina)
+    dock.edit_dock(); assert destinos==['aparencia']
+    dock.preferences.data.update(order=['camera','mic'],hidden=['mic'])
+    dock.apply(); dock.persist()
     stored=json.loads(path.read_text(encoding='utf-8'))
     assert stored['order']==['camera','mic'] and stored['hidden']==['mic']
     dock.preferences.data['apps']=[str(executable),str(tmp_path/'missing.exe')]
@@ -187,26 +185,18 @@ def test_background_default_darker_color_and_cache(app):
     assert bounded['dock_height']==570 and bounded['background_color']=='#10283e'
 
 
-def test_appearance_dialog_save_cancel_reload_and_small_window(window,app):
-    from PyQt6.QtGui import QColor
-    from PyQt6.QtWidgets import QTabWidget, QSlider, QSpinBox
-    from unittest.mock import patch
+def test_dock_delega_a_aparencia_e_aplica_preferencias(window,app):
+    """O editor antigo virou a página Aparência; a dock só abre e aplica."""
     w=window; dock=w._right_panel
-    def change(save):
-        dlg=dock.findChild(QDialog)
-        tabs=dlg.findChild(QTabWidget)
-        assert [tabs.tabText(i) for i in range(tabs.count())]==['Ferramentas','Fundo','Dock']
-        dlg.findChild(QSlider,'background_brightness').setValue(120)
-        dlg.findChild(QSpinBox,'dock_icon_size').setValue(40)
-        dlg.findChild(QSpinBox,'dock_height').setValue(800)
-        with patch('core.interface_canvas.QColorDialog.getColor',return_value=QColor('#42224f')):
-            dlg.findChild(QPushButton,'background_color').click()
-        assert w.centralWidget().appearance['brightness']==90
-        (dlg.accept if save else dlg.reject)()
-    QTimer.singleShot(0,lambda:change(False)); dock.edit_dock(); settle(app)
-    assert w.centralWidget().appearance['brightness']==90
-    QTimer.singleShot(0,lambda:change(True)); dock.edit_dock(); settle(app)
+    destinos=[]
+    dock.abrir_configuracoes=lambda pagina: destinos.append(pagina)
+    dock.edit_dock()
+    assert destinos==['aparencia']
+
     expected={'background_color':'#42224f','brightness':120,'icon_size':40,'dock_height':800}
+    prefs=DockPreferences(dock.preferences.path)
+    prefs.data['appearance']=dict(expected); prefs.save()
+    dock.preferences.data.update(prefs.data); dock.apply(); settle(app)
     assert w.centralWidget().appearance==expected
     assert DockPreferences(dock.preferences.path).data['appearance']==expected
     assert dock.buttons['mute'].property('dock_icon_size')==40

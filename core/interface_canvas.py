@@ -7,9 +7,7 @@ from PyQt6.QtGui import QColor, QPainter, QPixmap, QRadialGradient, QDesktopServ
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit,
-    QApplication, QScrollArea, QDialog, QListWidget, QListWidgetItem,
-    QAbstractItemView, QFileDialog, QDialogButtonBox, QMessageBox, QMenu,
-    QGraphicsOpacityEffect, QTabWidget, QColorDialog, QSlider, QSpinBox, QFormLayout,
+    QApplication, QScrollArea, QMessageBox, QMenu, QGraphicsOpacityEffect,
 )
 
 GLASS = """QFrame#Glass { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
@@ -39,6 +37,7 @@ _ICONS = {
     'globo':'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 7h14M5 17h14"/>',
     'segundo_plano':'<path d="M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11z"/>',
     'config':'<path d="m9.6 3-.5 2.1-1.6.9-2.1-.6-2.4 4.2 1.6 1.5v1.8L3 14.4l2.4 4.2 2.1-.6 1.6.9.5 2.1h4.8l.5-2.1 1.6-.9 2.1.6 2.4-4.2-1.6-1.5v-1.8L21 9.6l-2.4-4.2-2.1.6-1.6-.9L14.4 3z"/><circle cx="12" cy="12" r="3.4"/>',
+    'mic':'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
     'system':'<path d="M4 20V9M9 20V4M14 20V12M19 20V7"/>',
     'attach':'<path d="M8 14l7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7L13 3M6 16l9-9"/>',
     'send':'<path d="M3 3l19 9-19 9 4-9zM7 12h15"/>',
@@ -394,103 +393,17 @@ class VerticalDock(QFrame):
         except OSError as exc: QMessageBox.warning(self,'Preferências',f'Não foi possível salvar o dock: {exc}')
 
     def edit_dock(self):
-        dlg = QDialog(self); dlg.setWindowTitle('Configurar dock e aparência'); dlg.resize(540,540)
-        dlg.setStyleSheet('''QDialog {background:#10283e; color:#e4f4fc;}
-            QLabel {color:#e4f4fc; background:transparent;}
-            QTabWidget::pane {border:1px solid #36576a; border-radius:8px;}
-            QTabBar::tab {background:#19394d; color:#c5dfe9; padding:10px 16px;}
-            QTabBar::tab:selected {background:#275064; color:#a8f5ff;}
-            QPushButton {background:#21465b; color:#e4f4fc; border:1px solid #486d80;
-                border-radius:8px; padding:7px;}
-            QPushButton:hover {background:#2b5a6d;}
-            QListWidget,QSpinBox {background:#142e42; color:#e4f4fc; border:1px solid #36576a;}
-        ''')
-        v = QVBoxLayout(dlg)
-        tabs = QTabWidget(); v.addWidget(tabs,1)
-        tools_page = QWidget(); tools_layout = QVBoxLayout(tools_page)
-        tabs.addTab(tools_page,'Ferramentas')
-        tools_layout.addWidget(QLabel('Marque as ferramentas visíveis. Arraste para reordenar.'))
-        listing = QListWidget(); listing.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        entries = self.entries(); order = self.preferences.data.get('order',entries)
-        for key in dict.fromkeys([k for k in order if k in entries]+entries):
-            label = self.buttons[key].toolTip() if key in self.buttons else Path(key).name
-            item = QListWidgetItem(label or key); item.setData(Qt.ItemDataRole.UserRole,key)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Unchecked if key in self.preferences.data.get('hidden',[]) else Qt.CheckState.Checked)
-            listing.addItem(item)
-        tools_layout.addWidget(listing)
-        row = QHBoxLayout()
-        def move(delta):
-            i = listing.currentRow(); j = i+delta
-            if i>=0 and 0<=j<listing.count(): listing.insertItem(j,listing.takeItem(i)); listing.setCurrentRow(j)
-        def add():
-            path,_ = QFileDialog.getOpenFileName(dlg,'Escolher aplicativo ou atalho')
-            if path:
-                item = QListWidgetItem(Path(path).name); item.setData(Qt.ItemDataRole.UserRole,path)
-                item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable); item.setCheckState(Qt.CheckState.Checked); listing.addItem(item)
-        def remove():
-            item = listing.currentItem()
-            if item and item.data(Qt.ItemDataRole.UserRole) not in self.buttons: listing.takeItem(listing.currentRow())
-        for text,fn in (('Subir',lambda:move(-1)),('Descer',lambda:move(1)),('Adicionar app',add),('Remover app',remove)):
-            b=QPushButton(text); b.clicked.connect(fn); row.addWidget(b)
-        tools_layout.addLayout(row)
-        settings = appearance_settings(self.preferences.data)
-        background_page = QWidget(); background_layout = QVBoxLayout(background_page)
-        tabs.addTab(background_page,'Fundo')
-        description = QLabel('Escolha a cor principal. As posições, proporções e suavidade do gradiente são preservadas.')
-        description.setWordWrap(True); background_layout.addWidget(description)
-        preview = CanvasBackground(preferences={'appearance':settings})
-        preview.setMinimumHeight(140); background_layout.addWidget(preview)
-        color_button = QPushButton(); color_button.setObjectName('background_color')
-        background_layout.addWidget(color_button)
-        def refresh_color():
-            color_button.setText('Cor principal: '+settings['background_color'].upper())
-            color_button.setIcon(icon('palette','#8ceaf0'))
-            preview.set_appearance(settings)
-        def choose_color():
-            chosen = QColorDialog.getColor(QColor(settings['background_color']),dlg,'Cor principal do fundo')
-            if chosen.isValid():
-                settings['background_color'] = chosen.name(); refresh_color()
-        color_button.clicked.connect(choose_color); refresh_color()
-        brightness_label = QLabel(); background_layout.addWidget(brightness_label)
-        brightness = QSlider(Qt.Orientation.Horizontal)
-        brightness.setObjectName('background_brightness'); brightness.setRange(40,160)
-        brightness.setValue(settings['brightness'])
-        brightness.setAccessibleName('Luminosidade do fundo')
-        def update_brightness(value):
-            settings['brightness'] = value
-            brightness_label.setText(f'Luminosidade: {value}% — escuro ← → claro')
-            preview.set_appearance(settings)
-        brightness.valueChanged.connect(update_brightness)
-        update_brightness(brightness.value()); background_layout.addWidget(brightness)
-        background_layout.addStretch()
-        dock_page = QWidget(); dock_layout = QVBoxLayout(dock_page)
-        tabs.addTab(dock_page,'Dock')
-        form = QFormLayout(); dock_layout.addLayout(form)
-        icon_size = QSpinBox(); icon_size.setObjectName('dock_icon_size')
-        icon_size.setRange(18,40); icon_size.setSuffix(' px'); icon_size.setValue(settings['icon_size'])
-        form.addRow('Tamanho dos ícones',icon_size)
-        height = QSpinBox(); height.setObjectName('dock_height')
-        height.setRange(240,900); height.setSingleStep(10); height.setSuffix(' px')
-        height.setValue(settings['dock_height']); form.addRow('Altura do dock',height)
-        note = QLabel('A altura se adapta ao espaço da janela. Se necessário, os ícones continuam acessíveis por rolagem.')
-        note.setWordWrap(True); dock_layout.addWidget(note); dock_layout.addStretch()
-        reset = QPushButton('Restaurar aparência padrão')
-        def restore():
-            settings.update(DEFAULT_APPEARANCE)
-            brightness.setValue(settings['brightness'])
-            icon_size.setValue(settings['icon_size'])
-            height.setValue(settings['dock_height'])
-            refresh_color()
-        reset.clicked.connect(restore); v.addWidget(reset)
-        box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
-        box.accepted.connect(dlg.accept); box.rejected.connect(dlg.reject); v.addWidget(box)
-        if dlg.exec():
-            items = [listing.item(i) for i in range(listing.count())]
-            keys = [i.data(Qt.ItemDataRole.UserRole) for i in items]
-            self.preferences.data.update(order=keys,apps=[k for k in keys if k not in self.buttons],
-                hidden=[i.data(Qt.ItemDataRole.UserRole) for i in items if i.checkState()!=Qt.CheckState.Checked])
-            settings.update(icon_size=icon_size.value(),dock_height=height.value())
-            self.preferences.data['appearance'] = settings
-            self.apply(); self.persist()
-        dlg.deleteLater()
+        """Abre a página Aparência do dashboard: uma única implementação.
+
+        O antigo diálogo de três abas foi migrado para o dashboard. O gancho
+        ``abrir_configuracoes`` é injetado pela janela principal; quando a dock
+        está sozinha (testes isolados), tentamos o método da janela ancestral.
+        """
+        callback = getattr(self, 'abrir_configuracoes', None)
+        if callback is not None:
+            callback('aparencia')
+            return
+        janela = self.window()
+        abrir = getattr(janela, '_abrir_dashboard_config', None)
+        if abrir is not None:
+            abrir('aparencia')

@@ -262,12 +262,13 @@ def test_geracao_e_stream_usam_modelo_ativado(monkeypatch):
 
 @pytest.fixture
 def dialogo():
+    """O antigo diálogo virou o painel compartilhado do dashboard."""
     from PyQt6.QtWidgets import QApplication
-    from core.config_apis_ui import ConfigAPIsDialog
+    from core.config_apis_ui import ConfigAPIsPanel
     app = QApplication.instance() or QApplication([])
-    dlg = ConfigAPIsDialog()
+    dlg = ConfigAPIsPanel()
     yield dlg
-    dlg.reject()
+    dlg.encerrar()
     app.processEvents()
 
 

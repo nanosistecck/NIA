@@ -475,6 +475,15 @@ class DashboardServer:
 
     # ── one-time key management ───────────────────────────────────────────
 
+    def revogar_dispositivos(self) -> int:
+        """Invalida todos os celulares pareados (mesma ação do endpoint admin)."""
+        quantidade = len(self._device_sessions)
+        self._device_sessions.clear()
+        self._save_device_sessions()
+        self._tokens.clear()
+        self._token_keys.clear()
+        return quantidade
+
     def new_key(self, expiry_secs: int = 600) -> str:
         now = time.time()
         self._pending_keys = {k: v for k, v in self._pending_keys.items() if v > now}
@@ -924,12 +933,8 @@ class DashboardServer:
             """Invalidate all persistent device tokens (admin action)."""
             if not _auth(req):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
-            count = len(self._device_sessions)
-            self._device_sessions.clear()
-            self._save_device_sessions()
-            self._tokens.clear()
-            self._token_keys.clear()
-            return JSONResponse({"ok": True, "revoked": count})
+            return JSONResponse({"ok": True,
+                                 "revoked": self.revogar_dispositivos()})
 
         @app.get("/api/remote-media/status")
         async def remote_media_status(req: Request):

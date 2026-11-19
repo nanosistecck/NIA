@@ -2619,6 +2619,7 @@ class NiaLive:
         self.ui.on_persona_change   = self._trocar_persona
         self.ui.persona_atual       = self._carregar_persona()
         self.ui.on_remote_clicked   = self._make_remote_key
+        self.ui.on_revoke_devices   = self._revoke_devices
         self.ui.on_whatsapp_clicked = self._open_whatsapp_from_button
         self.ui.on_interrupt        = self.interrupt
         # SEGUNDO PLANO (01/11/2026): a janela avisa quando some e quando volta.
@@ -3223,6 +3224,19 @@ class NiaLive:
         manual = self._dashboard.get_manual_url()
         pairing_url = self._dashboard.get_pairing_url(key) if hasattr(self._dashboard, "get_pairing_url") else f"{url}/auto-login?key={key}"
         return url, key, pairing_url, manual
+
+    def _revoke_devices(self) -> int | None:
+        """Ação explícita do dashboard: desfaz todos os pareamentos de celular."""
+        if self._dashboard is None:
+            self.ui.write_log("SYS: Painel remoto indisponivel para revogar acesso.")
+            return None
+        try:
+            quantidade = self._dashboard.revogar_dispositivos()
+            self.ui.write_log(f"SIS: {quantidade} acesso(s) remoto(s) revogado(s).")
+            return quantidade
+        except Exception as exc:
+            self.ui.write_log(f"SIS: Falha ao revogar acesso remoto: {exc}")
+            return None
 
     def _on_text_command(self, text: str):
         # ── COMANDOS DE BARRA ────────────────────────────────────────────────
@@ -7089,17 +7103,8 @@ class NiaLive:
 
     def _carregar_persona(self) -> dict:
         """Le a escolha salva. Volta ao padrao se o arquivo nao existir."""
-        from core.personas import PERSONAGEM_PADRAO, PERSONALIDADE_PADRAO
-        padrao = {"personagem": PERSONAGEM_PADRAO,
-                  "personalidade": PERSONALIDADE_PADRAO,
-                  "microfone": "nao-definido",
-                  "saida": "nao-definido",
-                  # Precisa estar AQUI para ser lido do arquivo: o `update`
-                  # abaixo so aceita chaves que ja existem no padrao.
-                  "so_com_nome": False,
-                  # A saudacao de abertura. NASCE LIGADA: e ela que abre a
-                  # conversa desde 05/09/2026, no lugar dos recados tecnicos.
-                  "saudacao": True}
+        from core.personas import ESCOLHA_PADRAO
+        padrao = dict(ESCOLHA_PADRAO)
         try:
             caminho = Path(__file__).resolve().parent / self._ARQ_PERSONA
             dados = json.loads(caminho.read_text(encoding="utf-8"))
@@ -7108,21 +7113,35 @@ class NiaLive:
             pass
         return padrao
 
-    def _salvar_persona(self, escolha: dict) -> None:
+    def _salvar_persona(self, escolha: dict) -> bool:
+        """Grava de forma atomica. Devolve False para a tela poder avisar."""
         try:
             caminho = Path(__file__).resolve().parent / self._ARQ_PERSONA
             caminho.parent.mkdir(parents=True, exist_ok=True)
-            caminho.write_text(json.dumps(escolha, ensure_ascii=False, indent=2),
-                               encoding="utf-8")
+            temporario = caminho.with_suffix(".tmp")
+            temporario.write_text(json.dumps(escolha, ensure_ascii=False, indent=2),
+                                  encoding="utf-8")
+            temporario.replace(caminho)
+            return True
         except Exception as exc:
             _voice_diag("persona_nao_salvou", str(exc)[:120])
+            return False
 
-    def _trocar_persona(self, tipo: str, chave, com_amostra: bool = True) -> None:
-        """Chamado pelo painel. Aplica na hora e guarda para as proximas vezes.
+    def _trocar_persona(self, tipo: str, chave, com_amostra: bool = True,
+                        persistir: bool = True, com_teste: bool = True) -> dict:
+        """Aplica na hora e, por padrão, guarda para as próximas vezes.
 
         `com_amostra=False`: a troca veio da CHAMADA por voz ("chama a Leda"),
-        que tem a propria apresentacao — ver `_chamar_outra_voz`."""
+        que tem a propria apresentacao — ver `_chamar_outra_voz`.
+
+        O dashboard experimental grava primeiro, com `persistir=False`, e usa o
+        retorno para separar "salvou" de "aplicou ao vivo". A engrenagem
+        clássica continua chamando sem argumentos e ignora o retorno.
+        """
         from core.personas import PERSONAGENS, PERSONALIDADES, nome_da_ia
+        resultado = {"tipo": tipo, "chave": chave, "aplicado": False,
+                     "salvo": None if not persistir else False,
+                     "aviso": "", "erro": ""}
         escolha = dict(getattr(self.ui, "persona_atual", None) or self._carregar_persona())
         amostra = ""
         try:
@@ -7131,11 +7150,16 @@ class NiaLive:
                 # nome vazio volta ao de fabrica.
                 from core.personas import definir_apelido, nome_original  # noqa: PLC0415
                 voz, texto = chave
-                try:
-                    novo = definir_apelido(voz, texto)
-                except ValueError as exc_ap:
-                    self.ui.write_log(f"VOZ: nao troquei o nome — {exc_ap}")
-                    return
+                if persistir:
+                    try:
+                        novo = definir_apelido(voz, texto)
+                    except ValueError as exc_ap:
+                        self.ui.write_log(f"VOZ: nao troquei o nome — {exc_ap}")
+                        resultado["erro"] = str(exc_ap)
+                        return resultado
+                else:
+                    # O dashboard já gravou o apelido. Aqui só aplicamos ao vivo.
+                    novo = nome_da_ia(voz)
                 _refazer_nomes_do_assistente(type(self))
                 original = nome_original(voz)
                 if novo == original:
@@ -7154,7 +7178,8 @@ class NiaLive:
                     amostra = f"Pronto, chefe. A partir de agora meu nome é {novo}."
             elif tipo == "personagem":
                 if chave not in PERSONAGENS:
-                    return
+                    resultado["erro"] = "Voz desconhecida."
+                    return resultado
                 from core.voz_local import VozLocal
                 if self._voz_local is None:
                     self._voz_local = VozLocal()
@@ -7176,7 +7201,8 @@ class NiaLive:
                     amostra = f"Pronto, chefe. Agora eu falo assim, com a voz {nome}."
             elif tipo == "personalidade":
                 if chave not in PERSONALIDADES:
-                    return
+                    resultado["erro"] = "Personalidade desconhecida."
+                    return resultado
                 from core.cerebro_openrouter import CerebroOpenRouter
                 if self._openrouter is None:
                     self._openrouter = CerebroOpenRouter(router=_get_roteador_llm())
@@ -7195,28 +7221,32 @@ class NiaLive:
                 self._saida_escolhida = chave
                 # Derruba o fluxo atual para o `_play_audio` reabrir no novo.
                 self._trocar_saida = True
-                r = tocar_teste(chave)
-                if r["ok"]:
-                    self.ui.write_log(
-                        "SOM: toquei um bip nesse aparelho. Ouviu? Entao e esse. "
-                        "Se nao ouviu, tente o proximo da lista.")
-                else:
-                    self.ui.write_log(f"SOM: esse aparelho recusou ({r['erro'][:60]}).")
+                if com_teste:
+                    r = tocar_teste(chave)
+                    if r["ok"]:
+                        self.ui.write_log(
+                            "SOM: toquei um bip nesse aparelho. Ouviu? Entao e esse. "
+                            "Se nao ouviu, tente o proximo da lista.")
+                    else:
+                        self.ui.write_log(f"SOM: esse aparelho recusou ({r['erro'][:60]}).")
+                        resultado["aviso"] = f"o aparelho recusou o teste ({r['erro'][:60]})"
             elif tipo == "microfone":
                 from core.audio_dispositivos import testar as testar_mic
-                r = testar_mic(chave)
                 escolha["microfone"] = chave
                 self._mic_escolhido = chave
                 # Forca o `_listen_audio` a reabrir com o aparelho novo: zerar o
                 # carimbo faz o vigia agir no proximo giro do laco.
                 self._mic_ultimo_bloco = 0.0
-                if r["ok"]:
-                    self.ui.write_log(
-                        f"MICROFONE: trocado — {r['blocos']} blocos recebidos, funcionando.")
-                else:
-                    self.ui.write_log(
-                        f"MICROFONE: esse nao respondeu ({r['erro'][:60]}). "
-                        "Escolha outro ou feche programas que usam o microfone.")
+                if com_teste:
+                    r = testar_mic(chave)
+                    if r["ok"]:
+                        self.ui.write_log(
+                            f"MICROFONE: trocado — {r['blocos']} blocos recebidos, funcionando.")
+                    else:
+                        self.ui.write_log(
+                            f"MICROFONE: esse nao respondeu ({r['erro'][:60]}). "
+                            "Escolha outro ou feche programas que usam o microfone.")
+                        resultado["aviso"] = f"o microfone não respondeu ({r['erro'][:60]})"
             elif tipo == "saudacao":
                 # O painel manda True/False. Vale so para a PROXIMA abertura —
                 # dizer isso e melhor do que deixar o dono achar que nao pegou.
@@ -7226,12 +7256,18 @@ class NiaLive:
                     "SAUDACAO: ligada — ele te cumprimenta ao abrir." if ligada
                     else "SAUDACAO: desligada — ele abre calado.")
             else:
-                return
+                resultado["erro"] = "Tipo de configuração desconhecido."
+                return resultado
         except Exception as exc:
             self.ui.write_log(f"ERR: nao consegui trocar — {type(exc).__name__}: {str(exc)[:110]}")
-            return
+            resultado["erro"] = f"{type(exc).__name__}: {str(exc)[:110]}"
+            return resultado
         self.ui.persona_atual = escolha
-        self._salvar_persona(escolha)
+        if persistir:
+            resultado["salvo"] = bool(self._salvar_persona(escolha))
+            if not resultado["salvo"] and not resultado["erro"]:
+                resultado["erro"] = "não consegui gravar config/persona.json"
+        resultado["aplicado"] = True
         _voice_diag("persona", f"{tipo}={chave}")
 
         # A AMOSTRA E O ULTIMO PASSO, E FALHA SOZINHA (01/09/2026).
@@ -7249,6 +7285,8 @@ class NiaLive:
                 self.ui.write_log(
                     "VOZ: troquei, mas nao consegui tocar a amostra agora. "
                     "Fale comigo que voce ja ouve a voz nova.")
+                resultado["aviso"] = ("a voz foi aplicada, mas a amostra não pôde "
+                                      "tocar agora")
 
         # A CONVERSA JA FICA DE PE COM A VOZ NOVA (24/10/2026). Trocar voz, jeito
         # ou nome refaz a conexao da conversa direta (`_motor_voz_unica`), e ela
@@ -7257,6 +7295,7 @@ class NiaLive:
         # ~0,7 s abrindo (`trava=0.74s`). Agora ela sobe aqui, depois da amostra.
         if tipo in ("personagem", "personalidade", "apelido"):
             self._aquecer_boca()
+        return resultado
 
     # Ferramentas que demoram e precisam de aviso falado antes, senao o cliente
     # acha que travou. Medidas hoje: imagem e leads passam de um minuto.

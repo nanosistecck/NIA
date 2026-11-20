@@ -201,6 +201,9 @@ class CanvasStage(QWidget):
         self.hud_stack = hud_stack; hud_stack.setParent(self)
         self.cards = []
         self.tools_open = False
+        # Sessão do editor de planos: suspende resultados/HOJE sem tocar em
+        # preferências; nunca gravado em config/interface.json.
+        self._canvas_editor_ativo = False
         self.results = QScrollArea(self)
         self.results.setWidgetResizable(True)
         self.results.setFrameShape(QFrame.Shape.NoFrame)
@@ -522,9 +525,10 @@ class CanvasStage(QWidget):
                 self.motion.setStartValue(self.hud_stack.geometry()); self.motion.setEndValue(target); self.motion.start()
             else: self.hud_stack.setGeometry(target)
         self.results.setGeometry(12,8,max(220,int(w*.50)-24),max(80,bottom-16))
-        self.results.setVisible(bool(self.cards) and not self.tools_open)
+        self.results.setVisible(bool(self.cards) and not self.tools_open
+                                and not self._canvas_editor_ativo)
         self.results.raise_()
-        if self.hoje_host.isVisible():
+        if self.hoje_host.isVisible() and not self._canvas_editor_ativo:
             largura = max(220, min(320, int(w * .36)))
             altura = max(150, min(240, bottom - 16))
             self.hoje_host.setGeometry(QRect(12, 8, largura, altura))

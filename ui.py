@@ -36,7 +36,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QScrollArea, QSizePolicy,
+    QMainWindow, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget,
     QGridLayout, QGraphicsDropShadowEffect, QMenu, QSystemTrayIcon,
 )
@@ -46,6 +46,7 @@ from PyQt6.QtWidgets import (
 from core import segundo_plano as _segundo_plano
 from core import catalogo_habilidades as _catalogo_habilidades
 from core import interface_planos as _interface_planos
+from core import interface_canvas_planos as _interface_canvas_planos
 
 # ── CORES DO CLIENTE (08/10/2026) ──────────────────────────────────────────
 # Toda folha de estilo passa pelo `core/tema.py` na hora de ser aplicada. O
@@ -3756,6 +3757,21 @@ class AvisoComputador(QWidget):
         return True
 
 
+_SB_SALVAR = int(QMessageBox.StandardButton.Save)
+_SB_CANCELAR = int(QMessageBox.StandardButton.Cancel)
+
+
+def _perguntar_salvar_mapa(janela):
+    """Pergunta explícita quando o mapa não pôde ser salvo ao sair."""
+    return QMessageBox.question(
+        janela, "Planos",
+        "Não foi possível salvar o mapa. O que deseja fazer?",
+        QMessageBox.StandardButton.Save
+        | QMessageBox.StandardButton.Discard
+        | QMessageBox.StandardButton.Cancel,
+        QMessageBox.StandardButton.Cancel)
+
+
 class MainWindow(QMainWindow):
     _log_sig     = pyqtSignal(str)
     _state_sig   = pyqtSignal(str)
@@ -5020,6 +5036,7 @@ class MainWindow(QMainWindow):
                 self._planos_window = None
         try:
             janela = _interface_planos.PlanosWindow()
+            janela.abrir_canvas.connect(self._abrir_canvas_do_plano)
             janela.fechada.connect(self._planos_fechou)
             self._planos_window = janela
             janela.show()
@@ -5032,6 +5049,96 @@ class MainWindow(QMainWindow):
                 casca.write_log(
                     f"ERR: nao abri os planos — {type(exc).__name__}: {str(exc)[:110]}")
             return None
+
+    def _abrir_canvas_do_plano(self, plano_id: str, plano=None) -> bool:
+        """Abre o mapa de um plano no editor embutido no Canvas."""
+        from core import planos as _planos
+        plano = plano or _planos.carregar(str(plano_id))
+        if plano is None:
+            self._log.append_log("ERR: plano não encontrado para abrir no Canvas.")
+            return False
+        if not plano.mapa.get("inicializado"):
+            plano = _planos.inicializar_mapa(plano.id)
+
+        self._canvas_estado = {
+            "expanded": self._right_panel.expanded,
+            "anchor": self._stage.anchor,
+            "results": self._stage.results.isVisible(),
+            "hoje": self._stage.hoje_host.isVisible(),
+            "brief": self._stage.brief_host.isVisible(),
+            "left": self._left_panel.isVisible(),
+            "drawer": self._drawer.isVisible(),
+        }
+        self._canvas_plano_id = plano.id
+        gerenciador = getattr(self, "_planos_window", None)
+        if gerenciador is not None:
+            gerenciador.hide()
+
+        self._right_panel.expanded = False      # sessão: sem persist()
+        self._right_panel.apply()
+        self._stage.set_anchor("bottom-right")
+        self._stage._canvas_editor_ativo = True
+        self._stage.results.hide()
+        self._stage.hoje_host.hide()
+        self._stage._brief_timer.stop()
+        self._stage.brief_host.hide()
+        self._left_panel.hide()
+        self._drawer.hide()
+
+        editor = getattr(self, "_canvas_editor", None)
+        if editor is None:
+            editor = _interface_canvas_planos.CanvasEditor(self._stage)
+            editor.voltar.connect(self._voltar_dos_planos)
+            self._canvas_editor = editor
+        editor.abrir(plano)
+        editor.show()
+        editor.raise_()
+        self._stage.hud_stack.raise_()
+        QTimer.singleShot(0, self._position_canvas_panels)
+        return True
+
+    def _voltar_dos_planos(self) -> None:
+        """Encerra a sessão do Canvas e restaura dock, núcleo e lista."""
+        editor = getattr(self, "_canvas_editor", None)
+        if editor is not None and editor.isVisible():
+            if editor.mudancas_pendentes and not editor.fechar_com_seguranca():
+                escolha = int(_perguntar_salvar_mapa(self))
+                if escolha == _SB_CANCELAR:
+                    return
+                if escolha == _SB_SALVAR and not editor.fechar_com_seguranca():
+                    return
+            editor.hide()
+
+        estado = getattr(self, "_canvas_estado", None)
+        if estado is not None:
+            self._right_panel.expanded = bool(estado["expanded"])
+            self._right_panel.apply()
+            self._stage._canvas_editor_ativo = False
+            self._stage.anchor = estado["anchor"]
+            self._stage.arrange(True)
+            self._stage.results.setVisible(bool(estado["results"]))
+            self._stage.hoje_host.setVisible(bool(estado["hoje"]))
+            if estado["brief"]:
+                self._stage.brief_host.show()
+            self._left_panel.setVisible(bool(estado["left"]))
+            self._drawer.setVisible(bool(estado["drawer"]))
+            self._stage.tools_open = bool(estado["left"])
+            self._stage.chat_open = bool(estado["drawer"])
+            QTimer.singleShot(0, self._position_canvas_panels)
+            self._canvas_estado = None
+
+        plano_id = getattr(self, "_canvas_plano_id", None)
+        gerenciador = getattr(self, "_planos_window", None)
+        if gerenciador is None:
+            self._abrir_planos()
+            gerenciador = getattr(self, "_planos_window", None)
+        if gerenciador is not None:
+            gerenciador.recarregar()
+            if plano_id:
+                gerenciador.selecionar(plano_id)
+            gerenciador.showNormal()
+            gerenciador.raise_()
+            gerenciador.activateWindow()
 
     @staticmethod
     def _cartao(nome_obj: str) -> QWidget:
@@ -5766,6 +5873,8 @@ class MainWindow(QMainWindow):
         """
         try:
             if not isinstance(dados, dict):
+                return
+            if getattr(self._stage, '_canvas_editor_ativo', False):
                 return
             tipo = str(dados.get('tipo') or '')
             try:
@@ -6598,6 +6707,27 @@ class NiaUI:
     def abrir_planos(self) -> None:
         """Thread-safe: abre o Gerenciador de Planos pelo mesmo caminho do dock."""
         QTimer.singleShot(0, self._win._abrir_planos)
+
+    def abrir_plano(self, plano_id: str) -> None:
+        """Thread-safe: abre o mapa de um plano pelo mesmo ponto do gerenciador."""
+        QTimer.singleShot(0, lambda: self._win._abrir_canvas_do_plano(str(plano_id)))
+
+    def contexto_canvas(self) -> dict:
+        """Thread-safe: plano/card em contexto no editor (ou vazio se fechado)."""
+        editor = getattr(self._win, "_canvas_editor", None)
+        if editor is None or not editor.isVisible():
+            return {"plano_id": None, "card_id": None, "plano": None}
+        return editor.contexto()
+
+    def definir_contexto_canvas(self, plano_id: str | None,
+                                card_id: str | None) -> None:
+        """Thread-safe: ajusta a seleção do editor para consultas contextuais."""
+        def aplicar():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if (editor is not None and editor.isVisible()
+                    and (not plano_id or editor.contexto()["plano_id"] == plano_id)):
+                editor.selecionar_card(card_id)
+        QTimer.singleShot(0, aplicar)
 
     def focar_busca_canvas(self, termo: str = '') -> None:
         """Thread-safe: deixa a caixa de entrada pronta para o termo da busca."""

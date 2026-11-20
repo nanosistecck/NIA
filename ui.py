@@ -3772,6 +3772,7 @@ class MainWindow(QMainWindow):
     _trans_voz_sig    = pyqtSignal(str, str, str)  # (fase, antigo, novo) — uma voz chama a outra
     _hoje_sig         = pyqtSignal(str, str, str)  # (texto, gerado_em, status)
     _hoje_status_sig  = pyqtSignal(str, str)       # (mensagem, estado)
+    _brief_sig        = pyqtSignal(object)         # card temporário (hora/data/clima)
 
     def __init__(self, face_path: str):
         # ANTES DE MONTAR QUALQUER PAINEL. O cartao "so com o nome" e criado
@@ -3897,6 +3898,7 @@ class MainWindow(QMainWindow):
         self._prefs = DockPreferences(CONFIG_DIR / 'interface.json')
         self._hoje_seq = 0
         self._hoje_gerando = False
+        self._brief_last_token = 0
         self._tmr_hoje = QTimer(self)
         self._tmr_hoje.setSingleShot(True)
         self._tmr_hoje.timeout.connect(self._atualizar_cartao_hoje)
@@ -3947,6 +3949,7 @@ class MainWindow(QMainWindow):
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
         self._content_sig.connect(self._show_content)
+        self._brief_sig.connect(self._show_canvas_brief)
         self._hoje_sig.connect(self._mostrar_hoje)
         self._hoje_status_sig.connect(self._status_hoje)
         self._stage.hoje_gerar.connect(self._gerar_resumo_agora)
@@ -5283,6 +5286,10 @@ class MainWindow(QMainWindow):
         if escondida == self._dormindo:
             return
         self._dormindo = escondida
+        try:
+            self._stage.set_brief_paused(escondida)
+        except Exception:
+            pass
         if escondida:
             donos = (HudCanvas, _MarcaNia, FileDropZone)
             self._relogios_parados = [
@@ -5714,6 +5721,31 @@ class MainWindow(QMainWindow):
     def _show_content(self, title: str, text: str):
         self._stage.show_content(title, text)
 
+    def _show_canvas_brief(self, dados) -> None:
+        """Slot do card temporário; também descarta resposta antiga atrasada.
+
+        Um erro de desenho aqui NUNCA pode derrubar a resposta que já está
+        sendo falada: exceção em slot do Qt encerra o programa.
+        """
+        try:
+            if not isinstance(dados, dict):
+                return
+            tipo = str(dados.get('tipo') or '')
+            try:
+                token = int(dados.get('token') or 0)
+            except (TypeError, ValueError):
+                token = 0
+            if token:
+                if token < self._brief_last_token:
+                    return
+                self._brief_last_token = token
+            if tipo == 'limpar':
+                self._stage.dismiss_brief()
+                return
+            self._stage.show_brief(dados)
+        except Exception:
+            pass
+
     def _hoje_visibilidade_mudou(self, visivel: bool) -> None:
         # O × do próprio cartão passa por aqui: guardar a escolha evita que o
         # resumo volte a ocupar a tela sozinho na próxima abertura.
@@ -5978,6 +6010,11 @@ class MainWindow(QMainWindow):
         self._log.append_log(f"SIS: Chave remota gerada — manual: {manual or url}")
 
     def _do_interrupt(self):
+        # O ESC encerra também a apresentação do card temporário.
+        try:
+            self._stage.dismiss_brief()
+        except Exception:
+            pass
         if self.on_interrupt:
             self.on_interrupt()
 
@@ -6105,6 +6142,11 @@ class MainWindow(QMainWindow):
             self.hud.speaking = False
         else:
             self.hud.speaking = (state == "SPEAKING")
+        # O card temporário só se estende enquanto a própria resposta fala.
+        try:
+            self._stage.set_brief_speaking(str(state).upper() == "SPEAKING")
+        except Exception:
+            pass
         if hasattr(self, "_rail_state_lbl"):
             labels = {
                 "LISTENING": ("●\nOUVINDO", C.GREEN),
@@ -6479,6 +6521,14 @@ class NiaUI:
     def show_content(self, title: str, text: str):
         """Thread-safe: display content in the panel below the HUD."""
         self._win._content_sig.emit(title[:48], text[:4000])
+
+    def show_canvas_brief(self, dados) -> None:
+        """Thread-safe: mostra o card temporário de hora, data ou clima."""
+        try:
+            if isinstance(dados, dict):
+                self._win._brief_sig.emit(dict(dados))
+        except Exception:
+            pass
 
     def show_sources(self, titulo: str, fontes) -> None:
         """Thread-safe: fontes locais com ação 'Abrir fonte' no chat."""

@@ -2610,6 +2610,10 @@ class NiaLive:
         self._interrupted          = False   # True while draining audio after user interrupt
         self._turno_seq            = 0       # resultados atrasados não mudam outra conversa
         self._busca_seq            = 0
+        # Card temporário do Canvas: o token sobe no INÍCIO de cada consulta.
+        # Uma previsão antiga que chegue atrasada não substitui a mais nova.
+        self._brief_lock           = threading.Lock()
+        self._brief_token          = 0
         self._pendente_sintese     = None    # autorização ligada a destino e trechos
         self.ui.on_text_command     = self._on_text_command
         # A janela ja esta de pe: o resto do que demora para carregar vai por tras.
@@ -3542,6 +3546,12 @@ class NiaLive:
                 return
             threading.Thread(target=self._responder_texto_local,
                              args=(_cmd,), daemon=True).start()
+            return
+
+        # O texto digitado também responde hora/data sem modelo. Fica DEPOIS
+        # dos comandos de barra, das habilidades e da busca local, para não
+        # roubar a prioridade de quem já era dono da entrada.
+        if self._rede_do_relogio(_cmd):
             return
 
         if not self._loop or not self.session:
@@ -5704,6 +5714,31 @@ class NiaLive:
     _RE_E_OUTRA_PERGUNTA = re.compile(
         r"\s+e\s+(?=(?:que|qual|quantas|em\s+que|me\s+(?:diz|fala|informa))\b)")
 
+    def _novo_brief_token(self) -> int:
+        with self._brief_lock:
+            self._brief_token += 1
+            return self._brief_token
+
+    def _mostrar_brief(self, dados: dict) -> None:
+        """Ponte única para o card temporário; UI ausente não derruba a resposta."""
+        try:
+            metodo = getattr(self.ui, 'show_canvas_brief', None)
+            if callable(metodo):
+                metodo(dict(dados or {}))
+        except Exception:
+            pass
+
+    def _brief_do_relogio(self, dados: dict, juntas: bool = False) -> None:
+        """Card de hora/data com o mesmo resultado que foi falado."""
+        pedido = 'tudo' if juntas else str((dados or {}).get('pedido') or 'hora')
+        if pedido not in ('hora', 'data', 'tudo'):
+            pedido = 'hora'
+        self._mostrar_brief({
+            'tipo': pedido,
+            'dados': dict(dados or {}),
+            'token': self._novo_brief_token(),
+        })
+
     def _rede_do_relogio(self, texto: str, _so_a_ultima: bool = False) -> bool:
         """Hora e data sem ir na rede. Devolve True quando ja respondeu.
 
@@ -5821,6 +5856,7 @@ class NiaLive:
                 self._openrouter.historico.append({"role": "assistant", "content": frase})
         except Exception:
             pass
+        self._brief_do_relogio(dados, juntas)
         self._falar_local(
             frase,
             ao_primeiro_som=lambda: self.ui.write_log(
@@ -10285,6 +10321,7 @@ class NiaLive:
                                   "'falar_assim' e NADA ALEM disso: nao "
                                   "acrescente a data se ela nao estiver la. "
                                   "Nao converta, nao recalcule.")
+            self._brief_do_relogio(dados)
             return types.FunctionResponse(id=fc.id, name=fc.name, response=dados)
 
         explicit_location = _explicit_known_location(self._current_input_transcript)
@@ -10392,7 +10429,15 @@ class NiaLive:
                 result = r or f"Opened {args.get('app_name')}."
 
             elif name == "weather_report":
-                r = await loop.run_in_executor(None, lambda: weather_action(parameters=args, player=self.ui))
+                token = self._novo_brief_token()
+                args_tempo = dict(args)
+                args_tempo["_brief_token"] = token
+                # O card anterior não pode parecer resultado desta consulta.
+                self._mostrar_brief({"tipo": "limpar", "token": token})
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: weather_action(parameters=args_tempo, player=self.ui),
+                )
                 result = r or "Weather delivered."
 
             elif name == "browser_control":

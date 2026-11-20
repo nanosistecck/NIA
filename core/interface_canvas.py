@@ -1,14 +1,20 @@
 """Canvas, vidro e personalização da janela principal (sem motores de IA)."""
 from pathlib import Path
 import json
+import time
 
-from PyQt6.QtCore import Qt, QPointF, QUrl, QPropertyAnimation, QEasingCurve, QByteArray, QRectF, QSize, pyqtSignal
+from PyQt6.QtCore import (
+    Qt, QPointF, QUrl, QPropertyAnimation, QEasingCurve, QByteArray, QRect,
+    QRectF, QSize, QTimer, pyqtSignal,
+)
 from PyQt6.QtGui import QColor, QPainter, QPixmap, QRadialGradient, QDesktopServices, QIcon, QFont
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit,
     QApplication, QScrollArea, QMessageBox, QMenu, QGraphicsOpacityEffect,
 )
+
+from core.canvas_brief import BriefDeck
 
 GLASS = """QFrame#Glass { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
  stop:0 rgba(111,157,185,95),stop:0.5 rgba(38,77,104,125),stop:1 rgba(80,115,157,85));
@@ -261,6 +267,31 @@ class CanvasStage(QWidget):
         hoje_layout.addLayout(hoje_botoes)
         self.hoje_host.hide()
 
+        # Card temporário (hora, data ou clima): ciclo próprio, um por vez.
+        # Não entra em `self.cards` para não ser fechado por show_content().
+        self.brief_host = BriefDeck(self)
+        self.brief_host.hide()
+        self.brief_host.fechar.connect(self.dismiss_brief)
+        self._brief_kind = ''
+        self._brief_created = 0.0
+        self._brief_deadline = 0.0
+        self._brief_speaking = False
+        self._brief_speech_seen = False
+        self._brief_closing = False
+        self._brief_timer = QTimer(self)
+        self._brief_timer.setSingleShot(True)
+        self._brief_timer.timeout.connect(self._expire_brief)
+        self._brief_effect = QGraphicsOpacityEffect(self.brief_host)
+        self.brief_host.setGraphicsEffect(self._brief_effect)
+        self._brief_fade = QPropertyAnimation(self._brief_effect, b'opacity', self)
+        self._brief_fade.setDuration(200)
+        self._brief_fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._brief_fade.finished.connect(self._brief_fade_finished)
+        self._brief_fade.valueChanged.connect(self.brief_host.set_entry_progress)
+        self._brief_entry = QTimer(self)
+        self._brief_entry.setSingleShot(True)
+        self._brief_entry.timeout.connect(lambda: self._fade_brief(0.0, 1.0))
+
         self.anchor = 'center'
         self.chat_open = False
         self.motion = QPropertyAnimation(hud_stack,b'geometry',self)
@@ -301,6 +332,147 @@ class CanvasStage(QWidget):
         self.cards.remove(card); self.card_layout.removeWidget(card)
         card.hide(); card.deleteLater(); self.arrange(True)
 
+    # ── CARD TEMPORÁRIO (hora, data e clima) ─────────────────────────────
+    @property
+    def brief_visivel(self) -> bool:
+        return self.brief_host.isVisible()
+
+    @property
+    def brief_tipo(self) -> str:
+        return self._brief_kind
+
+    def show_brief(self, dados) -> None:
+        """Mostra/substitui o card temporário. O token é filtrado pela janela."""
+        dados = dict(dados or {})
+        tipo = str(dados.get('tipo') or '')
+        if tipo not in ('hora', 'data', 'tudo', 'clima'):
+            return
+        self._brief_entry.stop()
+        self._brief_fade.stop()
+        self._brief_effect.setOpacity(0.0)
+        self._brief_timer.stop()
+        self._brief_closing = False
+        self._brief_kind = tipo
+        self.brief_host.set_conteudo(tipo, dados)
+        self.brief_host.show()
+        self.brief_host.raise_()
+        self._brief_created = time.monotonic()
+        self._brief_speaking = False
+        self._brief_speech_seen = False
+        segundos = 11 if tipo == 'clima' else 7
+        self._brief_deadline = self._brief_created + segundos
+        self._brief_timer.start(int(segundos * 1000))
+        self.arrange(True)
+        self._brief_entry.start(self.motion.duration())
+
+    def dismiss_brief(self, *_):
+        """Fecha o card temporário. A composição volta ao estado atual."""
+        self._brief_timer.stop()
+        self._brief_entry.stop()
+        self.brief_host.set_paused(True)
+        self._brief_speaking = False
+        if not self.brief_host.isVisible():
+            return
+        self._brief_closing = True
+        self._fade_brief(self._brief_effect.opacity(), 0.0)
+
+    def set_brief_speaking(self, falando: bool) -> None:
+        """Estende o card enquanto a fala DESTA resposta estiver no ar.
+
+        Só a primeira fala que começar logo depois de o card aparecer conta:
+        uma fala do resumo HOJE, minutos depois, não pode manter o relógio
+        na tela para sempre.
+        """
+        if not self.brief_host.isVisible() or self._brief_closing:
+            return
+        agora = time.monotonic()
+        clima = self._brief_kind == 'clima'
+        # Teto duro: mesmo que a fala nunca avise o fim, o card sai.
+        teto = self._brief_created + (60.0 if clima else 30.0)
+        if falando:
+            if self._brief_speech_seen:
+                return
+            # A fala da previsao pode demorar mais para comecar (sintese).
+            if agora - self._brief_created > (12.0 if clima else 6.0):
+                return
+            self._brief_speaking = True
+            self._brief_speech_seen = True
+            self._brief_deadline = teto
+            self._brief_timer.start(max(0, int((teto - agora) * 1000)))
+            return
+        if not self._brief_speaking:
+            return
+        self._brief_speaking = False
+        margem = 3.0 if clima else 2.0
+        prazo = min(agora + margem, teto)
+        self._brief_deadline = prazo
+        self._brief_timer.start(max(0, int((prazo - agora) * 1000)))
+
+    def set_brief_paused(self, pausado: bool) -> None:
+        """Janela escondida: os segundos do relógio param de ser redesenhados."""
+        try:
+            self.brief_host.set_paused(bool(pausado))
+        except Exception:
+            pass
+
+    def _expire_brief(self) -> None:
+        self.dismiss_brief()
+
+    def _fade_brief(self, inicio: float, fim: float) -> None:
+        self._brief_fade.stop()
+        self._brief_effect.setOpacity(float(inicio))
+        self._brief_fade.setStartValue(float(inicio))
+        self._brief_fade.setEndValue(float(fim))
+        self._brief_fade.start()
+
+    def _brief_fade_finished(self) -> None:
+        if not self._brief_closing:
+            return
+        self._brief_closing = False
+        self.brief_host.hide()
+        self._brief_effect.setOpacity(1.0)
+        self.arrange(True)
+
+    def _left_occupied(self, w: int) -> int:
+        """Até onde os painéis da esquerda vão. O card não pisa neles."""
+        direita = 0
+        if self.tools_open:
+            direita = max(direita, 12 + min(344, max(220, int(w * .5) - 24)))
+        if self.results.isVisible():
+            direita = max(direita, 12 + max(220, int(w * .50) - 24))
+        if self.hoje_host.isVisible():
+            direita = max(direita, 12 + max(220, min(320, int(w * .36))))
+        return direita
+
+    def _brief_geometries(self, w: int, bottom: int):
+        """(card, reator) sem sobreposição, respeitando HOJE/resultados/dock.
+
+        O tamanho do card nasce do conteúdo: a hora não vira um retângulo
+        gigante de sobra e a previsão não abre área vazia quando os dias
+        retornados não justificam a altura.
+        """
+        obstaculo = self._left_occupied(w)
+        fx = obstaculo + 12 if obstaculo else 12
+        fw = max(1, w - fx - 12)
+        lado = max(56, min(190, int(bottom * .28)))
+        espaco = fw - lado - 16
+        lado_a_lado = espaco >= 280
+        disponivel = espaco if lado_a_lado else fw
+        largura = min(disponivel, 760 if self._brief_kind == 'clima' else 380)
+        largura = max(1, largura)
+        desejado = self.brief_host.tamanho_para_largura(largura)
+        limite = bottom - 16 if lado_a_lado else bottom - lado - 24
+        altura = max(1, min(desejado.height(), limite))
+        # Centraliza no espaço liberado à esquerda do núcleo em repouso.
+        x = fx + max(0, (disponivel - largura) // 2)
+        y = max(8, (bottom - altura) // 2 - 18) if lado_a_lado else 8
+        card = QRect(x, y, largura, altura)
+        if lado_a_lado:
+            hud = QRect(w - lado - 12, max(8, (bottom - lado) // 2), lado, lado)
+        else:
+            hud = QRect(fx + max(0, (fw - lado) // 2), card.bottom() + 8, lado, lado)
+        return card, hud
+
     def contextMenuEvent(self,event):
         menu = QMenu(self)
         for label,anchor in (('Centro','center'),('Esquerda','left'),('Direita','right'),
@@ -319,24 +491,35 @@ class CanvasStage(QWidget):
 
     def arrange(self,animate=False):
         if not hasattr(self,'motion'): return
-        from PyQt6.QtCore import QRect
         w,h = self.width(),self.height()
         bottom = max(160,h - (min(260,h//2) if self.chat_open else 0))
-        occupied = (bool(self.cards) or self.tools_open
-                    or self.hoje_host.isVisible())
-        size = min(bottom,w if not occupied else int(w*.48))
-        x = (w-size)//2
-        if occupied: x = w-size
-        elif self.anchor in ('left','top-left','bottom-left'): x = 0
-        elif self.anchor in ('right','top-right','bottom-right'): x = w-size
-        y = max(0,(bottom-size)//2)
-        if self.anchor.startswith('top'): y = 0
-        elif self.anchor.startswith('bottom'): y = max(0,bottom-size)
-        target = QRect(x,y,max(1,size),max(1,size))
-        self.motion.stop()
-        if animate and self.isVisible():
-            self.motion.setStartValue(self.hud_stack.geometry()); self.motion.setEndValue(target); self.motion.start()
-        else: self.hud_stack.setGeometry(target)
+        if self.brief_host.isVisible():
+            card, target = self._brief_geometries(w, bottom)
+            self.motion.stop()
+            if animate and self.isVisible():
+                self.motion.setStartValue(self.hud_stack.geometry())
+                self.motion.setEndValue(target)
+                self.motion.start()
+            else:
+                self.hud_stack.setGeometry(target)
+            self.brief_host.setGeometry(card)
+            self.brief_host.raise_()
+        else:
+            occupied = (bool(self.cards) or self.tools_open
+                        or self.hoje_host.isVisible())
+            size = min(bottom,w if not occupied else int(w*.48))
+            x = (w-size)//2
+            if occupied: x = w-size
+            elif self.anchor in ('left','top-left','bottom-left'): x = 0
+            elif self.anchor in ('right','top-right','bottom-right'): x = w-size
+            y = max(0,(bottom-size)//2)
+            if self.anchor.startswith('top'): y = 0
+            elif self.anchor.startswith('bottom'): y = max(0,bottom-size)
+            target = QRect(x,y,max(1,size),max(1,size))
+            self.motion.stop()
+            if animate and self.isVisible():
+                self.motion.setStartValue(self.hud_stack.geometry()); self.motion.setEndValue(target); self.motion.start()
+            else: self.hud_stack.setGeometry(target)
         self.results.setGeometry(12,8,max(220,int(w*.50)-24),max(80,bottom-16))
         self.results.setVisible(bool(self.cards) and not self.tools_open)
         self.results.raise_()

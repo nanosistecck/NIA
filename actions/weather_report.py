@@ -68,13 +68,26 @@ def _baixar(url: str) -> dict:
 
 
 def _cidade_da_memoria() -> str:
+    """Cidade do dono guardada no longo prazo.
+
+    19/11/2026: a identidade do dono nao guarda mais `city`, mas o endereco
+    completo (`identity.address.value`, ex.: "Santa Maria das Barreiras,
+    Estado do Pará"). Sem ler o campo `address` a previsao do tempo caia na
+    localizacao da internet do PC e puxava um municipio errado.
+    """
     try:
         dados = json.loads((_RAIZ / "memory" / "long_term.json").read_text(encoding="utf-8"))
-        for chave in ("city", "cidade", "hometown", "location"):
-            v = ((dados.get("identity") or {}).get(chave) or {})
-            v = v.get("value") if isinstance(v, dict) else v
-            if v:
-                return str(v).strip()
+        ident = dados.get("identity") or {}
+        prioridade = ("city", "cidade", "hometown", "location", "address")
+        achados: list[str] = []
+        for chave in prioridade:
+            valor = ident.get(chave) or {}
+            valor = valor.get("value") if isinstance(valor, dict) else valor
+            if valor:
+                achados.append(str(valor).strip())
+        for valor in achados:
+            if valor:
+                return valor
     except Exception:
         pass
     return ""
@@ -100,15 +113,18 @@ def _cidade_da_internet() -> str:
 
 def _onde(cidade: str) -> tuple:
     """(latitude, longitude, nome falado) da cidade pedida."""
-    nome = cidade.split(",")[0].strip()
+    pedido = str(cidade or "").strip()
+    if not pedido:
+        raise LookupError(pedido)
+    nome = pedido.split(",")[0].strip()
     lingua = "en" if _em_ingles() else "pt"
     url = ("https://geocoding-api.open-meteo.com/v1/search?count=5&format=json&language="
            + lingua + "&name=" + urllib.parse.quote(nome))
     achados = _baixar(url).get("results") or []
     if not achados:
-        raise LookupError(cidade)
+        raise LookupError(pedido)
     # Com estado/pais no pedido ("Antonina, Parana"), prefere o que bate.
-    resto = _sem_acento(cidade[len(nome):])
+    resto = _sem_acento(pedido[len(nome):])
     melhor = achados[0]
     if resto.strip(" ,"):
         for a in achados:
@@ -135,20 +151,109 @@ def _qual_dia(quando: str, hoje: date) -> int | None:
     return 0
 
 
+def _numero_ou_none(valor):
+    if valor is None:
+        return None
+    try:
+        return round(float(valor), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _card_do_tempo(dados: dict, nome: str, quando: str, en: bool) -> dict | None:
+    """Dados estruturados para o Canvas, da MESMA resposta do Open-Meteo."""
+    daily = dados.get("daily") or {}
+    tempos = list(daily.get("time") or [])
+    if not tempos:
+        return None
+    try:
+        hoje = date.fromisoformat(str(tempos[0])[:10])
+    except Exception:
+        return None
+    indice = _qual_dia(quando, hoje)
+    semana = indice is None
+    solicitada = hoje + timedelta(days=0 if semana else indice)
+    codigos = list(daily.get("weather_code") or [])
+    minimas = list(daily.get("temperature_2m_min") or [])
+    maximas = list(daily.get("temperature_2m_max") or [])
+    chuvas = list(daily.get("precipitation_probability_max") or [])
+    ceu = _CEU_EN if en else _CEU_PT
+    dias = []
+    for k, iso in enumerate(tempos[:7]):
+        try:
+            dia = date.fromisoformat(str(iso)[:10])
+        except Exception:
+            continue
+        codigo = codigos[k] if k < len(codigos) else None
+        try:
+            condicao = ceu.get(int(codigo), "") if codigo is not None else ""
+        except (TypeError, ValueError):
+            condicao = ""
+        dias.append({
+            "data": str(iso)[:10],
+            "dia_semana": ((_DIAS_EN if en else _DIAS_PT)[dia.weekday()]),
+            "codigo": codigo,
+            "condicao": condicao,
+            "min": _numero_ou_none(minimas[k] if k < len(minimas) else None),
+            "max": _numero_ou_none(maximas[k] if k < len(maximas) else None),
+            # 0% é valor válido: só some quando o campo não veio.
+            "chuva": (_numero_ou_none(chuvas[k])
+                      if k < len(chuvas) and chuvas[k] is not None else None),
+        })
+    if not dias:
+        return None
+    destaque = dict(next((dia for dia in dias if dia['data'] == solicitada.isoformat()),
+                        {'data': solicitada.isoformat(),
+                         'condicao': 'Forecast unavailable' if en else 'Previsão indisponível'}))
+    if solicitada == hoje:
+        atual = dados.get("current") or {}
+        destaque.update({
+            "agora": _numero_ou_none(atual.get("temperature_2m")),
+            "sensacao": _numero_ou_none(atual.get("apparent_temperature")),
+            "umidade": _numero_ou_none(atual.get("relative_humidity_2m")),
+            "vento": _numero_ou_none(atual.get("wind_speed_10m")),
+        })
+    return {
+        "tipo": "clima",
+        "cidade": nome,
+        "fuso": str(dados.get("timezone") or ""),
+        "semana": semana,
+        "destaque": destaque,
+        "dias": dias,
+    }
+
+
+def _emitir_card(player, card: dict) -> None:
+    if not card:
+        return
+    mostrar = getattr(player, "show_canvas_brief", None)
+    if callable(mostrar):
+        try:
+            mostrar(card)
+        except Exception:
+            pass
+
+
 def _frase_do_dia(d: dict, i: int, en: bool) -> str:
-    ceu = (_CEU_EN if en else _CEU_PT).get(int(d["weather_code"][i]), "")
-    tmin = round(d["temperature_2m_min"][i])
-    tmax = round(d["temperature_2m_max"][i])
-    chuva = d.get("precipitation_probability_max", [None] * 7)[i]
-    if en:
-        s = f"{ceu}, from {tmin} to {tmax} degrees"
-        if chuva is not None:
-            s += f", {chuva}% chance of rain"
-    else:
-        s = f"{ceu}, de {tmin} a {tmax} graus"
-        if chuva is not None:
-            s += f", {chuva}% de chance de chuva"
-    return s
+    def valor(campo):
+        valores = d.get(campo) or []
+        return _numero_ou_none(valores[i]) if i < len(valores) else None
+
+    codigo = valor('weather_code')
+    ceu = (_CEU_EN if en else _CEU_PT).get(int(codigo), '') if codigo is not None else ''
+    minima, maxima = valor('temperature_2m_min'), valor('temperature_2m_max')
+    chuva = valor('precipitation_probability_max')
+    partes = [ceu] if ceu else []
+    if minima is not None and maxima is not None:
+        partes.append(f'from {round(minima)} to {round(maxima)} degrees' if en
+                      else f'de {round(minima)} a {round(maxima)} graus')
+    elif minima is not None:
+        partes.append(f'low of {round(minima)} degrees' if en else f'mínima de {round(minima)} graus')
+    elif maxima is not None:
+        partes.append(f'high of {round(maxima)} degrees' if en else f'máxima de {round(maxima)} graus')
+    if chuva is not None:
+        partes.append(f'{chuva:g}% chance of rain' if en else f'{chuva:g}% de chance de chuva')
+    return ', '.join(partes) or ('Forecast unavailable' if en else 'Previsão indisponível')
 
 
 def weather_action(
@@ -171,8 +276,10 @@ def weather_action(
         dados = _baixar(
             "https://api.open-meteo.com/v1/forecast?timezone=auto&forecast_days=7"
             f"&latitude={lat}&longitude={lon}"
-            "&current=temperature_2m,weather_code"
-            "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max")
+            "&current=temperature_2m,weather_code,apparent_temperature,"
+            "relative_humidity_2m,wind_speed_10m"
+            "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
+            "precipitation_probability_max")
         d = dados["daily"]
         hoje = date.fromisoformat(d["time"][0])
         i = _qual_dia(quando, hoje)
@@ -186,8 +293,17 @@ def weather_action(
                 partes.append(f"{rotulo}: {_frase_do_dia(d, k, en)}")
             msg = (f"Next days in {nome}: " if en else f"Próximos dias em {nome}: ") + "; ".join(partes) + "."
         else:
-            i = min(i, len(d["time"]) - 1)
             dia = hoje + timedelta(days=i)
+            if dia.isoformat() not in d['time']:
+                card = _card_do_tempo(dados, nome, quando, en)
+                if card:
+                    card['token'] = int(params.get('_brief_token') or 0)
+                    _emitir_card(player, card)
+                msg = (f'Forecast unavailable for {dia:%d/%m/%Y} in {nome}.' if en
+                       else f'Previsão indisponível para {dia:%d/%m/%Y} em {nome}.')
+                _log(msg, player)
+                return msg
+            i = d['time'].index(dia.isoformat())
             rotulo = (("Today" if en else "Hoje") if i == 0 else
                       ("Tomorrow" if en else "Amanhã") if i == 1 else
                       ("On " + _DIAS_EN[dia.weekday()].capitalize() if en
@@ -198,6 +314,12 @@ def weather_action(
             if i == 0 and agora is not None:
                 msg += (f" Right now it's {round(agora)} degrees." if en
                         else f" Agora faz {round(agora)} graus.")
+        # O MESMO resultado alimenta a fala e o card. Só há card depois de
+        # uma consulta bem-sucedida: erro não reaproveita dado velho.
+        card = _card_do_tempo(dados, nome, quando, en)
+        if card:
+            card["token"] = int(params.get("_brief_token") or 0)
+            _emitir_card(player, card)
         _log(msg, player)
         if session_memory:
             try:

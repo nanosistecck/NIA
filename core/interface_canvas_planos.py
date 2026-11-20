@@ -30,6 +30,7 @@ class CanvasEditor(QWidget):
     """Editor do mapa mais toolbar de retorno, encaixado no Canvas."""
 
     voltar = pyqtSignal()
+    contexto_mudou = pyqtSignal(dict)
 
     def __init__(self, stage, parent=None):
         super().__init__(stage if parent is None else parent)
@@ -62,6 +63,7 @@ class CanvasEditor(QWidget):
     def abrir(self, plano) -> None:
         self.editor_internal.carregar(plano)
         self.status.setText(f"{plano.titulo} · {plano.tipo}")
+        self.contexto_mudou.emit(self.contexto())
 
     def contexto(self) -> dict:
         plano = self.editor_internal.plano_atual()
@@ -73,6 +75,7 @@ class CanvasEditor(QWidget):
 
     def selecionar_card(self, card_id: str | None) -> None:
         self.editor_internal.selecionar(card_id)
+        self.contexto_mudou.emit(self.contexto())
 
     def fechar_com_seguranca(self) -> bool:
         return self.editor_internal.fechar_com_seguranca()

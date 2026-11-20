@@ -419,6 +419,17 @@ _UI = {
     "Card central": "Central card", "Desfazer": "Undo", "Refazer": "Redo",
     "Salvando…": "Saving…", "Falha ao salvar": "Save failed",
     "Conflito de revisão": "Revision conflict",
+    # Comandos de planejamento (Etapa 3).
+    "Cancelado.": "Cancelled.",
+    "Qual é o plano?": "What is the plan?",
+    "Qual é o produto?": "What is the product?",
+    "Qual é o projeto?": "What is the project?",
+    "Qual é o estudo?": "What is the study?",
+    "Qual é o conteúdo?": "What is the content?",
+    "Qual é o plano financeiro?": "What is the financial plan?",
+    "Qual plano você quer consultar?": "Which plan do you want to check?",
+    "Encontrei vários planos:": "I found several plans:",
+    "Criar novo plano": "Create new plan",
 }
 
 

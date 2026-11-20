@@ -156,6 +156,7 @@ types = _Preguicoso("google.genai.types")
 from ui import NiaUI
 from core import busca_fontes as BF
 from core import catalogo_habilidades as CH
+from core import comandos_planos as CP
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
@@ -2615,6 +2616,8 @@ class NiaLive:
         self._brief_lock           = threading.Lock()
         self._brief_token          = 0
         self._pendente_sintese     = None    # autorização ligada a destino e trechos
+        # Etapa 3: uma sessão de comandos de planos para chat e voz (local).
+        self._sessao_planos        = CP.SessaoComandosPlanos()
         self.ui.on_text_command     = self._on_text_command
         # A janela ja esta de pe: o resto do que demora para carregar vai por tras.
         _aquecer_imports("google.genai", "google.genai.types")
@@ -6957,8 +6960,35 @@ class NiaLive:
             return True, 'Resumo do dia sendo preparado no cartão Hoje.'
         return False, 'Ação da habilidade não implementada.'
 
+    def _contexto_planos(self) -> dict:
+        """Plano/card em contexto, lido da casca Qt sem tocar em widgets."""
+        try:
+            return dict(self.ui.contexto_canvas() or {})
+        except Exception:
+            return {}
+
+    def _aplicar_resultado_planos(self, resultado) -> None:
+        """Entrega a resposta e executa as ações pedidas pelo comando local."""
+        if resultado.resposta:
+            self.ui.write_log(f'SIS: {resultado.resposta}')
+        for acao in resultado.acoes:
+            tipo = acao.get('tipo')
+            if tipo == 'abrir_canvas':
+                self.ui.abrir_plano(acao.get('plano_id'))
+            elif tipo == 'abrir_manager':
+                self.ui.abrir_planos()
+        _voice_diag('comando_planos', f"acoes={len(resultado.acoes)}")
+
     def _executar_frase_habilidade(self, texto: str, origem: str) -> bool:
-        """Reconhece as frases do catálogo no chat/voz e usa o mesmo executor."""
+        """Reconhece frases do catálogo e comandos de planejamento no chat/voz."""
+        try:
+            resultado = self._sessao_planos.processar(
+                texto, origem, self._contexto_planos())
+            if resultado.tratado:
+                self._aplicar_resultado_planos(resultado)
+                return True
+        except Exception as exc:
+            _voice_diag('comando_planos_erro', type(exc).__name__)
         habilidade, termo = CH.reconhecer(texto)
         if habilidade is None:
             return False

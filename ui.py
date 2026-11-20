@@ -5089,6 +5089,7 @@ class MainWindow(QMainWindow):
         if editor is None:
             editor = _interface_canvas_planos.CanvasEditor(self._stage)
             editor.voltar.connect(self._voltar_dos_planos)
+            editor.contexto_mudou.connect(self._contexto_canvas_mudou)
             self._canvas_editor = editor
         editor.abrir(plano)
         editor.show()
@@ -5096,6 +5097,10 @@ class MainWindow(QMainWindow):
         self._stage.hud_stack.raise_()
         QTimer.singleShot(0, self._position_canvas_panels)
         return True
+
+    def _contexto_canvas_mudou(self, contexto: dict) -> None:
+        """Espelho do contexto do editor, seguro para leitura pela casca Qt."""
+        self._contexto_canvas = dict(contexto or {})
 
     def _voltar_dos_planos(self) -> None:
         """Encerra a sessão do Canvas e restaura dock, núcleo e lista."""
@@ -5108,6 +5113,7 @@ class MainWindow(QMainWindow):
                 if escolha == _SB_SALVAR and not editor.fechar_com_seguranca():
                     return
             editor.hide()
+        self._contexto_canvas = {"plano_id": None, "card_id": None, "plano": None}
 
         estado = getattr(self, "_canvas_estado", None)
         if estado is not None:
@@ -6713,11 +6719,9 @@ class NiaUI:
         QTimer.singleShot(0, lambda: self._win._abrir_canvas_do_plano(str(plano_id)))
 
     def contexto_canvas(self) -> dict:
-        """Thread-safe: plano/card em contexto no editor (ou vazio se fechado)."""
-        editor = getattr(self._win, "_canvas_editor", None)
-        if editor is None or not editor.isVisible():
-            return {"plano_id": None, "card_id": None, "plano": None}
-        return editor.contexto()
+        """Cópia do espelho de contexto, segura para leitura fora da thread Qt."""
+        return dict(getattr(self._win, "_contexto_canvas", None)
+                    or {"plano_id": None, "card_id": None, "plano": None})
 
     def definir_contexto_canvas(self, plano_id: str | None,
                                 card_id: str | None) -> None:

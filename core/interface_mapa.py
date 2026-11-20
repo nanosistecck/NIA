@@ -29,7 +29,6 @@ from core.planos import (
 )
 
 _PRI = "#00d4ff"
-_GREEN = "#00ff88"
 _TEXT = "#d8f8ff"
 _MUTED = "#8fb8cc"
 _BG = "#011520"

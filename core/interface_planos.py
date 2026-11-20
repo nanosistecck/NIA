@@ -11,22 +11,19 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
+    QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSplitter,
     QVBoxLayout, QWidget,
 )
 
 from core import planos as BP
 from core.planos import (
-    ConflitoDeRevisao, ErroPlano, PlanoInvalido, STATUS, TIPOS,
+    ConflitoDeRevisao, ErroPlano, PlanoInvalido, TIPOS,
     arquivar, atualizar, buscar, criar, listar, restaurar,
 )
 
 # Mesma família de cores do dock/canvas da NIA (core/ui.py, classe C).
 _PRI = "#00d4ff"
-_ACC = "#ff6b00"
-_GREEN = "#00ff88"
-_RED = "#ff3355"
 _TEXT = "#8ffcff"
 _MUTED = "#5ab8cc"
 _BG = "#010d14"

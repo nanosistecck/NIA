@@ -88,3 +88,28 @@ As amostras curtas variaram entre execuções. Não demonstram redução de CPU:
 A janela nativa também foi aberta isoladamente com `NiaUI`. A aprovação automática do controle do computador rejeitou a inspeção/automação porque o aplicativo Python não estava autorizado. Portanto, a interação manual por automação do Windows, a abertura efetiva de um aplicativo externo pelo dock e o ciclo completo da bandeja não foram validados por esse caminho. Os testes Qt verificam os contratos e a persistência descritos acima.
 
 Captura de câmera física, conversa real de voz, conexão de WhatsApp/remoto, Globo e execução real de tarefas Cowork/Computer Use não foram exercitados de ponta a ponta. Seus handlers e contratos foram preservados; câmera, visão e Cowork receberam validação com dados simulados. As configurações de APIs, provedores e motores ficaram fora da reforma visual.
+
+## Canvas Infinito — Etapas 1, 2 e 3 (20/11/2026)
+
+Entrega combinada: base local versionada de planos, Gerenciador no dock, editor visual de mapa e comandos de planejamento por chat/voz.
+
+**Componentes novos**
+- `core/planos.py`: um JSON UTF-8 por plano em `NIA-CyberBot/planos` (fora da árvore de trabalho), `formato` separado de `revisao`, gravação atômica `.tmp` + `os.replace`, conflito de revisão, isolamento de arquivos corrompidos e mapa versionado no mesmo documento.
+- `core/interface_planos.py` + botão `planos` em `ui.py`: busca sem acento/caixa, filtros de tipo/status, criar/visualizar/editar/arquivar/restaurar.
+- `core/interface_mapa.py` + `core/interface_canvas_planos.py`: `QGraphicsView`/`QGraphicsScene`, cards e conexões desenhados com `QPainter`, `QUndoStack`, pan/zoom, câmera persistida, autosave com estados e novo botão de migração `dock_planos_v1`.
+- `core/comandos_planos.py`: reconhecedor local de intenções, sessão com pergunta pendente/opções/contexto/dedup, ligado a `_executar_frase_habilidade` — o mesmo caminho de chat, voz local e Gemini Live.
+
+**Reaproveitados**: gravação atômica de `config_preferencias.py`/`DockPreferences`, `GLASS`/ícones vetoriais e `arrange()`/`set_anchor()` do Canvas, padrão de janela não modal de `ConfigDashboardWindow`, `StatusLabel`/paletas do dashboard, `_transcript_key`, `_voice_diag` e o marcador de migração `skill_atalhos_v1`.
+
+**Remoções**: nenhuma funcionalidade existente foi removida; apenas imports e constantes sem uso detectados na auditoria final. Catálogo de habilidades, F2/F4/F6/F9/F11/ESC, cards de hora/data/clima e fluxos de chat/voz permanecem intactos.
+
+**Verificações executadas**
+```
+$env:QT_QPA_PLATFORM='offscreen'
+& .venv-apis/Scripts/python.exe -m pytest -q -p no:cacheprovider --basetemp=cache/pytest-canvas
+```
+Resultado: **288 testes passaram** (Python 3.12.14, PyQt6 6.12.1, pytest 9.2.0). Também: `compileall -q core ui.py main.py` e `git diff --check` sem erros.
+
+Cobertura acrescentada: persistência após reinício, revisão/conflito/falha de escrita, arquivo corrompido isolado, formato antigo sem mapa, card central idempotente, exclusão com conexões desfeita e refeita junta, restauração de câmera/posições, falha de gravação, recolhimento de dock e retorno do núcleo sem persistir preferência, intenções do Prompt 03, escolha por ordinal, negação e reentrega de transcrição.
+
+**Limitações**: a voz foi validada com transcrição final simulada, não com microfone/STT reais; pan/zoom e edição foram exercitados em testes Qt offscreen, não em sessão manual com núcleo falando. Movimento reduzido é lido de `appearance.movimento_reducido` (padrão `false`), ainda sem controle de UI dedicado. Nenhuma chamada de rede, API externa ou Ollama foi feita nesta entrega.

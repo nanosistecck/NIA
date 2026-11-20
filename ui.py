@@ -45,6 +45,7 @@ from PyQt6.QtWidgets import (
 # no icone perto do relogio, sem ouvir nem fazer nada. Ver core/segundo_plano.py.
 from core import segundo_plano as _segundo_plano
 from core import catalogo_habilidades as _catalogo_habilidades
+from core import interface_planos as _interface_planos
 
 # ── CORES DO CLIENTE (08/10/2026) ──────────────────────────────────────────
 # Toda folha de estilo passa pelo `core/tema.py` na hora de ser aplicada. O
@@ -5003,6 +5004,35 @@ class MainWindow(QMainWindow):
                     f"{type(exc).__name__}: {str(exc)[:110]}")
             return None
 
+    def _planos_fechou(self) -> None:
+        self._planos_window = None
+
+    def _abrir_planos(self):
+        """Abre (ou traz de volta) o Gerenciador de Planos pelo dock."""
+        atual = getattr(self, "_planos_window", None)
+        if atual is not None:
+            try:
+                atual.showNormal()
+                atual.raise_()
+                atual.activateWindow()
+                return atual
+            except RuntimeError:
+                self._planos_window = None
+        try:
+            janela = _interface_planos.PlanosWindow()
+            janela.fechada.connect(self._planos_fechou)
+            self._planos_window = janela
+            janela.show()
+            janela.raise_()
+            janela.activateWindow()
+            return janela
+        except Exception as exc:
+            casca = getattr(self, "_ui", None)
+            if casca is not None:
+                casca.write_log(
+                    f"ERR: nao abri os planos — {type(exc).__name__}: {str(exc)[:110]}")
+            return None
+
     @staticmethod
     def _cartao(nome_obj: str) -> QWidget:
         w = QWidget()
@@ -5162,6 +5192,13 @@ class MainWindow(QMainWindow):
             "Dá para comandar por voz: \"vai na capital do Japão\".")
         self._globo_btn.clicked.connect(self._abrir_globo)
         row.addWidget(self._globo_btn)
+
+        # PLANOS (Canvas Infinito): gerenciador local, sem rede nem modelos.
+        self._planos_btn = self._make_control_button("planos", "▦\nPLANOS\nABRIR", C.PRI)
+        self._planos_btn.setToolTip(
+            "Planos: crie, encontre, visualize, edite e arquive planos no Canvas.")
+        self._planos_btn.clicked.connect(self._abrir_planos)
+        row.addWidget(self._planos_btn)
 
         # SEGUNDO PLANO (01/11/2026, v1.0.37, pedido do Diego): o NIA sai da
         # tela e fica so no icone perto do relogio, sem ouvir nem fazer nada.
@@ -6557,6 +6594,10 @@ class NiaUI:
     def abrir_pagina_config(self, pagina: str) -> None:
         """Thread-safe: abre uma área do dashboard sem inferência."""
         QTimer.singleShot(0, lambda: self._win._abrir_dashboard_config(pagina))
+
+    def abrir_planos(self) -> None:
+        """Thread-safe: abre o Gerenciador de Planos pelo mesmo caminho do dock."""
+        QTimer.singleShot(0, self._win._abrir_planos)
 
     def focar_busca_canvas(self, termo: str = '') -> None:
         """Thread-safe: deixa a caixa de entrada pronta para o termo da busca."""

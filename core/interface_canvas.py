@@ -54,6 +54,7 @@ _ICONS = {
     'expand':'<path d="m10 6 6 6-6 6"/>',
     'palette':'<path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1-3.7 1.6 1.6 0 0 1 1-2.8h2a4 4 0 0 0 4-4C21 6 17 3 12 3z"/><circle cx="7" cy="11" r=".7"/><circle cx="10" cy="7" r=".7"/><circle cx="15" cy="7" r=".7"/>',
     'whatsapp':'<path d="M5 19l-2 3 5-2a9 9 0 1 0-3-1zM8 7c0 5 4 9 9 9"/>',
+    'planos':'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/>',
 }
 
 
@@ -564,7 +565,7 @@ class VerticalDock(QFrame):
         self.setFixedWidth(70)
         self.buttons = dict(buttons); self.preferences = DockPreferences(config)
         if 'hidden' not in self.preferences.data:
-            defaults = ['mute','cowork','globo','webcam','config']
+            defaults = ['mute','cowork','globo','webcam','config','planos']
             self.preferences.data['hidden'] = [k for k in self.buttons if k not in defaults]
             self.preferences.data.setdefault('order',[k for k in defaults if k in self.buttons]+list(self.buttons))
         elif not self.preferences.data.get('skill_atalhos_v1'):
@@ -576,6 +577,17 @@ class VerticalDock(QFrame):
             if novos:
                 self.preferences.data['hidden'].extend(novos)
             self.preferences.data['skill_atalhos_v1'] = True
+            try:
+                self.preferences.save()
+            except OSError:
+                pass
+        if not self.preferences.data.get('dock_planos_v1'):
+            # Perfis existentes nao mudam de altura/posicoes: o atalho de
+            # Planos entra oculto e o dono o ativa em Ferramentas do dock.
+            if 'planos' in self.buttons and 'hidden' in self.preferences.data \
+                    and 'planos' not in self.preferences.data['hidden']:
+                self.preferences.data['hidden'].append('planos')
+            self.preferences.data['dock_planos_v1'] = True
             try:
                 self.preferences.save()
             except OSError:

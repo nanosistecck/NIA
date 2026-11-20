@@ -399,6 +399,26 @@ _UI = {
         "On your phone: Linked devices → Link a device AGAIN, and scan this one.",
     "WHATSAPP E LIGAÇÕES CONECTADOS": "WHATSAPP AND CALLS CONNECTED",
     "Gerando o código das ligações...": "Making the calls code...",
+    # CANVAS INFINITO (Etapas 1-3): gerenciador, editor e comandos de planos.
+    "PLANOS": "PLANS", "PLANOS ABRIR": "PLANS OPEN",
+    "Planos: crie, encontre, visualize, edite e arquive planos no Canvas.":
+        "Plans: create, find, view, edit and archive plans in the Canvas.",
+    "NIA · Planos": "NIA · Plans",
+    "Novo plano": "New plan", "Visualizar": "View", "Editar": "Edit",
+    "Editar no Canvas": "Edit in Canvas", "Arquivar": "Archive",
+    "Restaurar": "Restore", "Salvar plano": "Save plan",
+    "Cancelar": "Cancel", "Buscar por título ou objetivo":
+        "Search by title or goal", "Nenhum plano. Crie o primeiro.":
+        "No plans. Create the first one.",
+    "Nenhum resultado para os filtros atuais.":
+        "No results for the current filters.",
+    "Falha ao salvar. Tente novamente.": "Save failed. Try again.",
+    "Salvo.": "Saved.", "Título e objetivo são obrigatórios.":
+        "Title and goal are required.",
+    "← Voltar aos planos": "← Back to plans", "Enquadrar": "Fit view",
+    "Card central": "Central card", "Desfazer": "Undo", "Refazer": "Redo",
+    "Salvando…": "Saving…", "Falha ao salvar": "Save failed",
+    "Conflito de revisão": "Revision conflict",
 }
 
 

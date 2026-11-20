@@ -323,3 +323,10 @@ def test_dock_com_perfil_existente_preserva_posicoes(app, tmp_path):
     assert 'skill_secretaria' in dock.preferences.data['hidden']
     assert dock.preferences.data.get('skill_atalhos_v1') is True
     dock.hide(); dock.deleteLater(); app.processEvents()
+
+
+def test_botao_planos_registrado_e_personalizavel(window):
+    dock = window._right_panel
+    assert 'planos' in dock.buttons
+    assert dock.buttons['planos'].objectName() == 'planos'
+    assert 'planos' in dock.preferences.data.get('order', [])

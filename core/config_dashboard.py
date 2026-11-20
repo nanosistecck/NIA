@@ -12,6 +12,8 @@ import json
 import queue
 import threading
 import time
+from datetime import date
+from pathlib import Path
 
 from PyQt6.QtCore import (QEasingCurve, QEvent, QPoint, QPointF,
                           QPropertyAnimation, QRect, QSize, Qt, QTimer,
@@ -20,13 +22,14 @@ from PyQt6.QtGui import (QColor, QFont, QFontDatabase, QKeySequence,
                          QLinearGradient, QPainter, QPen, QRadialGradient,
                          QShortcut)
 from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
-                             QColorDialog, QComboBox, QFileDialog,
+                             QCheckBox, QColorDialog, QComboBox, QFileDialog,
                              QFrame, QGridLayout, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QListWidgetItem,
                              QMessageBox, QPushButton, QScrollArea, QSizePolicy,
                              QSlider, QSpinBox, QStackedWidget, QVBoxLayout,
                              QWidget)
 
+from core import catalogo_habilidades as CH
 from core.config_preferencias import (ConfigService, TEMAS, TEMA_PADRAO,
                                       normalizar_dispositivo)
 from core.interface_canvas import icon
@@ -701,6 +704,10 @@ class ConfigDashboardWindow(QWidget):
         self._tema_restauracao = None
         self._placeholders: dict[str, tuple] = {}
         self._paginas_lazy: dict[str, QWidget] = {}
+        self._indice = None
+        self._indice_ativo = False
+        self._indice_cancelar = None
+        self._indice_busca_seq = 0
 
         self._runner = TaskRunner(self)
         self._runner.bridge.terminou.connect(self._receber_resultado)
@@ -763,15 +770,26 @@ class ConfigDashboardWindow(QWidget):
             "integracoes", "Integrações",
             "WhatsApp, Secretária e acesso pelo celular.",
             "Abra esta página para consultar conexões e atalhos.")
+        self._pagina_documentos = self._criar_placeholder(
+            "documentos", "Documentos",
+            "Índice textual local de arquivos .txt, com fontes verificáveis.",
+            "Abra esta página para configurar pastas e testar a busca local.")
+        self._pagina_habilidades = self._criar_placeholder(
+            "habilidades", "Habilidades",
+            "O que a NIA faz nativamente, com exemplos e ações reais.",
+            "Abra esta página para ver as habilidades disponíveis.")
         self._stack.addWidget(self._pagina_voz)
         self._stack.addWidget(self._pagina_aparencia)
         self._stack.addWidget(self._pagina_provedores)
         self._stack.addWidget(self._pagina_geral)
         self._stack.addWidget(self._pagina_perfil)
         self._stack.addWidget(self._pagina_integracoes)
+        self._stack.addWidget(self._pagina_documentos)
+        self._stack.addWidget(self._pagina_habilidades)
         self._scrolls = [self._pagina_voz, self._pagina_aparencia,
                          self._pagina_provedores, self._pagina_geral,
-                         self._pagina_perfil, self._pagina_integracoes]
+                         self._pagina_perfil, self._pagina_integracoes,
+                         self._pagina_documentos, self._pagina_habilidades]
         self._stack.setCurrentIndex(0)
         self._ir_para_pagina(0, animar=False, focar=False)
         self._atualizar_cabecalho()
@@ -825,7 +843,9 @@ class ConfigDashboardWindow(QWidget):
                 ("Provedores e modelos", "system"),
                 ("Geral", "config"),
                 ("Meu perfil", "so_nome"),
-                ("Integrações", "remote"))):
+                ("Integrações", "remote"),
+                ("Documentos", "attach"),
+                ("Habilidades", "system"))):
             botao = NavButton(texto, icone, self._mover_nav, self._nav_host)
             botao._icone_nome = icone
             botao.clicked.connect(lambda _=False, i=indice: self._ir_para_pagina(i))
@@ -834,7 +854,7 @@ class ConfigDashboardWindow(QWidget):
             nav.addWidget(botao)
         v.addWidget(self._nav_host)
         v.addStretch(1)
-        rodape = QLabel("Configurações padrão\nSeis páginas, uma única janela.", barra)
+        rodape = QLabel("Configurações padrão\nOito páginas, uma única janela.", barra)
         rodape.setObjectName("Hint")
         rodape.setWordWrap(True)
         v.addWidget(rodape)
@@ -992,6 +1012,7 @@ class ConfigDashboardWindow(QWidget):
         cartao2.body.addWidget(self.saudacao_botao)
         cartao2.body.addWidget(self.saudacao_status)
         raiz.addWidget(cartao2)
+        raiz.addWidget(self._construir_cartao_rotinas(pagina))
         raiz.addStretch(1)
 
         self._inicio_seq = 0
@@ -999,6 +1020,264 @@ class ConfigDashboardWindow(QWidget):
         self._pintar_saudacao()
         self._consultar_inicio()
         return pagina
+
+    # ── Rotinas locais (Skill 04) ──────────────────────────────────────────
+    def _construir_cartao_rotinas(self, pai) -> GlassCard:
+        from core import rotinas as R
+        cartao = GlassCard(
+            "Rotinas",
+            "Lembretes locais com recorrência. A NIA precisa estar aberta para "
+            "agendar novas execuções; em segundo plano as notificações locais "
+            "continuam. Atrasos enquanto esteve fechada geram um único registro.", pai)
+        self._rotinas = R.ArmazemRotinas()
+        self._rotina_seq = 0
+        self._rotina_editando = None
+        self.rotinas_lista = QListWidget(cartao)
+        self.rotinas_lista.setAccessibleName('Rotinas cadastradas')
+        self.rotinas_lista.currentRowChanged.connect(self._rotina_selecionou)
+        cartao.body.addWidget(self.rotinas_lista)
+
+        grade = QGridLayout()
+        grade.setHorizontalSpacing(10)
+        grade.setVerticalSpacing(8)
+        self.rotina_titulo = QLineEdit(cartao)
+        self.rotina_titulo.setPlaceholderText('Título da rotina')
+        self.rotina_titulo.setAccessibleName('Título da rotina')
+        self.rotina_mensagem = QLineEdit(cartao)
+        self.rotina_mensagem.setPlaceholderText('Mensagem do lembrete')
+        self.rotina_mensagem.setAccessibleName('Mensagem do lembrete')
+        self.rotina_repeticao = QComboBox(cartao)
+        self.rotina_repeticao.addItem('Uma vez', 'unica')
+        self.rotina_repeticao.addItem('Diária', 'diaria')
+        self.rotina_repeticao.addItem('Dias úteis', 'dias_uteis')
+        self.rotina_repeticao.setAccessibleName('Repetição da rotina')
+        self.rotina_acao = QComboBox(cartao)
+        self.rotina_acao.addItem('Lembrete', 'lembrete')
+        self.rotina_acao.addItem('Resumo do dia', 'resumo')
+        self.rotina_acao.setAccessibleName('Ação da rotina')
+        self.rotina_data = QLineEdit(date.today().isoformat(), cartao)
+        self.rotina_data.setPlaceholderText('AAAA-MM-DD')
+        self.rotina_data.setAccessibleName('Data da rotina única')
+        self.rotina_hora = QLineEdit('09:00', cartao)
+        self.rotina_hora.setPlaceholderText('HH:MM')
+        self.rotina_hora.setAccessibleName('Hora da rotina')
+        self.rotina_fuso = QLineEdit(R.fuso_padrao(), cartao)
+        self.rotina_fuso.setAccessibleName('Fuso da rotina')
+        for linha, (rotulo, campo) in enumerate((
+                ('Título', self.rotina_titulo),
+                ('Mensagem', self.rotina_mensagem),
+                ('Repetição', self.rotina_repeticao),
+                ('Ação', self.rotina_acao),
+                ('Data', self.rotina_data),
+                ('Hora', self.rotina_hora),
+                ('Fuso', self.rotina_fuso))):
+            grade.addWidget(_rotulo_secao(rotulo, cartao), linha, 0)
+            grade.addWidget(campo, linha, 1)
+        cartao.body.addLayout(grade)
+
+        botoes = QHBoxLayout()
+        botoes.setSpacing(8)
+        self.rotina_salvar = QPushButton('Salvar rotina', cartao)
+        self.rotina_salvar.setObjectName('Primary')
+        self.rotina_salvar.clicked.connect(self._salvar_rotina)
+        self.rotina_nova = QPushButton('Nova', cartao)
+        self.rotina_nova.setObjectName('Secondary')
+        self.rotina_nova.clicked.connect(self._nova_rotina)
+        self.rotina_pausar = QPushButton('Pausar', cartao)
+        self.rotina_pausar.setObjectName('Secondary')
+        self.rotina_pausar.clicked.connect(self._pausar_rotina)
+        self.rotina_agora = QPushButton('Executar agora', cartao)
+        self.rotina_agora.setObjectName('Secondary')
+        self.rotina_agora.clicked.connect(self._executar_rotina_agora)
+        self.rotina_historico = QPushButton('Ver histórico', cartao)
+        self.rotina_historico.setObjectName('Secondary')
+        self.rotina_historico.clicked.connect(self._ver_historico_rotina)
+        for botao in (self.rotina_salvar, self.rotina_nova,
+                      self.rotina_pausar, self.rotina_agora,
+                      self.rotina_historico):
+            botoes.addWidget(botao)
+        botoes.addStretch()
+        cartao.body.addLayout(botoes)
+        self.rotinas_status = StatusLabel(cartao)
+        cartao.body.addWidget(self.rotinas_status)
+        self.rotinas_historico = QListWidget(cartao)
+        self.rotinas_historico.setAccessibleName('Histórico da rotina')
+        cartao.body.addWidget(self.rotinas_historico)
+        self._atualizar_lista_rotinas()
+        return cartao
+
+    def _formatar_proxima_rotina(self, rotina: dict) -> str:
+        from core import rotinas as R
+        instante = R._de_iso(rotina.get('proxima_execucao') or '')
+        if instante is None:
+            return 'sem próxima execução'
+        local = instante.astimezone(R._fuso(rotina.get('fuso') or R.fuso_padrao()))
+        return local.strftime('%d/%m %H:%M')
+
+    def _atualizar_lista_rotinas(self) -> None:
+        if self._rotinas is None:
+            return
+        anterior = self._rotina_selecionada()
+        anterior_id = anterior['id'] if anterior else None
+        self.rotinas_lista.clear()
+        for rotina in self._rotinas.listar():
+            rotulo = (f"{rotina['titulo']} · {rotina['estado']} · "
+                      f"próxima {self._formatar_proxima_rotina(rotina)}")
+            item = QListWidgetItem(rotulo, self.rotinas_lista)
+            item.setData(Qt.ItemDataRole.UserRole, rotina['id'])
+            item.setToolTip(rotina['mensagem'][:120])
+            if rotina['id'] == anterior_id:
+                self.rotinas_lista.setCurrentItem(item)
+        selecionada = self._rotina_selecionada()
+        self.rotina_pausar.setText(
+            'Retomar' if selecionada and selecionada['estado'] == 'pausado'
+            else 'Pausar')
+
+    def _rotina_selecionada(self) -> dict | None:
+        if self._rotinas is None:
+            return None
+        item = self.rotinas_lista.currentItem()
+        if item is None:
+            return None
+        return self._rotinas.obter(
+            str(item.data(Qt.ItemDataRole.UserRole) or ''))
+
+    def _rotina_selecionou(self, *_):
+        rotina = self._rotina_selecionada()
+        if rotina is None:
+            return
+        self._rotina_editando = rotina['id']
+        self.rotina_titulo.setText(rotina['titulo'])
+        self.rotina_mensagem.setText(rotina['mensagem'])
+        self.rotina_repeticao.setCurrentIndex(
+            self.rotina_repeticao.findData(rotina['repeticao']))
+        self.rotina_acao.setCurrentIndex(
+            self.rotina_acao.findData(rotina.get('acao') or 'lembrete'))
+        self.rotina_data.setText(rotina.get('data') or date.today().isoformat())
+        self.rotina_hora.setText(rotina['hora'])
+        self.rotina_fuso.setText(rotina['fuso'])
+        self.rotina_pausar.setText(
+            'Retomar' if rotina['estado'] == 'pausado' else 'Pausar')
+
+    def _nova_rotina(self):
+        from core import rotinas as R
+        self.rotinas_lista.clearSelection()
+        self._rotina_editando = None
+        self.rotina_titulo.clear()
+        self.rotina_mensagem.clear()
+        self.rotina_repeticao.setCurrentIndex(0)
+        self.rotina_acao.setCurrentIndex(0)
+        self.rotina_data.setText(date.today().isoformat())
+        self.rotina_hora.setText('09:00')
+        self.rotina_fuso.setText(R.fuso_padrao())
+        self.rotinas_status.mostrar('Formulário limpo.', 'info')
+
+    def _salvar_rotina(self) -> None:
+        from core import rotinas as R
+        titulo = self.rotina_titulo.text().strip()
+        mensagem = self.rotina_mensagem.text().strip()
+        acao = self.rotina_acao.currentData()
+        if not titulo or (acao != 'resumo' and not mensagem):
+            self.rotinas_status.mostrar('Informe título e mensagem.', 'warning')
+            return
+        dados = {
+            'titulo': titulo, 'mensagem': mensagem, 'acao': acao,
+            'repeticao': self.rotina_repeticao.currentData(),
+            'data': self.rotina_data.text().strip(),
+            'hora': self.rotina_hora.text().strip(),
+            'fuso': self.rotina_fuso.text().strip() or R.fuso_padrao(),
+        }
+        try:
+            if self._rotina_editando:
+                self._rotinas.atualizar(self._rotina_editando, dados)
+            else:
+                self._rotinas.criar(dados)
+            R.agendador_global().recalcular()
+        except Exception as exc:
+            self.rotinas_status.mostrar(
+                f'Não foi possível salvar: {type(exc).__name__}: {str(exc)[:100]}.',
+                'error')
+            return
+        self.rotinas_status.mostrar('Salvo', 'success')
+        self._atualizar_lista_rotinas()
+        atualizar = getattr(self._service.host, 'atualizar_hoje', None)
+        if atualizar is not None:
+            atualizar()
+
+    def _pausar_rotina(self) -> None:
+        from core import rotinas as R
+        rotina = self._rotina_selecionada()
+        if rotina is None:
+            return
+        if rotina['estado'] == 'pausado':
+            self._rotinas.reativar(rotina['id'])
+            mensagem = 'Salvo · rotina reativada.'
+        else:
+            self._rotinas.pausar(rotina['id'])
+            mensagem = 'Salvo · rotina pausada.'
+        R.agendador_global().recalcular()
+        self.rotinas_status.mostrar(mensagem, 'success')
+        self._atualizar_lista_rotinas()
+
+    def _executar_rotina_agora(self) -> None:
+        from core import rotinas as R
+        rotina = self._rotina_selecionada()
+        if rotina is None:
+            return
+        self._rotina_seq += 1
+        seq = self._rotina_seq
+        self.rotinas_status.mostrar('Executando rotina…', 'info')
+
+        def terminou(resultado):
+            if self._fechado or seq != self._rotina_seq:
+                return
+            if isinstance(resultado, dict) and resultado.get('ok'):
+                self.rotinas_status.mostrar('Salvo · rotina executada.', 'success')
+            else:
+                self.rotinas_status.mostrar(
+                    'Não foi possível notificar nesta execução.', 'error')
+            self._atualizar_lista_rotinas()
+            self._ver_historico_rotina()
+            if isinstance(resultado, dict) and resultado.get('atualizar_hoje'):
+                atualizar = getattr(self._service.host, 'atualizar_hoje', None)
+                if atualizar is not None:
+                    atualizar()
+
+        def executar():
+            armazem = R.ArmazemRotinas(db_path=self._rotinas.db_path)
+            bloqueio = armazem.bloqueio(rotina['id'])
+            if not bloqueio.acquire(blocking=False):
+                return {'ok': False}
+            try:
+                log = armazem.reservar(
+                    rotina['id'], f"manual-{time.time_ns()}", 'manual')
+                if log is None:
+                    return {'ok': False}
+                if rotina.get('acao') == 'resumo':
+                    from core import resumo_dia as RD  # noqa: PLC0415
+                    resultado = RD.gerar_e_salvar()
+                    ok = bool(resultado.get('ok'))
+                    armazem.finalizar(
+                        log, ok, '' if ok else str(resultado.get('erro') or 'falha'))
+                    return {'ok': ok, 'atualizar_hoje': ok}
+                ok, erro = R.Agendador(armazem=armazem)._notificar(
+                    rotina['mensagem'])
+                armazem.finalizar(log, ok, '' if ok else 'Notificação falhou')
+                return {'ok': ok}
+            finally:
+                bloqueio.release()
+
+        self._executar(executar, terminou)
+
+    def _ver_historico_rotina(self) -> None:
+        rotina = self._rotina_selecionada()
+        self.rotinas_historico.clear()
+        if rotina is None:
+            return
+        for execucao in self._rotinas.historico(rotina['id'], 10):
+            self.rotinas_historico.addItem(
+                f"{execucao['origem']} · {execucao['resultado']} · "
+                f"{execucao['iniciada_em'][:19]}")
 
     def _pintar_botao_estado(self, botao: QPushButton, ligado: bool,
                              ligado_txt: str, desligado_txt: str) -> None:
@@ -1368,6 +1647,342 @@ class ConfigDashboardWindow(QWidget):
             self._consultar_conexoes()
 
         self._executar(callback, pronto)
+
+    # ── Documentos: índice textual local ───────────────────────────────────
+    def _construir_pagina_documentos(self, pai) -> QWidget:
+        from core import secretaria
+        from core.indice_local import IndiceLocal, fts5_disponivel
+        pagina = QWidget(pai)
+        raiz = QVBoxLayout(pagina)
+        raiz.setContentsMargins(0, 0, 0, 0)
+        raiz.setSpacing(12)
+
+        fontes = self._service.carregar_fontes_indice()
+        self._pasta_secretaria = str(secretaria.pasta_do_dono())
+        self._indice = IndiceLocal(fontes=fontes)
+
+        cartao_fontes = GlassCard(
+            "Pastas indexadas",
+            "A pasta da Secretária é oferecida pelo mesmo resolvedor usado "
+            "por ela. Outras pastas são escolhidas explicitamente.", pagina)
+        self.secretaria_check = QCheckBox(
+            f'Incluir pasta da Secretária ({self._pasta_secretaria})',
+            cartao_fontes)
+        self.secretaria_check.setChecked(self._pasta_secretaria in fontes)
+        self.secretaria_check.setAccessibleName('Incluir pasta da Secretária')
+        self.secretaria_check.toggled.connect(self._fonte_secretaria_mudou)
+        cartao_fontes.body.addWidget(self.secretaria_check)
+        self.fontes_lista = QListWidget(cartao_fontes)
+        self.fontes_lista.setAccessibleName('Pastas indexadas')
+        for fonte in fontes:
+            self.fontes_lista.addItem(fonte)
+        cartao_fontes.body.addWidget(self.fontes_lista)
+        botoes_fontes = QHBoxLayout()
+        botoes_fontes.setSpacing(8)
+        adicionar = QPushButton('Adicionar pasta', cartao_fontes)
+        adicionar.setObjectName('Secondary')
+        adicionar.clicked.connect(self._adicionar_fonte_indice)
+        remover = QPushButton('Remover pasta', cartao_fontes)
+        remover.setObjectName('Secondary')
+        remover.clicked.connect(self._remover_fonte_indice)
+        botoes_fontes.addWidget(adicionar)
+        botoes_fontes.addWidget(remover)
+        botoes_fontes.addStretch()
+        cartao_fontes.body.addLayout(botoes_fontes)
+        self.fontes_status = StatusLabel(cartao_fontes)
+        cartao_fontes.body.addWidget(self.fontes_status)
+        raiz.addWidget(cartao_fontes)
+
+        cartao_indice = GlassCard(
+            "Índice local",
+            "Atualização manual: nenhuma varredura periódica e nenhuma "
+            "chamada de rede. O banco fica em ~/.nia/indice_local.db.", pagina)
+        self.indice_contagem = QLabel('Carregando estado do índice…', cartao_indice)
+        self.indice_contagem.setObjectName('SectionHint')
+        self.indice_contagem.setWordWrap(True)
+        cartao_indice.body.addWidget(self.indice_contagem)
+        botoes_indice = QHBoxLayout()
+        botoes_indice.setSpacing(8)
+        self.indice_atualizar = QPushButton('Atualizar índice', cartao_indice)
+        self.indice_atualizar.setObjectName('Primary')
+        self.indice_atualizar.clicked.connect(lambda: self._atualizar_indice_local(False))
+        self.indice_reconstruir = QPushButton('Reconstruir', cartao_indice)
+        self.indice_reconstruir.setObjectName('Secondary')
+        self.indice_reconstruir.clicked.connect(lambda: self._atualizar_indice_local(True))
+        self.indice_cancelar = QPushButton('Cancelar', cartao_indice)
+        self.indice_cancelar.setObjectName('Secondary')
+        self.indice_cancelar.setEnabled(False)
+        self.indice_cancelar.clicked.connect(self._cancelar_indice_local)
+        for botao in (self.indice_atualizar, self.indice_reconstruir,
+                      self.indice_cancelar):
+            botoes_indice.addWidget(botao)
+        botoes_indice.addStretch()
+        cartao_indice.body.addLayout(botoes_indice)
+        self.indice_status = StatusLabel(cartao_indice)
+        cartao_indice.body.addWidget(self.indice_status)
+        raiz.addWidget(cartao_indice)
+
+        cartao_busca = GlassCard(
+            'Busca local',
+            'Consulta FTS5 sobre os trechos indexados. Sem modelos, embeddings '
+            'ou internet.', pagina)
+        linha_busca = QHBoxLayout()
+        linha_busca.setSpacing(8)
+        self.busca_local_edit = QLineEdit(cartao_busca)
+        self.busca_local_edit.setPlaceholderText('Ex.: recado da secretária')
+        self.busca_local_edit.setAccessibleName('Buscar em documentos locais')
+        self.busca_local_edit.returnPressed.connect(self._buscar_local)
+        self.busca_local_botao = QPushButton('Buscar', cartao_busca)
+        self.busca_local_botao.setObjectName('Secondary')
+        self.busca_local_botao.clicked.connect(self._buscar_local)
+        linha_busca.addWidget(self.busca_local_edit, 1)
+        linha_busca.addWidget(self.busca_local_botao)
+        cartao_busca.body.addLayout(linha_busca)
+        self.busca_local_status = StatusLabel(cartao_busca)
+        cartao_busca.body.addWidget(self.busca_local_status)
+        self.busca_local_resultados = QListWidget(cartao_busca)
+        self.busca_local_resultados.setAccessibleName('Resultados da busca local')
+        cartao_busca.body.addWidget(self.busca_local_resultados)
+        if not fts5_disponivel():
+            self.busca_local_status.mostrar(
+                'Este runtime não tem FTS5: a busca local está indisponível; '
+                'os demais fluxos continuam funcionando.', 'warning')
+            self.busca_local_botao.setEnabled(False)
+        raiz.addWidget(cartao_busca)
+        raiz.addStretch(1)
+        self._atualizar_contagem_indice()
+        return pagina
+
+    # ── Habilidades nativas (Skill 07) ─────────────────────────────────────
+    def _construir_pagina_habilidades(self, pai) -> QWidget:
+        pagina = QWidget(pai)
+        raiz = QVBoxLayout(pagina)
+        raiz.setContentsMargins(0, 0, 0, 0)
+        raiz.setSpacing(12)
+
+        cartao = GlassCard(
+            'Habilidades nativas',
+            'Cada entrada reutiliza um fluxo existente: Secretária, busca com '
+            'fontes e resumo local. Decidir a rota não usa modelo, rede nem '
+            'sondagem.', pagina)
+        self.habilidades_lista = QWidget(cartao)
+        self.habilidades_lista.setAccessibleName('Habilidades nativas')
+        lista = QVBoxLayout(self.habilidades_lista)
+        lista.setContentsMargins(0, 0, 0, 0)
+        lista.setSpacing(10)
+        self.habilidades_status: dict[str, StatusLabel] = {}
+        self.habilidades_botoes: dict[str, QPushButton] = {}
+        for habilidade in CH.todas():
+            quadro = QFrame(cartao)
+            quadro.setObjectName('ApiCard')
+            caixa = QVBoxLayout(quadro)
+            caixa.setContentsMargins(12, 10, 12, 10)
+            caixa.setSpacing(5)
+
+            titulo = QLabel(habilidade.nome, quadro)
+            titulo.setObjectName('CardTitle')
+            titulo.setWordWrap(True)
+            caixa.addWidget(titulo)
+            descricao = QLabel(habilidade.descricao, quadro)
+            descricao.setObjectName('SectionHint')
+            descricao.setWordWrap(True)
+            caixa.addWidget(descricao)
+            exemplo = QLabel(f'Exemplo: “{habilidade.exemplo}”', quadro)
+            exemplo.setObjectName('Hint')
+            exemplo.setWordWrap(True)
+            caixa.addWidget(exemplo)
+
+            disponivel = CH.disponibilidade(habilidade.id)
+            estado = StatusLabel(quadro)
+            estado.mostrar(disponivel.motivo,
+                           'success' if disponivel.pronta else 'warning')
+            self.habilidades_status[habilidade.id] = estado
+            caixa.addWidget(estado)
+
+            linha = QHBoxLayout()
+            acao = QPushButton(
+                'Executar' if disponivel.pronta else 'Abrir configuração',
+                quadro)
+            acao.setObjectName('Primary' if disponivel.pronta else 'Secondary')
+            acao.setAccessibleName(f'Executar — {habilidade.nome}')
+            acao.clicked.connect(
+                lambda _=False, ident=habilidade.id: self._habilidade_acao(ident))
+            self.habilidades_botoes[habilidade.id] = acao
+            copiar = QPushButton('Copiar exemplo', quadro)
+            copiar.setObjectName('CardAction')
+            copiar.setAccessibleName(f'Copiar exemplo — {habilidade.nome}')
+            copiar.clicked.connect(
+                lambda _=False, texto=habilidade.exemplo:
+                QApplication.clipboard().setText(texto))
+            linha.addWidget(acao)
+            linha.addWidget(copiar)
+            linha.addStretch()
+            caixa.addLayout(linha)
+            lista.addWidget(quadro)
+        cartao.body.addWidget(self.habilidades_lista)
+
+        nota = QLabel(
+            'Os atalhos do Canvas usam o mesmo catálogo. Ative-os em '
+            'Aparência → Ferramentas do dock; as frases de exemplo também '
+            'funcionam no chat e na voz.', cartao)
+        nota.setObjectName('Hint')
+        nota.setWordWrap(True)
+        cartao.body.addWidget(nota)
+        raiz.addWidget(cartao)
+        raiz.addStretch(1)
+        self._achatar_controles(pagina)
+        return pagina
+
+    def _habilidade_acao(self, identificador: str) -> None:
+        try:
+            ok, mensagem = CH.executar(identificador, '')
+        except Exception as exc:
+            ok, mensagem = False, f'Falha ao executar: {type(exc).__name__}.'
+        estado = self.habilidades_status.get(identificador)
+        if estado is not None:
+            estado.mostrar(mensagem, 'success' if ok else 'error')
+
+    def _fontes_indice_da_lista(self) -> list[str]:
+        return [self.fontes_lista.item(i).text().strip()
+                for i in range(self.fontes_lista.count())
+                if self.fontes_lista.item(i).text().strip()]
+
+    def _salvar_fontes_indice(self, mensagem: str = 'Salvo') -> None:
+        fontes = self._fontes_indice_da_lista()
+        try:
+            self._service.salvar_fontes_indice(fontes)
+            self._indice.definir_fontes(fontes)
+        except Exception as exc:
+            self.fontes_status.mostrar(
+                f'Não foi possível salvar: {type(exc).__name__}.', 'error')
+            return
+        self.fontes_status.mostrar(mensagem, 'success')
+        self._atualizar_contagem_indice()
+
+    def _fonte_secretaria_mudou(self, ligado: bool) -> None:
+        fontes = self._fontes_indice_da_lista()
+        if ligado and self._pasta_secretaria not in fontes:
+            fontes.append(self._pasta_secretaria)
+        elif not ligado and self._pasta_secretaria in fontes:
+            fontes.remove(self._pasta_secretaria)
+        self.fontes_lista.clear()
+        for fonte in dict.fromkeys(fontes):
+            self.fontes_lista.addItem(fonte)
+        self._salvar_fontes_indice()
+
+    def _adicionar_fonte_indice(self) -> None:
+        escolhida = QFileDialog.getExistingDirectory(self, 'Pasta para indexar')
+        if not escolhida:
+            return
+        fontes = self._fontes_indice_da_lista()
+        if escolhida in fontes:
+            self.fontes_status.mostrar('Essa pasta já está na lista.', 'warning')
+            return
+        fontes.append(escolhida)
+        self.fontes_lista.clear()
+        for fonte in dict.fromkeys(fontes):
+            self.fontes_lista.addItem(fonte)
+        self._salvar_fontes_indice()
+
+    def _remover_fonte_indice(self) -> None:
+        atual = self.fontes_lista.currentRow()
+        if atual < 0:
+            return
+        self.fontes_lista.takeItem(atual)
+        self.secretaria_check.blockSignals(True)
+        self.secretaria_check.setChecked(
+            self._pasta_secretaria in self._fontes_indice_da_lista())
+        self.secretaria_check.blockSignals(False)
+        self._salvar_fontes_indice(
+            'Salvo · documentos sem fonte autorizada foram removidos da busca.')
+
+    def _atualizar_contagem_indice(self) -> None:
+        if self._indice is None or not hasattr(self, 'indice_contagem'):
+            return
+        try:
+            dados = self._indice.contar()
+            self.indice_contagem.setText(
+                f"{dados['documentos']} documento(s) · {dados['trechos']} trecho(s) "
+                f"· {dados['fontes']} pasta(s)")
+        except Exception as exc:
+            self.indice_contagem.setText(
+                f'Estado do índice indisponível: {type(exc).__name__}.')
+
+    def _estado_indice_local(self, ativo: bool) -> None:
+        self._indice_ativo = ativo
+        self.indice_atualizar.setEnabled(not ativo)
+        self.indice_reconstruir.setEnabled(not ativo)
+        self.indice_cancelar.setEnabled(ativo)
+
+    def _atualizar_indice_local(self, reconstruir: bool) -> None:
+        if self._indice_ativo or self._indice is None:
+            return
+        self._estado_indice_local(True)
+        self.indice_status.mostrar('Atualizando índice…', 'info')
+
+        def terminou(resultado):
+            if self._fechado:
+                return
+            self._estado_indice_local(False)
+            if not isinstance(resultado, dict):
+                self.indice_status.mostrar(
+                    'Não foi possível atualizar o índice.', 'error')
+                return
+            partes = [f"{resultado.get('atualizados', 0)} atualizado(s)",
+                      f"{resultado.get('removidos', 0)} removido(s)",
+                      f"{len(resultado.get('erros') or [])} erro(s)"]
+            if resultado.get('interrompido'):
+                partes.append('interrompido')
+            if resultado.get('pendentes'):
+                partes.append(f"{resultado['pendentes']} pendente(s)")
+            estado = 'warning' if (resultado.get('interrompido')
+                                   or resultado.get('erros')
+                                   or resultado.get('pendentes')) else 'success'
+            self.indice_status.mostrar(' · '.join(partes), estado)
+            self._atualizar_contagem_indice()
+
+        acao = (lambda: self._indice.reconstruir() if reconstruir
+                else self._indice.atualizar())
+        self._executar(acao, terminou)
+
+    def _cancelar_indice_local(self) -> None:
+        if self._indice is not None:
+            self._indice.interromper()
+            self.indice_status.mostrar('Cancelando a atualização…', 'warning')
+
+    def _buscar_local(self) -> None:
+        if self._indice is None:
+            return
+        texto = self.busca_local_edit.text().strip()
+        if not texto:
+            self.busca_local_status.mostrar('Digite um termo para buscar.', 'info')
+            self.busca_local_resultados.clear()
+            return
+        self._indice_busca_seq += 1
+        seq = self._indice_busca_seq
+        self.busca_local_resultados.clear()
+        self.busca_local_status.mostrar('Buscando…', 'info')
+
+        def terminou(resultados):
+            if self._fechado or seq != self._indice_busca_seq:
+                return
+            if not isinstance(resultados, list):
+                self.busca_local_status.mostrar('Busca indisponível.', 'error')
+                return
+            for item in resultados:
+                rotulo = (f"{Path(item['arquivo']).name} · pos {item['posicao']}\n"
+                          f"{item['trecho'][:180]}")
+                linha = QListWidgetItem(rotulo, self.busca_local_resultados)
+                linha.setToolTip(item['arquivo'])
+                linha.setData(Qt.ItemDataRole.UserRole, item['arquivo'])
+            if resultados:
+                self.busca_local_status.mostrar(
+                    f'{len(resultados)} resultado(s).', 'success')
+            else:
+                self.busca_local_status.mostrar(
+                    'Nenhum trecho encontrado neste índice.', 'info')
+
+        self._executar(lambda: self._indice.buscar(texto, 10), terminou)
 
     def _construir_pagina_voz(self) -> QScrollArea:
         pagina, layout = self._pagina_base(
@@ -1785,6 +2400,27 @@ class ConfigDashboardWindow(QWidget):
         restaurar.setObjectName("Secondary")
         restaurar.clicked.connect(self._restaurar_interface)
         cartao.body.addWidget(restaurar)
+
+        cartao.body.addWidget(_rotulo_secao("Cartão Hoje e resumo", cartao))
+        self.hoje_visivel_check = QCheckBox(
+            "Mostrar o cartão Hoje no Canvas", cartao)
+        self.hoje_visivel_check.setChecked(self._service.hoje_visivel())
+        self.hoje_visivel_check.toggled.connect(self._hoje_visibilidade_mudou)
+        cartao.body.addWidget(self.hoje_visivel_check)
+        self.resumo_auto_check = QCheckBox(
+            "Ler o resumo automaticamente no horário agendado", cartao)
+        self.resumo_auto_check.setChecked(
+            self._service.resumo_leitura_automatica())
+        self.resumo_auto_check.toggled.connect(self._resumo_auto_mudou)
+        cartao.body.addWidget(self.resumo_auto_check)
+        self.resumo_voz_externa_check = QCheckBox(
+            "Permitir voz externa na leitura do resumo", cartao)
+        self.resumo_voz_externa_check.setChecked(
+            self._service.resumo_voz_externa())
+        self.resumo_voz_externa_check.toggled.connect(
+            self._resumo_voz_externa_mudou)
+        cartao.body.addWidget(self.resumo_voz_externa_check)
+
         self.interface_status = StatusLabel(cartao)
         cartao.body.addWidget(self.interface_status)
         return cartao
@@ -2074,6 +2710,36 @@ class ConfigDashboardWindow(QWidget):
         self._atualizar_cor_fundo()
         self._aplicar_interface({"appearance": dict(self._appearance)},
                                 "Salvo · aparência restaurada.")
+
+    def _hoje_visibilidade_mudou(self, ligado: bool) -> None:
+        try:
+            self._service.salvar_hoje_visivel(ligado)
+            alterar = getattr(self._service.host, 'set_hoje_visivel', None)
+            if alterar is not None:
+                alterar(ligado)
+        except Exception as exc:
+            self.interface_status.mostrar(
+                f'Não foi possível salvar: {type(exc).__name__}.', 'error')
+            return
+        self.interface_status.mostrar('Salvo', 'success')
+
+    def _resumo_auto_mudou(self, ligado: bool) -> None:
+        try:
+            self._service.salvar_resumo_leitura_automatica(ligado)
+        except Exception as exc:
+            self.interface_status.mostrar(
+                f'Não foi possível salvar: {type(exc).__name__}.', 'error')
+            return
+        self.interface_status.mostrar('Salvo', 'success')
+
+    def _resumo_voz_externa_mudou(self, ligado: bool) -> None:
+        try:
+            self._service.salvar_resumo_voz_externa(ligado)
+        except Exception as exc:
+            self.interface_status.mostrar(
+                f'Não foi possível salvar: {type(exc).__name__}.', 'error')
+            return
+        self.interface_status.mostrar('Salvo', 'success')
 
     def _aplicar_interface(self, mudancas: dict,
                            mensagem: str = "Salvo") -> None:
@@ -2534,6 +3200,10 @@ class ConfigDashboardWindow(QWidget):
                 "perfil", self._construir_pagina_perfil)),
             5: ("integracoes", lambda: self._garantir_conteudo(
                 "integracoes", self._construir_pagina_integracoes)),
+            6: ("documentos", lambda: self._garantir_conteudo(
+                "documentos", self._construir_pagina_documentos)),
+             7: ("habilidades", lambda: self._garantir_conteudo(
+                 "habilidades", self._construir_pagina_habilidades)),
         }
         acao = construtores.get(indice)
         if acao is not None:
@@ -2620,6 +3290,12 @@ class ConfigDashboardWindow(QWidget):
                 indice = 5
                 area_integracoes = ("secretaria" if texto in
                                     ("secretaria", "ligacoes") else "conexoes")
+            elif texto in ("documentos", "indice", "indice local", "busca local",
+                           "arquivos", "fontes"):
+                indice = 6
+            elif texto in ("habilidades", "habilidade", "skills",
+                           "acoes nativas"):
+                indice = 7
             else:
                 indice = 0
         else:
@@ -2688,6 +3364,12 @@ class ConfigDashboardWindow(QWidget):
              "secretaria", "secretaria_widget", "Secretária"),
             (("celular", "remoto", "parear", "revogar", "acesso"), 5,
              "conexoes", "remoto_botao", "Acesso pelo celular"),
+            (("documentos", "indice", "indice local", "busca local", "arquivos"), 6,
+             None, "busca_local_edit", "Documentos"),
+            (("habilidades", "habilidade", "skills", "acoes nativas"), 7,
+             None, "habilidades_lista", "Habilidades nativas"),
+            (("rotinas", "rotina", "lembrete", "agendamento"), 3,
+             None, "rotina_titulo", "Rotinas"),
         )
         encontrado = None
         for palavras, indice, area, alvo, rotulo in regras:
@@ -2862,6 +3544,8 @@ class ConfigDashboardWindow(QWidget):
 
     def closeEvent(self, event) -> None:
         self._fechado = True
+        if self._indice is not None and self._indice_ativo:
+            self._indice.interromper()
         self._pausar_previa_nucleo()
         if hasattr(self, "_secretaria_widget"):
             self._pausar_timers_area(False)

@@ -13,7 +13,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
 from PyQt6.QtCore import QAbstractAnimation, Qt, QTimer
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QPushButton
+from PyQt6.QtWidgets import QApplication, QLabel, QPushButton
 
 from core.config_dashboard import ConfigDashboardWindow, PALETAS
 from core.config_preferencias import (ConfigService, PreferenciaInvalida,
@@ -1213,6 +1213,427 @@ def test_secretaria_mantem_acoes_apos_refatoracao_visual(
         segmentos[-1].click()
         app.processEvents()
         assert len({b.text() for b in segmentos}) > 1
+    finally:
+        janela.close()
+
+
+# ── Skill 01: diagnóstico sob demanda ───────────────────────────────────────
+def test_diagnostico_painel_abre_sem_rede_e_sem_iniciar_ollama(
+        app, tmp_path, apis_isoladas, monkeypatch):
+    from unittest.mock import Mock
+    from core import llm_client, valida_chave
+    monkeypatch.setattr(llm_client.requests.sessions.Session, 'request',
+                        Mock(side_effect=AssertionError('rede nao simulada')))
+    monkeypatch.setattr(valida_chave, '_get',
+                        Mock(side_effect=AssertionError('rede nao simulada')))
+    monkeypatch.setattr(llm_client, 'ensure_ollama_running',
+                        Mock(side_effect=AssertionError('Ollama iniciado')))
+    monkeypatch.setattr(llm_client, '_ULTIMA_RESPOSTA', None)
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('provedores')
+        painel = janela._painel_provedores
+        assert 'Sem resposta registrada nesta sessão' in painel.efetivo.text()
+        assert painel.diag_api_botao.isEnabled()
+        assert painel.diag_local_botao.isEnabled()
+    finally:
+        janela.close()
+
+
+def test_diagnostico_api_externa_com_ollama_ausente(
+        app, tmp_path, apis_isoladas, monkeypatch):
+    from unittest.mock import Mock
+    from core import db_chaves as db, llm_client, valida_chave
+    db.adicionar_chave('google', 'ficticia-segredo-1234', 'principal', modelo='m1')
+    monkeypatch.setattr(llm_client, 'ensure_ollama_running',
+                        Mock(side_effect=AssertionError('Ollama iniciado')))
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('provedores')
+        painel = janela._painel_provedores
+        painel.provedor.setCurrentIndex(painel.provedor.findData('google'))
+        monkeypatch.setattr(painel, '_executar', lambda f, cb: cb(f()))
+        monkeypatch.setattr(valida_chave, 'testar', lambda *a:
+                            valida_chave.ResultadoValidacao(
+                                'verificada', 'ok', 200, modelos=('m1',),
+                                catalogo_completo=True))
+        painel.diag_api_botao.click()
+        texto = painel.diag_api_status.text()
+        assert 'Verificação concluída' in texto
+        assert 'ficticia-segredo-1234' not in texto
+        assert painel.diag_api_status.property('estado') == 'success'
+        assert painel.diag_api_botao.isEnabled()
+    finally:
+        janela.close()
+
+
+@pytest.mark.parametrize('resultado,trecho,estado', [
+    (None, 'Verificação inconclusiva', 'warning'),
+    (__import__('core.valida_chave', fromlist=['ResultadoValidacao'])
+     .ResultadoValidacao('rede', 'rede'), 'Falha de conexão', 'error'),
+    (__import__('core.valida_chave', fromlist=['ResultadoValidacao'])
+     .ResultadoValidacao('recusada', 'recusada'), 'Credencial recusada', 'error'),
+    (__import__('core.valida_chave', fromlist=['ResultadoValidacao'])
+     .ResultadoValidacao('cota', 'cota'), 'Limite de requisições', 'warning'),
+    (__import__('core.valida_chave', fromlist=['ResultadoValidacao'])
+     .ResultadoValidacao('modelo', 'modelo', 404), 'Modelo indisponível', 'warning'),
+])
+def test_diagnostico_api_classifica_por_evidencia(
+        app, tmp_path, apis_isoladas, monkeypatch, resultado, trecho, estado):
+    from core import db_chaves as db, valida_chave
+    db.adicionar_chave('google', 'ficticia-chave', 'conta', modelo='m1')
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('provedores')
+        painel = janela._painel_provedores
+        painel.provedor.setCurrentIndex(painel.provedor.findData('google'))
+        monkeypatch.setattr(painel, '_executar', lambda f, cb: cb(f()))
+        monkeypatch.setattr(valida_chave, 'testar', lambda *a: resultado)
+        painel.diag_api_botao.click()
+        assert trecho in painel.diag_api_status.text()
+        assert painel.diag_api_status.property('estado') == estado
+        assert 'ficticia-chave' not in painel.diag_api_status.text()
+    finally:
+        janela.close()
+
+
+def test_diagnostico_descarta_resultado_quando_alvo_muda(
+        app, tmp_path, apis_isoladas, monkeypatch):
+    from core import db_chaves as db, valida_chave
+    db.adicionar_chave('google', 'ficticia-antiga', modelo='antigo')
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('provedores')
+        painel = janela._painel_provedores
+        painel.provedor.setCurrentIndex(painel.provedor.findData('google'))
+        callbacks = []
+        monkeypatch.setattr(painel, '_executar',
+                            lambda f, cb: callbacks.append(cb) or 1)
+        painel.diag_api_botao.click()
+        assert not painel.diag_api_botao.isEnabled()
+        painel.provedor.setCurrentIndex(painel.provedor.findData('openai'))
+        callbacks[0](valida_chave.ResultadoValidacao('verificada', 'ok'))
+        app.processEvents()
+        texto = painel.diag_api_status.text()
+        assert 'descartado' in texto
+        assert 'Verificação concluída' not in texto
+        assert painel.diag_api_botao.isEnabled()
+    finally:
+        janela.close()
+
+
+def test_diagnostico_ollama_estados_e_geracao_sem_iniciar_servico(
+        app, tmp_path, apis_isoladas, monkeypatch):
+    from unittest.mock import Mock
+    from core import llm_client
+    monkeypatch.setattr(llm_client, 'ensure_ollama_running',
+                        Mock(side_effect=AssertionError('Ollama iniciado')))
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('provedores')
+        painel = janela._painel_provedores
+        painel.mostrar_area('ollama')
+        painel.modelos.addItem('m:8b')
+        painel.modelos.setCurrentIndex(0)
+        monkeypatch.setattr(painel, '_executar', lambda f, cb: cb(f()))
+        cenarios = [
+            ({'estado': 'inacessivel', 'modelos': []}, 'Serviço inacessível', 'error'),
+            ({'estado': 'sem_modelos', 'modelos': []}, 'nenhum modelo', 'warning'),
+            ({'estado': 'disponivel', 'modelos': ['outro:8b']}, 'não está instalado', 'warning'),
+            ({'estado': 'disponivel', 'modelos': ['m:8b']}, 'encontrados', 'success'),
+        ]
+        for estado, esperado, cor in cenarios:
+            monkeypatch.setattr(llm_client, 'descobrir_modelos', lambda url, e=estado: e)
+            painel.diag_local_botao.click()
+            assert esperado in painel.diag_local_status.text()
+            assert painel.diag_local_status.property('estado') == cor
+
+        monkeypatch.setattr(llm_client, 'testar_geracao_ollama',
+                            lambda modelo, url: {'estado': 'ok', 'modelo': modelo})
+        painel.diag_local_gerar.click()
+        assert 'Geração concluída' in painel.diag_local_status.text()
+        assert 'm:8b' in painel.diag_local_status.text()
+    finally:
+        janela.close()
+
+
+def test_diagnostico_mostra_motivo_da_escolha(app, tmp_path, apis_isoladas,
+                                              monkeypatch):
+    from core import llm_client as local
+    monkeypatch.setattr(local, '_ULTIMA_RESPOSTA', None)
+    local.registrar_resposta_conversa(
+        'gemini', 'modelo-real', 'Modelo configurado nas preferências')
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('provedores')
+        painel = janela._painel_provedores
+        texto = painel.efetivo.text()
+        assert 'Última resposta da conversa: gemini · modelo-real' in texto
+        assert 'Motivo da escolha: Modelo configurado nas preferências' in texto
+        assert 'Modelo configurado:' in texto
+    finally:
+        janela.close()
+
+
+def test_diagnostico_manual_nao_substitui_ultima_resposta_da_conversa(
+        app, tmp_path, apis_isoladas, monkeypatch):
+    from core import db_chaves as db, llm_client, valida_chave
+    monkeypatch.setattr(llm_client, '_ULTIMA_RESPOSTA', None)
+    db.adicionar_chave('google', 'ficticia-chave', modelo='m1')
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('provedores')
+        painel = janela._painel_provedores
+        painel.provedor.setCurrentIndex(painel.provedor.findData('google'))
+        llm_client.registrar_resposta_conversa('gemini', 'modelo-real')
+        painel._atualizar_estado()
+        assert 'Última resposta da conversa: gemini · modelo-real' in painel.efetivo.text()
+
+        monkeypatch.setattr(painel, '_executar', lambda f, cb: cb(f()))
+        monkeypatch.setattr(valida_chave, 'testar', lambda *a:
+                            valida_chave.ResultadoValidacao('verificada', 'ok'))
+        painel.diag_api_botao.click()
+        texto = painel.efetivo.text()
+        assert 'modelo-real' in texto
+        assert 'Diagnóstico manual:' in texto
+        assert 'ficticia-chave' not in texto
+    finally:
+        janela.close()
+
+
+def test_pagina_documentos_indexa_e_busca_sem_rede(
+        app, tmp_path, config_isolada, apis_isoladas, monkeypatch):
+    from unittest.mock import Mock
+    from PyQt6.QtWidgets import QFileDialog
+    from core import llm_client, valida_chave
+    documentos = tmp_path / 'docs'
+    documentos.mkdir()
+    (documentos / 'info.TXT').write_text(
+        'A secretária anotou um recado importante.', encoding='utf-8')
+    monkeypatch.setenv('NIA_INDICE_DB', str(tmp_path / 'indice.db'))
+    monkeypatch.setattr(llm_client.requests.sessions.Session, 'request',
+                        Mock(side_effect=AssertionError('rede')))
+    monkeypatch.setattr(valida_chave, '_get',
+                        Mock(side_effect=AssertionError('rede')))
+    monkeypatch.setattr(llm_client, 'ensure_ollama_running',
+                        Mock(side_effect=AssertionError('Ollama iniciado')))
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory',
+                        lambda *a, **k: str(documentos))
+
+    janela, service, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('documentos')
+        assert janela.pagina_atual == 6
+        assert '0 documento(s)' in janela.indice_contagem.text()
+        janela._adicionar_fonte_indice()
+        assert service.carregar_fontes_indice() == [str(documentos)]
+
+        janela._executar = lambda f, cb: cb(f())
+        janela.indice_atualizar.click()
+        assert '1 atualizado(s)' in janela.indice_status.text()
+        assert '1 documento(s)' in janela.indice_contagem.text()
+        janela.busca_local_edit.setText('recado importante')
+        janela.busca_local_botao.click()
+        assert janela.busca_local_resultados.count() == 1
+        assert 'info.txt' in janela.busca_local_resultados.item(0).text().lower()
+        assert 'recado' in janela.busca_local_resultados.item(0).text().lower()
+        llm_client.ensure_ollama_running.assert_not_called()
+    finally:
+        janela.close()
+
+
+def test_rotinas_no_dashboard_persistem_e_executam(
+        app, tmp_path, config_isolada, apis_isoladas, monkeypatch):
+    from core import rotinas as R
+    monkeypatch.setenv('NIA_ROTINAS_DB', str(tmp_path / 'rotinas.db'))
+    notificacoes = []
+    monkeypatch.setattr(R.Agendador, '_notificar',
+                        lambda self, msg: (notificacoes.append(msg), (True, ''))[1])
+
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela._executar = lambda f, cb: cb(f())
+        janela.activate_page('geral')
+        janela.rotina_titulo.setText('Beber água')
+        janela.rotina_mensagem.setText('Hora de beber água')
+        janela.rotina_repeticao.setCurrentIndex(
+            janela.rotina_repeticao.findData('diaria'))
+        janela.rotina_salvar.click()
+        assert 'Salvo' in janela.rotinas_status.text()
+        assert janela.rotinas_lista.count() == 1
+
+        armazem = R.ArmazemRotinas(db_path=tmp_path / 'rotinas.db')
+        itens = armazem.listar()
+        assert itens[0]['titulo'] == 'Beber água'
+        assert itens[0]['proxima_execucao']
+
+        janela.rotinas_lista.setCurrentRow(0)
+        janela.rotina_pausar.click()
+        assert armazem.obter(itens[0]['id'])['estado'] == 'pausado'
+        janela.rotina_pausar.click()
+        assert armazem.obter(itens[0]['id'])['estado'] == 'ativo'
+
+        janela.rotina_agora.click()
+        assert notificacoes == ['Hora de beber água']
+        assert janela.rotinas_historico.count() == 1
+        assert 'ok' in janela.rotinas_historico.item(0).text()
+    finally:
+        janela.close()
+
+
+def test_rotina_resumo_gera_e_atualiza_cartao(
+        app, tmp_path, config_isolada, apis_isoladas, monkeypatch):
+    from core import resumo_dia as RD
+    from core import rotinas as R
+    monkeypatch.setenv('NIA_ROTINAS_DB', str(tmp_path / 'rotinas.db'))
+    chamadas = []
+    monkeypatch.setattr(RD, 'gerar_e_salvar', lambda: chamadas.append(True) or {
+        'ok': True, 'salvo': True, 'texto': 'Resumo local',
+        'gerado_em': '2027-05-10T08:00:00+00:00'})
+
+    host = HostFalso()
+    host.atualizar_hoje = Mock()
+    janela, _, _ = criar_janela(app, tmp_path, host=host)
+    try:
+        janela._executar = lambda f, cb: cb(f())
+        janela.activate_page('geral')
+        janela.rotina_titulo.setText('Resumo diário')
+        janela.rotina_acao.setCurrentIndex(
+            janela.rotina_acao.findData('resumo'))
+        janela.rotina_repeticao.setCurrentIndex(
+            janela.rotina_repeticao.findData('dias_uteis'))
+        janela.rotina_salvar.click()
+        armazem = R.ArmazemRotinas(db_path=tmp_path / 'rotinas.db')
+        rotina = armazem.listar()[0]
+        assert rotina['acao'] == 'resumo'
+        assert rotina['repeticao'] == 'dias_uteis'
+
+        janela.rotinas_lista.setCurrentRow(0)
+        antes = rotina['proxima_execucao']
+        janela.rotina_agora.click()
+        assert chamadas == [True]
+        assert armazem.obter(rotina['id'])['proxima_execucao'] == antes
+        assert host.atualizar_hoje.called
+    finally:
+        janela.close()
+
+
+def test_preferencia_do_cartao_hoje_usa_interface_json(tmp_path):
+    servico = criar_service(tmp_path)
+    assert servico.hoje_visivel() is True
+    servico.salvar_hoje_visivel(False)
+    dados = json.loads((tmp_path / 'interface.json').read_text(encoding='utf-8'))
+    assert dados['cards']['hoje'] is False
+    assert criar_service(tmp_path).hoje_visivel() is False
+
+
+def test_pagina_habilidades_mostra_catalogo_e_aciona_executor_unico(
+        app, tmp_path, monkeypatch):
+    from core import catalogo_habilidades as CH
+    from core.catalogo_habilidades import Disponibilidade
+    monkeypatch.setattr(CH, 'disponibilidade',
+                        lambda ident: Disponibilidade(True, 'Pronta para teste.'))
+    chamadas = []
+    monkeypatch.setattr(CH, '_EXECUTOR',
+                        lambda ident, termo: chamadas.append((ident, termo)) or
+                        (True, 'Ação concluída'))
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('habilidades')
+        app.processEvents()
+        assert janela.pagina_atual == 7
+        assert janela._nav_buttons[7].isChecked()
+        assert 'habilidades' in janela._paginas_lazy
+        textos = [l.text() for l in janela.habilidades_lista.findChildren(QLabel)]
+        for habilidade in CH.todas():
+            assert any(habilidade.nome in t for t in textos)
+            assert any(habilidade.exemplo in t for t in textos)
+            assert habilidade.id in janela.habilidades_botoes
+
+        janela.habilidades_botoes['resumo_dia'].click()
+        app.processEvents()
+        assert chamadas == [('resumo_dia', '')]
+        assert 'Ação concluída' in janela.habilidades_status['resumo_dia'].text()
+    finally:
+        janela.close()
+
+
+def test_habilidade_indisponível_oferece_configuracao(
+        app, tmp_path, monkeypatch):
+    from core import catalogo_habilidades as CH
+    from core.catalogo_habilidades import Disponibilidade
+    monkeypatch.setattr(CH, 'disponibilidade', lambda ident: Disponibilidade(
+        False, 'Configure as fontes em Configurações → Documentos.'))
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('habilidades')
+        app.processEvents()
+        botao = janela.habilidades_botoes['buscar_arquivos']
+        assert botao.text() == 'Abrir configuração'
+        assert 'Configure as fontes' in janela.habilidades_status[
+            'buscar_arquivos'].text()
+    finally:
+        janela.close()
+
+
+def test_busca_e_teclado_alcancam_pagina_habilidades(app, tmp_path, monkeypatch):
+    from core import catalogo_habilidades as CH
+    from core.catalogo_habilidades import Disponibilidade
+    monkeypatch.setattr(CH, 'disponibilidade',
+                        lambda ident: Disponibilidade(True, 'Pronta.'))
+    janela, _, _ = criar_janela(app, tmp_path)
+    janela.show()
+    app.processEvents()
+    try:
+        janela.activate_page('documentos')
+        app.processEvents()
+        janela._nav_buttons[6].setFocus(Qt.FocusReason.OtherFocusReason)
+        QTest.keyClick(janela._nav_buttons[6], Qt.Key.Key_Down)
+        app.processEvents()
+        assert janela.pagina_atual == 7
+        janela.busca_edit.setText('habilidades')
+        janela.busca_edit.returnPressed.emit()
+        app.processEvents()
+        QTest.qWait(30)
+        app.processEvents()
+        assert janela.pagina_atual == 7
+        assert 'Encontrado: Habilidades nativas' in janela.busca_status.text()
+    finally:
+        janela.close()
+
+
+def test_abrir_habilidades_offline_sem_rede_inferencia_ou_indexacao(
+        app, tmp_path, monkeypatch):
+    import requests
+    from core import catalogo_habilidades as CH
+    from core import indice_local, llm_client, secretaria
+    from core.config_preferencias import ConfigService
+
+    def proibido(*args, **kwargs):
+        pytest.fail('abrir o catálogo não deve acessar rede, modelo ou índice')
+
+    monkeypatch.setattr(requests, 'get', proibido)
+    monkeypatch.setattr(requests, 'post', proibido)
+    monkeypatch.setattr(llm_client, 'call_llm', proibido)
+    monkeypatch.setattr(llm_client, 'call_llm_stream', proibido)
+    monkeypatch.setattr(indice_local.IndiceLocal, 'atualizar', proibido)
+    monkeypatch.setattr(indice_local.IndiceLocal, 'reconstruir', proibido)
+    monkeypatch.setattr(ConfigService, 'carregar_fontes_indice',
+                        lambda self: [str(tmp_path)])
+    monkeypatch.setattr(secretaria, 'carregar', lambda: {'ligada': True})
+
+    janela, _, _ = criar_janela(app, tmp_path)
+    try:
+        janela.activate_page('habilidades')
+        app.processEvents()
+        for estado in janela.habilidades_status.values():
+            assert estado.property('estado') == 'success'
+        exemplo = CH.todas()[0].exemplo
+        botao = next(b for b in janela.habilidades_lista.findChildren(QPushButton)
+                     if b.accessibleName().startswith('Copiar exemplo'))
+        botao.click()
+        app.processEvents()
+        assert QApplication.clipboard().text() == exemplo
     finally:
         janela.close()
 

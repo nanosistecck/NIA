@@ -851,6 +851,8 @@ class CerebroOpenRouter:
                                   self.executor, forcar_ferramenta=forcar)
             if r.get("texto") or r.get("chamou_ferramenta"):
                 self.ultimo_cerebro = "codex"
+                from core.llm_client import registrar_resposta_conversa  # noqa: PLC0415
+                registrar_resposta_conversa("codex", "VPS/Codex")
                 return r
         except Exception as exc:
             print(f"[NIA] o Codex da VPS nao respondeu: {str(exc)[:140]}")
@@ -939,6 +941,19 @@ class CerebroOpenRouter:
             raise
         if resultado is not None:
             registrar_motor_conversa(getattr(self, 'ultimo_cerebro', 'externo'))
+            try:
+                from core import roteador_tarefas as RT  # noqa: PLC0415
+                decisao = RT.ultima_decisao()
+                if decisao is not None:
+                    from core.llm_client import registrar_motivo_resposta  # noqa: PLC0415
+                    efetivo = str(getattr(self, 'ultimo_cerebro', '') or '')
+                    if efetivo and decisao.provedor not in efetivo:
+                        registrar_motivo_resposta(
+                            f'Fallback da política salva para {efetivo}.')
+                    else:
+                        registrar_motivo_resposta(decisao.motivo)
+            except Exception:
+                pass
         return resultado
 
     def _sincronizar_credenciais(self):

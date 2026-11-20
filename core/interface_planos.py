@@ -306,6 +306,9 @@ class PlanosWindow(QWidget):
                     atual.id,
                     {"titulo": titulo, "objetivo": objetivo, "tipo": tipo},
                     atual.revisao)
+        except ConflitoDeRevisao:
+            self.status.setText("Conflito de revisão. Recarregue os planos.")
+            return
         except (PlanoInvalido, ErroPlano):
             self.status.setText("Título e objetivo são obrigatórios.")
             return

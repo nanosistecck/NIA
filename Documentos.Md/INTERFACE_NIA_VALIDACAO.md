@@ -108,7 +108,7 @@ Entrega combinada: base local versionada de planos, Gerenciador no dock, editor 
 $env:QT_QPA_PLATFORM='offscreen'
 & .venv-apis/Scripts/python.exe -m pytest -q -p no:cacheprovider --basetemp=cache/pytest-canvas
 ```
-Resultado: **288 testes passaram** (Python 3.12.14, PyQt6 6.12.1, pytest 9.2.0). Também: `compileall -q core ui.py main.py` e `git diff --check` sem erros.
+Resultado: **289 testes passaram** (Python 3.12.14, PyQt6 6.12.1, pytest 9.2.0). Também: `compileall -q core ui.py main.py` e `git diff --check` sem erros.
 
 Cobertura acrescentada: persistência após reinício, revisão/conflito/falha de escrita, arquivo corrompido isolado, formato antigo sem mapa, card central idempotente, exclusão com conexões desfeita e refeita junta, restauração de câmera/posições, falha de gravação, recolhimento de dock e retorno do núcleo sem persistir preferência, intenções do Prompt 03, escolha por ordinal, negação e reentrega de transcrição.
 

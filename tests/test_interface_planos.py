@@ -96,3 +96,20 @@ def test_estados_vazios_e_erro_preserva_digitado(janela, monkeypatch):
     assert "Falha ao salvar" in janela.status.text()
     assert _texto(janela, "campo_titulo").text() == "Titulo digitado"
     assert _texto(janela, "campo_objetivo").text() == "Objetivo digitado"
+
+
+def test_conflito_de_revisao_e_sinalizado_no_gerenciador(janela, monkeypatch):
+    from core.planos import ConflitoDeRevisao, criar as criar_plano
+    plano = criar_plano("Original", "Objetivo", "Projeto")
+    janela.recarregar()
+    janela.selecionar(plano.id)
+    _botao(janela, "editar").click()
+    _texto(janela, "campo_titulo").setText("Titulo local")
+
+    def conflito(*args, **kwargs):
+        raise ConflitoDeRevisao(0, 1)
+
+    monkeypatch.setattr(IP, "atualizar", conflito)
+    _botao(janela, "salvar_plano").click()
+    assert "conflito" in janela.status.text().lower()
+    assert _texto(janela, "campo_titulo").text() == "Titulo local"

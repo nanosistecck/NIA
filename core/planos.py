@@ -22,9 +22,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-FORMATO = 1
+FORMATO = 2
 TIPOS = ("Geral", "Produto", "Projeto", "Conteúdo", "Estudos", "Finanças")
 STATUS = ("ativo", "arquivado")
+TIPOS_CARD = ("tarefa", "ideia", "referencia")
+STATUS_TAREFA = ("pendente", "em_andamento", "bloqueado", "concluido")
 _CHAVE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 # Alias de módulo: os testes isolam falhas de gravação substituindo este nome.
@@ -240,7 +242,7 @@ def listar() -> tuple[list[Plano], list[str]]:
 def _validar_campos(mudancas: dict) -> dict:
     if not isinstance(mudancas, dict):
         raise PlanoInvalido("mudanças precisam ser um dicionário")
-    permitidas = {"titulo", "objetivo", "tipo", "status", "mapa"}
+    permitidas = {"titulo", "objetivo", "tipo", "status", "mapa", "formato"}
     limpas = {k: v for k, v in mudancas.items() if k in permitidas}
     if "titulo" in limpas:
         if not isinstance(limpas["titulo"], str) or not limpas["titulo"].strip():
@@ -256,6 +258,11 @@ def _validar_campos(mudancas: dict) -> dict:
         raise PlanoInvalido("status desconhecido")
     if "mapa" in limpas and not isinstance(limpas["mapa"], dict):
         raise PlanoInvalido("mapa inválido")
+    if "formato" in limpas:
+        formato = limpas["formato"]
+        if isinstance(formato, bool) or not isinstance(formato, int) \
+                or formato < 1 or formato > FORMATO:
+            raise PlanoInvalido("formato desconhecido")
     return limpas
 
 
@@ -294,6 +301,138 @@ def arquivar(plano_id: str, revisao_esperada: int) -> Plano:
 
 def restaurar(plano_id: str, revisao_esperada: int) -> Plano:
     return atualizar(plano_id, {"status": "ativo"}, revisao_esperada)
+
+
+# ── mapa do Canvas (Etapa 2) ────────────────────────────────────────────
+def mapa_vazio() -> dict[str, Any]:
+    """Estrutura inicial do mapa, promovida no primeiro `inicializar_mapa`."""
+    return {
+        "versao_mapa": 1,
+        "inicializado": False,
+        "raiz_id": "",
+        "cards": [],
+        "conexoes": [],
+        "camera": {"cx": 0.0, "cy": 0.0, "zoom": 1.0},
+    }
+
+
+def validar_mapa(mapa: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
+    """Valida cards/conexões; devolve mapa limpo e avisos sem conteúdo."""
+    base = mapa_vazio()
+    if not isinstance(mapa, dict):
+        return base, ["mapa inválido"]
+    for chave in base:
+        if chave in mapa:
+            base[chave] = mapa[chave]
+    avisos: list[str] = []
+    cards: list[dict] = []
+    ids: set[str] = set()
+    brutos = base["cards"] if isinstance(base["cards"], list) else []
+    for cartao in brutos:
+        if not isinstance(cartao, dict):
+            avisos.append("card inválido descartado")
+            continue
+        ident = cartao.get("id")
+        if not isinstance(ident, str) or not _CHAVE_ID.fullmatch(ident) or ident in ids:
+            avisos.append("card com id inválido descartado")
+            continue
+        tipo = cartao.get("tipo")
+        if tipo not in TIPOS_CARD:
+            avisos.append(f"card {ident}: tipo desconhecido")
+            tipo = "ideia"
+        status = ""
+        if tipo == "tarefa":
+            status = cartao.get("status")
+            if status not in STATUS_TAREFA:
+                avisos.append(f"card {ident}: status desconhecido")
+                status = "pendente"
+        ids.add(ident)
+        cards.append({
+            "id": ident,
+            "tipo": tipo,
+            "titulo": str(cartao.get("titulo") or ""),
+            "resumo": str(cartao.get("resumo") or ""),
+            "descricao": str(cartao.get("descricao") or ""),
+            "status": status,
+            "x": float(cartao.get("x") or 0.0),
+            "y": float(cartao.get("y") or 0.0),
+        })
+    conexoes: list[dict] = []
+    conexoes_brutas = base["conexoes"] if isinstance(base["conexoes"], list) else []
+    for ligacao in conexoes_brutas:
+        if not isinstance(ligacao, dict):
+            avisos.append("conexão inválida descartada")
+            continue
+        origem, destino = ligacao.get("origem"), ligacao.get("destino")
+        if origem not in ids or destino not in ids or origem == destino:
+            avisos.append("conexão referenciando card inexistente descartada")
+            continue
+        ident = ligacao.get("id")
+        if not isinstance(ident, str) or not _CHAVE_ID.fullmatch(ident):
+            ident = novo_id()
+        conexoes.append({
+            "id": ident,
+            "origem": origem,
+            "destino": destino,
+            "rotulo": str(ligacao.get("rotulo") or ""),
+        })
+    camera = base["camera"] if isinstance(base["camera"], dict) else {}
+    try:
+        cx, cy, zoom = (float(camera.get("cx") or 0.0),
+                        float(camera.get("cy") or 0.0),
+                        float(camera.get("zoom") or 1.0))
+    except (TypeError, ValueError):
+        cx, cy, zoom = 0.0, 0.0, 1.0
+    base.update({
+        "inicializado": bool(base["inicializado"]),
+        "raiz_id": str(base["raiz_id"] or ""),
+        "cards": cards,
+        "conexoes": conexoes,
+        "camera": {"cx": cx, "cy": cy, "zoom": max(0.2, min(3.0, zoom))},
+    })
+    return base, avisos
+
+
+def card_por_id(plano: Plano, card_id: str | None) -> dict | None:
+    if not card_id:
+        return None
+    return next((c for c in plano.mapa.get("cards", [])
+                 if isinstance(c, dict) and c.get("id") == card_id), None)
+
+
+def inicializar_mapa(plano_id: str) -> Plano:
+    """Cria o card central uma única vez, a partir de título e objetivo do plano."""
+    atual = _carregar_ou_erro(plano_id)
+    mapa, _ = validar_mapa(atual.mapa)
+    if mapa["inicializado"] and mapa["cards"]:
+        return atual
+    ident = novo_id()
+    mapa["cards"].append({
+        "id": ident,
+        "tipo": "ideia",
+        "titulo": atual.titulo,
+        "resumo": atual.objetivo[:80],
+        "descricao": atual.objetivo,
+        "status": "",
+        "x": 0.0,
+        "y": 0.0,
+    })
+    mapa["raiz_id"] = ident
+    mapa["inicializado"] = True
+    return atualizar(plano_id, {"mapa": mapa, "formato": FORMATO}, atual.revisao)
+
+
+def resumo_progresso(plano: Plano) -> dict[str, int | bool]:
+    """Conta apenas cards de tarefa; `sem_tarefas` distingue ausência de dados."""
+    tarefas = [c for c in plano.mapa.get("cards", [])
+               if isinstance(c, dict) and c.get("tipo") == "tarefa"]
+    resultado: dict[str, int | bool] = {
+        "total": len(tarefas),
+        "sem_tarefas": not tarefas,
+    }
+    for status in STATUS_TAREFA:
+        resultado[status] = sum(1 for c in tarefas if c.get("status") == status)
+    return resultado
 
 
 def buscar(planos: list[Plano], termo: str = "", tipo: str = "",

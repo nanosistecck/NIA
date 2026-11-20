@@ -240,6 +240,8 @@ class CerebroGenerico:
                     continue
                 raise
             self.modelo = modelo
+            from core.llm_client import registrar_resposta_conversa  # noqa: PLC0415
+            registrar_resposta_conversa(self.provedor, modelo)
             try:
                 gastos = int((dados.get("usage") or {}).get("total_tokens") or 0)
                 self.ultimo_uso["tokens"] = gastos

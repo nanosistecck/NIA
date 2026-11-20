@@ -154,6 +154,8 @@ from core.preguica import Preguicoso as _Preguicoso, aquecer as _aquecer_imports
 genai = _Preguicoso("google.genai")
 types = _Preguicoso("google.genai.types")
 from ui import NiaUI
+from core import busca_fontes as BF
+from core import catalogo_habilidades as CH
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
@@ -2606,6 +2608,9 @@ class NiaLive:
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._interrupted          = False   # True while draining audio after user interrupt
+        self._turno_seq            = 0       # resultados atrasados não mudam outra conversa
+        self._busca_seq            = 0
+        self._pendente_sintese     = None    # autorização ligada a destino e trechos
         self.ui.on_text_command     = self._on_text_command
         # A janela ja esta de pe: o resto do que demora para carregar vai por tras.
         _aquecer_imports("google.genai", "google.genai.types")
@@ -2622,6 +2627,10 @@ class NiaLive:
         self.ui.on_revoke_devices   = self._revoke_devices
         self.ui.on_whatsapp_clicked = self._open_whatsapp_from_button
         self.ui.on_interrupt        = self.interrupt
+        self.ui.on_falar_resumo     = self._falar_resumo
+        # SKILL 07: catálogo, dock, chat e voz usam o mesmo executor.
+        CH.registrar_executor(self._executar_habilidade)
+        self._configurar_agendador_resumo()
         # SEGUNDO PLANO (01/11/2026): a janela avisa quando some e quando volta.
         self.ui.on_segundo_plano    = self._mudou_segundo_plano
         # O microfone que o automatico escolheu, guardado ao fechar para o
@@ -3238,6 +3247,169 @@ class NiaLive:
             self.ui.write_log(f"SIS: Falha ao revogar acesso remoto: {exc}")
             return None
 
+    # ── Skill 03: busca local com fontes ───────────────────────────────────
+    def _buscar_arquivos_local(self, texto: str, origem: str = 'texto') -> bool:
+        pedido = BF.planejar_pedido(texto)
+        if pedido is None:
+            return False
+        self._turno_seq += 1
+        seq = self._turno_seq
+        self._busca_seq += 1
+        busca_seq = self._busca_seq
+
+        def trabalhar():
+            try:
+                indice = BF.indice_atual()
+                estado = indice.contar()
+                if not estado.get('fts5'):
+                    return {'erro': 'fts5'}
+                if estado.get('documentos', 0) == 0:
+                    return {'erro': 'vazio'}
+                fontes = BF.buscar(pedido.consulta, 6, indice=indice)
+                return {'fontes': fontes}
+            except Exception:
+                return {'erro': 'indisponivel'}
+
+        def pronto(resultado):
+            if (_ENCERRANDO.is_set() or self._interrupted
+                    or seq != self._turno_seq or busca_seq != self._busca_seq):
+                return
+            if not isinstance(resultado, dict):
+                resultado = {'erro': 'indisponivel'}
+            erro = resultado.get('erro')
+            if erro == 'fts5':
+                self.ui.write_log(
+                    'SIS: busca local indisponível neste runtime (FTS5 ausente).')
+                return
+            if erro == 'vazio':
+                self.ui.write_log(
+                    'SIS: índice local vazio. Configure pastas e atualize o '
+                    'índice em Configurações > Documentos.')
+                return
+            if erro:
+                self.ui.write_log('SIS: busca local indisponível no momento.')
+                return
+            fontes = resultado.get('fontes') or []
+            if not fontes:
+                self.ui.write_log(
+                    'SIS: não localizei essa informação nas fontes consultadas.')
+                return
+            linhas = [f'ARQUIVOS LOCAIS — {pedido.consulta[:60]}']
+            for fonte in fontes:
+                linhas.append(f'[{fonte.id}] {fonte.nome} · posição {fonte.posicao}')
+                linhas.append(fonte.trecho)
+            self.ui.show_content('ARQUIVOS LOCAIS', '\n'.join(linhas)[:4000])
+            self.ui.show_sources(
+                'Fontes encontradas',
+                [{'rotulo': f.rotulo(), 'nome': f.nome, 'arquivo': f.arquivo,
+                  'trecho': f.trecho} for f in fontes])
+            self.ui.write_log(
+                f'SIS: {len(fontes)} trecho(s) local(is) encontrado(s); '
+                'fontes abertas no chat.')
+            if origem == 'voz':
+                nome = fontes[0].nome
+                frase = (f'Encontrei {len(fontes)} trecho(s). '
+                         f'O primeiro veio de {nome}.')
+                try:
+                    self._falar_local(frase)
+                except Exception:
+                    pass
+            if pedido.resumo:
+                self._oferecer_sintese(pedido, fontes, seq, origem)
+
+        threading.Thread(target=lambda: self.ui.write_log(
+            'SIS: procurando nos arquivos locais…'), daemon=True).start()
+        threading.Thread(target=lambda: pronto(trabalhar()),
+                         daemon=True, name='nia-busca-local').start()
+        return True
+
+    def _oferecer_sintese(self, pedido, fontes, seq: int, origem: str) -> None:
+        enviadas = fontes[:3]
+        destino = BF.destino_atual()
+        if destino.get('local'):
+            # Ollama é local por decisão de privacidade: nunca vai para a nuvem.
+            threading.Thread(target=self._executar_sintese,
+                             args=({'pergunta': pedido.consulta,
+                                    'fontes': enviadas, 'seq': seq,
+                                    'origem': origem}, destino),
+                             daemon=True, name='nia-sintese-local').start()
+            return
+        self._pendente_sintese = {
+            'pergunta': pedido.consulta,
+            'fontes': enviadas,
+            'destino': destino,
+            'assinatura': destino.get('assinatura', ''),
+            'seq': seq,
+            'origem': origem,
+            'em': time.time(),
+        }
+        descricao = BF.descricao_destino(destino)
+        ids = ', '.join(f.id for f in enviadas)
+        self.ui.write_log(
+            f'SIS: resumo pedido. Enviar os trechos {ids} para {descricao}? '
+            'Responda SIM para autorizar; os trechos já estão no chat.')
+
+    def _tratar_confirmacao_sintese(self, texto: str) -> bool:
+        pendente = self._pendente_sintese
+        if not pendente:
+            return False
+        if time.time() - float(pendente.get('em') or 0) > 180:
+            self._pendente_sintese = None
+            return False
+        resposta = re.sub(r'[^a-zà-ú\s]', '', str(texto or '').lower()).strip()
+        if resposta in ('nao', 'não', 'cancelar', 'nao envie', 'não envie'):
+            self._pendente_sintese = None
+            self.ui.write_log('SIS: envio cancelado; os trechos locais continuam disponíveis.')
+            return True
+        if resposta not in ('sim', 'confirmo', 'pode enviar', 'pode'):
+            return False
+        destino = BF.destino_atual()
+        if destino.get('assinatura') != pendente.get('assinatura'):
+            self._pendente_sintese = None
+            self.ui.write_log(
+                'SIS: destino mudou; a autorização anterior foi descartada. '
+                'Responda SIM novamente se quiser enviar os trechos.')
+            return True
+        # O turno avanca no ponto de entrada ANTES desta confirmacao ("SIM"
+        # tambem e uma mensagem). Sem este ajuste o resultado da sintese seria
+        # descartado pelo guarda de resultado atrasado em `_executar_sintese`.
+        pendente['seq'] = self._turno_seq
+        self._pendente_sintese = None
+        threading.Thread(target=self._executar_sintese,
+                         args=(pendente, destino), daemon=True,
+                         name='nia-sintese-fontes').start()
+        return True
+
+    def _executar_sintese(self, pendente: dict, destino: dict) -> None:
+        seq = int(pendente.get('seq') or 0)
+        fontes = pendente.get('fontes') or []
+        contexto = BF.contexto_minimo(pendente.get('pergunta') or '', fontes)
+        try:
+            bruto = BF.sintetizar(contexto, destino)
+        except Exception:
+            self.ui.write_log(
+                'SIS: síntese indisponível; os trechos locais continuam no chat.')
+            return
+        if (_ENCERRANDO.is_set() or self._interrupted
+                or seq != self._turno_seq):
+            return
+        texto, invalidas = BF.filtrar_referencias(bruto, fontes)
+        if not texto:
+            texto = 'Não consegui resumir com as fontes disponíveis.'
+        if invalidas:
+            texto = ('Resumo parcialmente verificado: ignorei referências que '
+                     'não correspondem aos trechos exibidos.\n' + texto)
+        if not BF._REF.search(texto):
+            texto = ('Resumo não verificado pelas fontes exibidas: ' + texto)
+        nome = getattr(self.ui, 'nome_da_ia_e', 'NIA')
+        self.ui.write_log(f'{nome}: {texto}')
+        if pendente.get('origem') == 'voz':
+            curto = texto.split('\n')[0][:180]
+            try:
+                self._falar_local(curto)
+            except Exception:
+                pass
+
     def _on_text_command(self, text: str):
         # ── COMANDOS DE BARRA ────────────────────────────────────────────────
         # Ficam AQUI, e nao no `speak()`. O texto digitado na caixa vai para
@@ -3256,6 +3428,9 @@ class NiaLive:
             return
         _cmd = re.sub(r"\s+", " ", str(text or "")).strip()
         _low = _cmd.lower()
+        self._turno_seq += 1
+        if self._tratar_confirmacao_sintese(_cmd):
+            return
         # Digitar TAMBEM e o dono falando: zera o relogio do silencio. Sem isto
         # o check-in proativo interrompia quem estava conversando pelo teclado.
         if _cmd:
@@ -3295,6 +3470,7 @@ class NiaLive:
         if _low == "/esquecer":
             if self._openrouter is not None:
                 self._openrouter.limpar()
+            self._turno_seq += 1
             self.ui.write_log("CEREBRO: memoria da conversa limpa.")
             return
         if _low in ("/vozes", "/voz"):
@@ -3335,6 +3511,16 @@ class NiaLive:
             if pergunta:
                 threading.Thread(target=self._codex_chat_teste,
                                  args=(pergunta,), daemon=True).start()
+            return
+
+        # HABILIDADES NATIVAS (Skill 07): frases do catálogo vão para o mesmo
+        # executor do dashboard e do dock, sem inferência para decidir a rota.
+        if self._executar_frase_habilidade(_cmd, 'texto'):
+            return
+
+        # BUSCA LOCAL COM FONTES (Skill 03): pedido explícito, sem modelo e
+        # sem rede. Conversa comum continua exatamente pelo fluxo atual.
+        if self._buscar_arquivos_local(_cmd, origem='texto'):
             return
 
         # Sem sessao da Gemini (modo local), o texto digitado vai para o mesmo
@@ -3397,6 +3583,7 @@ class NiaLive:
             )
             return
         self._marcar_pedido_pendente()
+        self._registrar_intencao('chat')
         asyncio.run_coroutine_threadsafe(
             self.session.send_client_content(
                 turns={"parts": [{"text": text}]},
@@ -6666,9 +6853,113 @@ class NiaLive:
         elif not self.ui.muted:
             self.ui.set_state("LISTENING")
 
+    def _falar_resumo(self, texto: str) -> bool:
+        """Lê o resumo pelo fluxo de voz atual, com autorização para voz externa."""
+        if self.ui.muted or _SEGUNDO_PLANO.is_set() or self._interrupted:
+            return False
+        try:
+            from core.config_preferencias import ConfigService  # noqa: PLC0415
+            servico = ConfigService()
+            voz = str(getattr(getattr(self, '_voz_local', None), 'voz', '') or '')
+            externa = voz.startswith('__gemini__') or voz.startswith('__openai__')
+            if externa and not servico.resumo_voz_externa():
+                self.ui.write_log(
+                    'SIS: resumo disponível no card; leitura por voz externa '
+                    'precisa de autorização em Configurações.')
+                return False
+            return bool(self._falar_local(str(texto or '')[:700]))
+        except Exception:
+            self.ui.write_log('SIS: voz indisponível; resumo permanece no card.')
+            return False
+
+    def _registrar_intencao(self, origem: str = 'chat', imagem: bool = False) -> None:
+        """Registra a decisão local da tarefa sem alterar a rota existente."""
+        try:
+            from core import roteador_tarefas as RT  # noqa: PLC0415
+            RT.decidir(RT.Requisitos(geracao=True, imagem=imagem, origem=origem))
+        except Exception:
+            pass
+
+    def _executar_habilidade(self, identificador: str, termo: str = '') -> tuple[bool, str]:
+        """Ponto de entrada único das habilidades nativas da Skill 07.
+
+        Reutiliza os fluxos existentes: ferramenta da Secretária, consulta da
+        Skill 03 e geração manual da Skill 05. Nenhuma etapa chama inferência
+        para decidir a rota.
+        """
+        habilidade = CH.por_id(identificador)
+        if habilidade is None:
+            return False, 'Habilidade desconhecida.'
+        origem = CH.origem()
+        if habilidade.acao == 'abrir_secretaria':
+            if not CH.disponibilidade(habilidade.id).pronta:
+                self.ui.abrir_pagina_config(habilidade.config)
+                return True, ('Secretária desligada: área de ativação aberta nas '
+                              'Configurações.')
+            try:
+                resposta = str(self._ferramenta_secretaria({'acao': 'abrir'}))
+            except Exception as exc:
+                return False, f'Não foi possível abrir a Secretária: {type(exc).__name__}.'
+            self.ui.write_log(f'SIS: {resposta}')
+            return True, resposta
+        if habilidade.acao == 'abrir_busca':
+            if not CH.disponibilidade(habilidade.id).pronta:
+                self.ui.abrir_pagina_config(habilidade.config)
+                return True, 'Fontes da busca local não configuradas; área aberta.'
+            if termo:
+                # Bare term: rebuild the documented phrase and reuse Skill 03
+                # end to end (fontes, autorização de síntese e apresentação).
+                frase = f'procure nos meus arquivos por {termo}'
+                de = 'voz' if origem == 'voz' else 'texto'
+                if self._buscar_arquivos_local(frase, origem=de):
+                    return True, f'Busca local por “{termo}” iniciada.'
+                return False, 'Não foi possível iniciar a busca local.'
+            self.ui.focar_busca_canvas()
+            return True, 'Digite o termo da busca na caixa da NIA.'
+        if habilidade.acao == 'gerar_resumo':
+            self.ui.gerar_resumo_agora()
+            return True, 'Resumo do dia sendo preparado no cartão Hoje.'
+        return False, 'Ação da habilidade não implementada.'
+
+    def _executar_frase_habilidade(self, texto: str, origem: str) -> bool:
+        """Reconhece as frases do catálogo no chat/voz e usa o mesmo executor."""
+        habilidade, termo = CH.reconhecer(texto)
+        if habilidade is None:
+            return False
+        token = CH.definir_origem(origem)
+        try:
+            _ok, mensagem = CH.executar(habilidade.id, termo)
+        finally:
+            CH.restaurar_origem(token)
+        if mensagem:
+            self.ui.write_log(f'SIS: {mensagem}')
+        # A frase foi reconhecida como habilidade local: mesmo em falha ela
+        # nao deve cair no modelo e virar inferencia externa.
+        return True
+
+    def _fala_para_servicos_locais(self, texto: str) -> tuple[bool, str]:
+        """Aplica a palavra de ativação antes de acionar serviços locais."""
+        passa, frase = self._passa_pelo_nome(texto)
+        if not passa or not str(frase or '').strip():
+            return False, ''
+        return True, frase
+
+    def _configurar_agendador_resumo(self) -> None:
+        """Liga o gerador/leitor do resumo ao único agendador do processo."""
+        try:
+            from core import rotinas as R  # noqa: PLC0415
+            from core.config_preferencias import ConfigService  # noqa: PLC0415
+            agendador = R.agendador_global()
+            agendador.ao_resumo = self._falar_resumo
+            agendador.resumo_leitura_automatica = (
+                ConfigService().resumo_leitura_automatica)
+        except Exception:
+            pass
+
     def interrupt(self) -> None:
         """Stop NIA mid-speech: drain queued audio and open mic immediately."""
         self._interrupted = True
+        self._turno_seq += 1   # resultados em voo não alcançam mais esta conversa
         q = self.audio_in_queue
         if q:
             drained = 0
@@ -6716,6 +7007,14 @@ class NiaLive:
             pass
         if not ligado:
             _voice_diag("segundo_plano", "voltou: microfone e voz liberados")
+            # Rotinas: consolida atrasos da suspensão e agenda a próxima.
+            try:
+                from core import rotinas as _rotinas  # noqa: PLC0415
+                agendador = _rotinas.agendador_global()
+                agendador.armazem.recuperar()
+                agendador.recalcular()
+            except Exception:
+                pass
             # A voz sobe de novo antes da primeira frase do dono — sem isto a
             # primeira resposta pagaria o aperto de mao (ver `_aquecer_boca`).
             try:
@@ -8759,6 +9058,7 @@ class NiaLive:
             # Passo do meio: fala previa de envio de WhatsApp nao sai (13/10/2026).
             self._openrouter.falar = self._falar_passo_do_cerebro
             t0 = _t.monotonic()
+            self._registrar_intencao('local')
             resposta = self._openrouter.perguntar(texto)
             if not resposta:
                 self.ui.write_log("LOCAL: o cerebro devolveu vazio.")
@@ -9433,6 +9733,16 @@ class NiaLive:
             # proativo achava que a casa estava vazia ha horas e ficava
             # perguntando "o que o senhor quer fazer" (08/09/2026).
             self._last_user_speech = _t.monotonic()
+            self._turno_seq += 1
+            if self._tratar_confirmacao_sintese(texto):
+                return
+            # HABILIDADES POR VOZ: mesma operação do chat, com transcrição
+            # já limpa pelo nome da NIA (`_passa_pelo_nome`).
+            if self._executar_frase_habilidade(texto, 'voz'):
+                return
+            # BUSCA LOCAL POR VOZ: mesma operação do chat, com resposta curta.
+            if self._buscar_arquivos_local(texto, origem='voz'):
+                return
             try:
                 from memory.diario import anotar as _anotar  # noqa: PLC0415
                 _anotar("dono", texto)
@@ -9515,6 +9825,7 @@ class NiaLive:
                 # Passo do meio: fala previa de envio de WhatsApp nao sai (13/10/2026).
                 self._openrouter.falar = self._falar_passo_do_cerebro
                 try:
+                    self._registrar_intencao('voz')
                     resposta = self._openrouter.perguntar(texto)
                 except Exception as exc_or:
                     # REDE DE SEGURANCA: o OpenRouter gratis tem teto de ~7.866
@@ -11757,6 +12068,28 @@ class NiaLive:
                             if delete_confirmation_handled:
                                 continue
 
+                            # BUSCA LOCAL NA VIA GEMINI LIVE: mesma operação do chat.
+                            if full_in and not _SEGUNDO_PLANO.is_set():
+                                self._turno_seq += 1
+                                if self._tratar_confirmacao_sintese(full_in):
+                                    out_buf = []
+                                    continue
+                                # As habilidades locais nao podem ignorar a
+                                # palavra de ativacao so porque esta e a via
+                                # Gemini Live. O "SIM" acima continua valendo
+                                # sem nome: e uma resposta a pergunta da NIA.
+                                passa, frase = self._fala_para_servicos_locais(full_in)
+                                if not passa:
+                                    out_buf = []
+                                    continue
+                                full_in = frase
+                                if self._executar_frase_habilidade(full_in, 'voz'):
+                                    out_buf = []
+                                    continue
+                                if self._buscar_arquivos_local(full_in, origem='voz'):
+                                    out_buf = []
+                                    continue
+
                             full_out = "" if suppressed_model_turn else _collapse_immediate_transcript_repetition(" ".join(out_buf).strip())
                             if full_out:
                                 self.ui.write_log(f"{_nome_falante(self.ui)}: {full_out}")
@@ -13517,6 +13850,14 @@ def main():
     _rastrear_cameras()
     ui = NiaUI("face.png")
 
+    # Rotinas persistentes vivem fora do loop de voz: reconexões e F9 não
+    # podem cancelar o agendador. Um único daemon espera a próxima ocorrência.
+    try:
+        from core import rotinas as _rotinas  # noqa: PLC0415
+        _rotinas.agendador_global().iniciar()
+    except Exception:
+        pass
+
     def runner():
         """Mantém o motor de voz vivo pelo tempo que a janela estiver aberta.
 
@@ -13942,6 +14283,11 @@ def _encerrar_tudo(motivo: str = "") -> None:
     """
     inicio = time.time()
     _ENCERRANDO.set()
+    try:
+        from core import rotinas as _rotinas  # noqa: PLC0415
+        _rotinas.agendador_global().parar()
+    except Exception:
+        pass
     _voice_diag("programa_encerrou", f"fechando tudo ({motivo or 'pedido'})")
 
     def _rede_de_seguranca() -> None:

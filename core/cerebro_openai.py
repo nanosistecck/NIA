@@ -197,6 +197,8 @@ class CerebroOpenAI:
             corpo["tool_choice"] = "required" if forcar else "auto"
         self._atualizar_conexao()
         dados = _postar(self.chave, corpo, timeout, self.url)
+        from core.llm_client import registrar_resposta_conversa  # noqa: PLC0415
+        registrar_resposta_conversa("openai", MODELO)
         return dados.get("output") or []
 
     def escrever_longo(self, instrucao: str, pedido: str, max_tokens: int = 9000,

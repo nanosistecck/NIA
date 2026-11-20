@@ -307,6 +307,8 @@ def _gerar_em_corrida(sistema: str, corpo: str, json_saida: bool, max_saida: int
             continue
         rodando -= 1
         if tipo == "ok":
+            from core.llm_client import registrar_resposta_conversa  # noqa: PLC0415
+            registrar_resposta_conversa("gemini", modelo)
             return valor, modelo
         ultimo = f"{modelo}: {valor}"
 
@@ -350,6 +352,8 @@ def _gerar(sistema: str, corpo: str, json_saida: bool, max_saida: int,
                 texto = str(getattr(r, "text", "") or "").strip()
                 if not texto:
                     raise RuntimeError("a Gemini respondeu vazio")
+                from core.llm_client import registrar_resposta_conversa  # noqa: PLC0415
+                registrar_resposta_conversa("gemini", modelo)
                 return texto, modelo
             except Exception as exc:
                 t = f"{type(exc).__name__}: {exc}"

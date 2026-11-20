@@ -141,6 +141,11 @@ class ConfigAPIsPanel(QWidget):
         self._conexao_modelos_id = None
         self._modelos_disponiveis = []
         self._area = 'apis'
+        # Diagnóstico sob demanda: resultado manual fica separado do último
+        # resultado REAL de conversa (que vive em core.llm_client).
+        self._diagnostico_seq = 0
+        self._diagnostico_ativo = False
+        self._ultimo_diagnostico = None
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(0, 0, 0, 0)
@@ -308,6 +313,37 @@ class ConfigAPIsPanel(QWidget):
         formulario.body.addWidget(self.recado)
         lay.addWidget(formulario)
 
+        diag = _secao(
+            'Diagnóstico da conexão selecionada',
+            'Verificação sob demanda: conexão/catálogo ou, se pedido, uma '
+            'geração mínima com prompt fixo. Não altera a validação salva '
+            'nem usa outra conexão para esconder a falha.', pagina)
+        self.diag_api_alvo = QLabel('Nenhuma conexão selecionada.', diag)
+        self.diag_api_alvo.setObjectName('SectionHint')
+        self.diag_api_alvo.setWordWrap(True)
+        diag.body.addWidget(self.diag_api_alvo)
+        self.diag_api_status = QLabel(
+            'Use “Diagnosticar” para verificar a seleção atual.', diag)
+        self.diag_api_status.setObjectName('PanelStatus')
+        self.diag_api_status.setProperty('estado', 'info')
+        self.diag_api_status.setWordWrap(True)
+        diag.body.addWidget(self.diag_api_status)
+        diag_botoes = QHBoxLayout()
+        diag_botoes.setSpacing(6)
+        self.diag_api_botao = QPushButton('Diagnosticar', diag)
+        self.diag_api_botao.setObjectName('Secondary')
+        self.diag_api_botao.setAccessibleName('Diagnosticar conexão selecionada')
+        self.diag_api_botao.clicked.connect(lambda: self._diagnosticar_api(False))
+        self.diag_api_gerar = QPushButton('Testar geração', diag)
+        self.diag_api_gerar.setObjectName('Secondary')
+        self.diag_api_gerar.setAccessibleName('Testar geração da conexão selecionada')
+        self.diag_api_gerar.clicked.connect(lambda: self._diagnosticar_api(True))
+        diag_botoes.addWidget(self.diag_api_botao)
+        diag_botoes.addWidget(self.diag_api_gerar)
+        diag_botoes.addStretch()
+        diag.body.addLayout(diag_botoes)
+        lay.addWidget(diag)
+
         lista = _secao(
             'Conexões cadastradas',
             'O estado vem da última validação. Pausar ou excluir não apaga as '
@@ -357,6 +393,7 @@ class ConfigAPIsPanel(QWidget):
         for campo in (self.chave, self.apelido, self.modelo, self.url):
             campo.textChanged.connect(self._invalidar)
         self.provedor.currentIndexChanged.connect(self._invalidar)
+        self.modelos_api.currentIndexChanged.connect(self._invalidar_diagnostico)
         return pagina
 
     def _construir_ollama(self) -> QWidget:
@@ -420,6 +457,36 @@ class ConfigAPIsPanel(QWidget):
         politica.setWordWrap(True)
         cartao.body.addWidget(politica)
         lay.addWidget(cartao)
+
+        diag_local = _secao(
+            'Diagnóstico do Ollama',
+            'Consulta apenas /api/tags; nunca instala nem inicia o serviço. '
+            'O teste de geração usa um prompt fixo e não registra conversa.', pagina)
+        self.diag_local_alvo = QLabel('Modelo não selecionado.', diag_local)
+        self.diag_local_alvo.setObjectName('SectionHint')
+        self.diag_local_alvo.setWordWrap(True)
+        diag_local.body.addWidget(self.diag_local_alvo)
+        self.diag_local_status = QLabel(
+            'Use “Diagnosticar” para consultar o serviço e o modelo.', diag_local)
+        self.diag_local_status.setObjectName('PanelStatus')
+        self.diag_local_status.setProperty('estado', 'info')
+        self.diag_local_status.setWordWrap(True)
+        diag_local.body.addWidget(self.diag_local_status)
+        linha_diag = QHBoxLayout()
+        linha_diag.setSpacing(6)
+        self.diag_local_botao = QPushButton('Diagnosticar', diag_local)
+        self.diag_local_botao.setObjectName('Secondary')
+        self.diag_local_botao.setAccessibleName('Diagnosticar serviço e modelo Ollama')
+        self.diag_local_botao.clicked.connect(lambda: self._diagnosticar_ollama(False))
+        self.diag_local_gerar = QPushButton('Testar geração', diag_local)
+        self.diag_local_gerar.setObjectName('Secondary')
+        self.diag_local_gerar.setAccessibleName('Testar geração com o modelo Ollama')
+        self.diag_local_gerar.clicked.connect(lambda: self._diagnosticar_ollama(True))
+        linha_diag.addWidget(self.diag_local_botao)
+        linha_diag.addWidget(self.diag_local_gerar)
+        linha_diag.addStretch()
+        diag_local.body.addLayout(linha_diag)
+        lay.addWidget(diag_local)
         lay.addStretch(1)
 
         self.url_local.textChanged.connect(self._invalidar_local)
@@ -457,10 +524,26 @@ class ConfigAPIsPanel(QWidget):
 
     def _invalidar(self, *_):
         self._versao += 1
+        self._invalidar_diagnostico()
         self.salvar.setEnabled(True)
 
     def _invalidar_local(self, *_):
         self._local_versao += 1
+        self._invalidar_diagnostico()
+
+    def _invalidar_diagnostico(self, *_):
+        """Qualquer mudança de alvo invalida o diagnóstico em andamento."""
+        self._diagnostico_seq += 1
+        if self._diagnostico_ativo and hasattr(self, 'diag_api_botao'):
+            self._diagnostico_ativo_mudar(False)
+            self._marcar_status(
+                self.diag_api_status,
+                'Alvo alterado durante o diagnóstico; resultado anterior descartado.',
+                'info')
+            self._marcar_status(
+                self.diag_local_status,
+                'Alvo alterado durante o diagnóstico; resultado anterior descartado.',
+                'info')
 
     def _executar(self, funcao, retorno):
         trabalho = _Trabalho(funcao)
@@ -482,6 +565,178 @@ class ConfigAPIsPanel(QWidget):
         self.estado_local.setText(texto)
         self.estado_local.setProperty('estado', estado)
         _repolir(self.estado_local)
+
+    def _marcar_status(self, rotulo: QLabel, texto: str, estado: str) -> None:
+        rotulo.setText(texto)
+        rotulo.setProperty('estado', estado)
+        _repolir(rotulo)
+
+    # ── diagnóstico sob demanda ────────────────────────────────────────────
+    def _alvo_api(self) -> tuple[str, str, str, str, str]:
+        """Alvo local da diagnóstico, sem decidir pelo roteador."""
+        registro = self._registro
+        if registro is not None:
+            provedor = str(registro['platform'])
+            chave = str(registro['key'] or '')
+            base = str(registro.get('base_url') or '')
+            modelo = str(registro.get('modelo') or '')
+            if self._conexao_modelos_id == registro['id']:
+                modelo = self.modelos_api.currentText() or modelo
+        else:
+            provedor = str(self.provedor.currentData() or '')
+            chave = self.chave.text().strip()
+            base = self.url.text().strip()
+            modelo = self.modelo.text().strip()
+            if not chave:
+                for linha in db_chaves.listar_chaves(provedor):
+                    if linha.get('enabled'):
+                        chave = str(linha.get('key') or '')
+                        base = str(linha.get('base_url') or '')
+                        modelo = str(linha.get('modelo') or '')
+                        break
+            if self.modelos_api.currentText() and not modelo:
+                modelo = self.modelos_api.currentText()
+        alvo = (f'{nome_do_provedor(provedor)} · {_mascarar_chave(chave)}'
+                f'{(" · " + modelo) if modelo else ""}')
+        return alvo, provedor, chave, base, modelo
+
+    def _alvo_ollama(self) -> tuple[str, str, str]:
+        modelo = self.modelos.currentText() or llm_client.get_llm_settings()[1]
+        url = self.url_local.text().strip()
+        return f'Ollama · {modelo}', modelo, url
+
+    def _atualizar_alvos_diagnostico(self) -> None:
+        if not hasattr(self, 'diag_api_alvo'):
+            return
+        self.diag_api_alvo.setText(self._alvo_api()[0])
+        self.diag_local_alvo.setText(self._alvo_ollama()[0])
+
+    def _classificar_api(self, resultado, geracao: bool) -> tuple[str, str]:
+        if resultado is None:
+            return ('Verificação inconclusiva. Tente novamente ou revise a '
+                    'configuração da conexão.', 'warning')
+        estado = str(getattr(resultado, 'estado', '') or '')
+        exibicao = str(getattr(resultado, 'status_exibicao', '') or '')
+        codigo = str(getattr(resultado, 'codigo', '') or '')
+        if resultado.apta:
+            alvo = ('Verificação concluída: geração confirmada com prompt fixo.'
+                    if geracao else
+                    'Verificação concluída: autenticação/catálogo confirmados; '
+                    'saldo e permissão de geração dependem da API.')
+            return alvo, 'success'
+        if estado in ('rede', 'timeout') or codigo in ('timeout', 'rede'):
+            return ('Falha de conexão ou tempo limite. Confira a URL, a rede '
+                    'e tente novamente.', 'error')
+        if exibicao == 'invalido' or estado == 'recusada':
+            return ('Credencial recusada pelo provedor. Confira a chave ou '
+                    'gere outra.', 'error')
+        if codigo == 'bloqueio_acesso':
+            return ('Acesso negado pelo provedor. Revise permissões e tente '
+                    'novamente.', 'warning')
+        if exibicao in ('esgotado', 'limitado'):
+            return ('Limite de requisições ou cota atingido. Aguarde ou revise '
+                    'o plano da chave.', 'warning')
+        if estado == 'modelo':
+            return ('Modelo indisponível ou sem acesso para esta credencial. '
+                    'Escolha outro modelo.', 'warning')
+        return ('Não foi possível confirmar a configuração. Revise os dados e '
+                'tente novamente.', 'warning')
+
+    def _classificar_ollama(self, resultado, geracao: bool,
+                            modelo: str) -> tuple[str, str]:
+        if geracao:
+            estado = str((resultado or {}).get('estado') or '')
+            if estado == 'ok':
+                return f'Geração concluída com {modelo}.', 'success'
+            if estado == 'modelo':
+                return f'Serviço acessível, mas o modelo {modelo} não foi encontrado.', 'warning'
+            if estado in ('inacessivel', 'timeout'):
+                return ('Serviço inacessível ou tempo limite. Inicie o Ollama '
+                        'fora do diagnóstico e tente novamente.', 'error')
+            return 'Não foi possível gerar com o modelo selecionado.', 'warning'
+        estado = str((resultado or {}).get('estado') or '')
+        modelos = list((resultado or {}).get('modelos') or [])
+        if estado == 'inacessivel':
+            return 'Serviço inacessível ou tempo limite em /api/tags.', 'error'
+        if estado == 'sem_modelos' or not modelos:
+            return 'Serviço acessível, mas nenhum modelo está instalado.', 'warning'
+        if modelo not in modelos and not llm_client._modelo_instalado(modelo, modelos):
+            return f'Serviço acessível, mas o modelo {modelo} não está instalado.', 'warning'
+        return f'Serviço e modelo {modelo} encontrados.', 'success'
+
+    def _diagnostico_ativo_mudar(self, ativo: bool) -> None:
+        self._diagnostico_ativo = ativo
+        for botao in (self.diag_api_botao, self.diag_api_gerar,
+                      self.diag_local_botao, self.diag_local_gerar):
+            botao.setEnabled(not ativo)
+
+    def _concluir_diagnostico(self, seq: int, alvo: str, rotulo: QLabel,
+                              texto: str, estado: str) -> None:
+        if self._fechado or seq != self._diagnostico_seq:
+            return
+        self._diagnostico_ativo_mudar(False)
+        self._ultimo_diagnostico = {
+            'alvo': alvo,
+            'resumo': texto.split('.')[0][:120],
+            'estado': estado,
+        }
+        self._marcar_status(
+            rotulo, f'{alvo}: {texto}', estado)
+        self._atualizar_estado()
+
+    def _diagnosticar_api(self, geracao: bool) -> None:
+        if self._diagnostico_ativo:
+            return
+        alvo, provedor, chave, base, modelo = self._alvo_api()
+        self.diag_api_alvo.setText(alvo)
+        if not provedor or not chave:
+            self._marcar_status(
+                self.diag_api_status,
+                f'{alvo}: credencial ainda não configurada.', 'warning')
+            return
+        if geracao and not modelo:
+            self._marcar_status(
+                self.diag_api_status,
+                f'{alvo}: selecione um modelo para testar a geração.', 'warning')
+            return
+        self._invalidar_diagnostico()
+        seq = self._diagnostico_seq
+        self._diagnostico_ativo_mudar(True)
+        self._marcar_status(self.diag_api_status, f'{alvo}: diagnosticando…', 'info')
+
+        def consultar():
+            if geracao:
+                return valida_chave.testar_geracao(provedor, chave, modelo, base)
+            return valida_chave.testar(provedor, chave, base)
+
+        def concluir(resultado):
+            texto, estado = self._classificar_api(resultado, geracao)
+            self._concluir_diagnostico(seq, alvo, self.diag_api_status,
+                                       texto, estado)
+
+        self._executar(consultar, concluir)
+
+    def _diagnosticar_ollama(self, geracao: bool) -> None:
+        if self._diagnostico_ativo:
+            return
+        alvo, modelo, url = self._alvo_ollama()
+        self.diag_local_alvo.setText(alvo)
+        self._invalidar_diagnostico()
+        seq = self._diagnostico_seq
+        self._diagnostico_ativo_mudar(True)
+        self._marcar_status(self.diag_local_status, f'{alvo}: diagnosticando…', 'info')
+
+        def consultar():
+            if geracao:
+                return llm_client.testar_geracao_ollama(modelo, url)
+            return llm_client.descobrir_modelos(url)
+
+        def concluir(resultado):
+            texto, estado = self._classificar_ollama(resultado, geracao, modelo)
+            self._concluir_diagnostico(seq, alvo, self.diag_local_status,
+                                       texto, estado)
+
+        self._executar(consultar, concluir)
 
     # ── estado local e preferência × uso ───────────────────────────────────
     @staticmethod
@@ -516,6 +771,30 @@ class ConfigAPIsPanel(QWidget):
         estado, nota = self._comparar_preferencia(pref, motor)
         texto = (f'Preferência gravada: {salvo}\n'
                  f'Último motor de conversa: {motor}')
+        real = llm_client.ultima_resposta_conversa()
+        try:
+            from core import roteador_tarefas as RT  # noqa: PLC0415
+            escolha = RT.decidir(RT.Requisitos(geracao=True), registrar=False)
+            texto += (f'\nModelo configurado: '
+                      f'{escolha.provedor or "não definido"} · '
+                      f'{escolha.modelo or "não informado"}')
+            if escolha.aviso:
+                texto += f'\nAviso: {escolha.aviso}'
+        except Exception:
+            escolha = None
+        if real and real.get('provedor'):
+            modelo_real = real.get('modelo') or 'modelo não informado'
+            texto += (f'\nÚltima resposta da conversa: '
+                      f'{real["provedor"]} · {modelo_real}')
+            motivo = str(real.get('motivo') or (
+                getattr(escolha, 'motivo', '') if escolha else ''))
+            if motivo:
+                texto += f'\nMotivo da escolha: {motivo}'
+        else:
+            texto += '\nÚltima resposta da conversa: Sem resposta registrada nesta sessão'
+        manual = getattr(self, '_ultimo_diagnostico', None)
+        if manual:
+            texto += f'\nDiagnóstico manual: {manual.get("resumo", "")}'
         if nota:
             texto += '\n' + nota
         self.efetivo.setText(texto)
@@ -530,6 +809,7 @@ class ConfigAPIsPanel(QWidget):
     def _atualizar(self):
         llm_router.recarregar()
         self._atualizar_estado()
+        self._atualizar_alvos_diagnostico()
         while self.linhas.count():
             item = self.linhas.takeAt(0)
             if item.widget():

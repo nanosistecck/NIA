@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
 # SEGUNDO PLANO (01/11/2026, v1.0.37): botao e tecla F9 que deixam o NIA so
 # no icone perto do relogio, sem ouvir nem fazer nada. Ver core/segundo_plano.py.
 from core import segundo_plano as _segundo_plano
+from core import catalogo_habilidades as _catalogo_habilidades
 
 # ── CORES DO CLIENTE (08/10/2026) ──────────────────────────────────────────
 # Toda folha de estilo passa pelo `core/tema.py` na hora de ser aplicada. O
@@ -2192,6 +2193,7 @@ class LogWidget(QScrollArea):
     `append_log` (de qualquer linha, via sinal) e "digitando" aos poucos.
     """
     _sig = pyqtSignal(str)
+    _fontes_sig = pyqtSignal(str, object)
     _MAX_MSGS = 150
     # "LOCAL:" = tempos e avisos do modo local (ouvir 0.8s | pensar 1.3s...): aviso, nao fala
     _SISTEMA = {"sis", "sys", "arq", "file", "err", "erro", "error", "aviso", "status", "info", "local"}
@@ -2247,10 +2249,64 @@ class LogWidget(QScrollArea):
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
         self._sig.connect(self._enqueue)
+        self._fontes_sig.connect(self._mostrar_fontes)
         self.verticalScrollBar().rangeChanged.connect(self._rolar_fim)
 
     def append_log(self, text: str):
         self._sig.emit(_translate_log_text(text))
+
+    def append_fontes(self, titulo: str, fontes) -> None:
+        """Linha de fontes com botões reais — nunca HTML/link do documento."""
+        self._fontes_sig.emit(str(titulo)[:60], list(fontes or []))
+
+    def _mostrar_fontes(self, titulo: str, fontes) -> None:
+        try:
+            linha = QWidget()
+            linha.setStyleSheet("background: transparent;")
+            col = QVBoxLayout(linha)
+            col.setContentsMargins(0, 0, 0, 0)
+            col.setSpacing(3)
+            if titulo:
+                cab = QLabel()
+                _SET_TEXT_CRU(cab, titulo)
+                cab.setTextFormat(Qt.TextFormat.PlainText)
+                cab.setWordWrap(True)
+                cab.setStyleSheet(f"color: {C.PRI_DIM}; background: transparent;")
+                col.addWidget(cab)
+            for fonte in fontes[:6]:
+                rotulo = str(fonte.get('rotulo') or fonte.get('nome') or 'Fonte')
+                detalhe = str(fonte.get('trecho') or '')[:160]
+                texto = QLabel()
+                _SET_TEXT_CRU(texto, rotulo + ('\n' + detalhe if detalhe else ''))
+                texto.setTextFormat(Qt.TextFormat.PlainText)
+                texto.setWordWrap(True)
+                texto.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextSelectableByMouse)
+                texto.setStyleSheet(self._ESTILOS['sys'])
+                col.addWidget(texto)
+                botao = QPushButton(f"Abrir fonte · {rotulo.split('·')[0].strip()}")
+                botao.setCursor(Qt.CursorShape.PointingHandCursor)
+                botao.setAccessibleName(f"Abrir fonte {rotulo}")
+                caminho = str(fonte.get('arquivo') or '')
+                botao.clicked.connect(
+                    lambda _=False, c=caminho: self._abrir_fonte(c))
+                col.addWidget(botao)
+            self._lista.addWidget(linha)
+            self._linhas.append(linha)
+            while len(self._linhas) > self._MAX_MSGS:
+                velha = self._linhas.pop(0)
+                self._lista.removeWidget(velha)
+                velha.deleteLater()
+            self._rolar_fim()
+        except Exception:
+            import traceback as _tb
+            _tb.print_exc()
+
+    def _abrir_fonte(self, caminho: str) -> None:
+        janela = self.window()
+        abrir = getattr(janela, '_abrir_fonte_local', None)
+        if abrir is not None:
+            abrir(caminho)
 
     def _rolar_fim(self, *_):
         barra = self.verticalScrollBar()
@@ -3714,6 +3770,8 @@ class MainWindow(QMainWindow):
     _cowork_sig       = pyqtSignal(object)     # estado do Cowork (vem da thread dele)
     _cowork_pasta_sig = pyqtSignal()           # abrir a escolha da pasta do projeto
     _trans_voz_sig    = pyqtSignal(str, str, str)  # (fase, antigo, novo) — uma voz chama a outra
+    _hoje_sig         = pyqtSignal(str, str, str)  # (texto, gerado_em, status)
+    _hoje_status_sig  = pyqtSignal(str, str)       # (mensagem, estado)
 
     def __init__(self, face_path: str):
         # ANTES DE MONTAR QUALQUER PAINEL. O cartao "so com o nome" e criado
@@ -3836,6 +3894,15 @@ class MainWindow(QMainWindow):
         self._right_panel = self._build_dock()
         corpo.addWidget(self._right_panel, 0, Qt.AlignmentFlag.AlignVCenter)
         self._stage = CanvasStage(self._hud_cam_stack)
+        self._prefs = DockPreferences(CONFIG_DIR / 'interface.json')
+        self._hoje_seq = 0
+        self._hoje_gerando = False
+        self._tmr_hoje = QTimer(self)
+        self._tmr_hoje.setSingleShot(True)
+        self._tmr_hoje.timeout.connect(self._atualizar_cartao_hoje)
+        cartoes = self._prefs.data.get('cards')
+        visivel = bool(cartoes.get('hoje', True)) if isinstance(cartoes, dict) else True
+        self._stage.set_hoje_visible(visivel)
         corpo.addWidget(self._stage, 1)
         self._left_panel = QScrollArea(self._stage)
         self._left_panel.setWidgetResizable(True)
@@ -3880,6 +3947,13 @@ class MainWindow(QMainWindow):
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
         self._content_sig.connect(self._show_content)
+        self._hoje_sig.connect(self._mostrar_hoje)
+        self._hoje_status_sig.connect(self._status_hoje)
+        self._stage.hoje_gerar.connect(self._gerar_resumo_agora)
+        self._stage.hoje_ouvir.connect(self._ouvir_resumo)
+        self._stage.hoje_rotinas.connect(self._abrir_rotinas_config)
+        self._stage.hoje_visibilidade.connect(self._hoje_visibilidade_mudou)
+        QTimer.singleShot(0, self._atualizar_cartao_hoje)
         self._reconfig_sig.connect(self._ao_reconfigurar)
         self._camera_sig.connect(self._show_camera_frame)
         self._cam_stream_sig.connect(self._on_cam_stream)
@@ -4590,6 +4664,7 @@ class MainWindow(QMainWindow):
         """Segundo plano: os relogios da tela param (esfera, medidores, relogio,
         animacoes). Ninguem esta olhando, e parado e parado."""
         self._timers_pausados = []
+        self._tmr_hoje.stop()
         for tmr in self.findChildren(QTimer):
             try:
                 if (tmr.isActive() and not tmr.isSingleShot()
@@ -4606,6 +4681,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._timers_pausados = []
+        self._agendar_virada_hoje()
+        self._atualizar_cartao_hoje()
         try:
             self._update_metrics()
         except Exception:
@@ -4624,6 +4701,8 @@ class MainWindow(QMainWindow):
             pass
 
     def closeEvent(self, event):
+        self._hoje_seq += 1
+        self._tmr_hoje.stop()
         super().closeEvent(event)
         # FECHAR A JANELA E FECHAR O NIA, sempre. Sozinho, o Qt so encerra
         # quando nao sobra nenhuma janela aberta — e a faixa do computer use ou
@@ -5094,6 +5173,28 @@ class MainWindow(QMainWindow):
         self._fundo_btn.clicked.connect(self._ir_para_segundo_plano)
         row.addWidget(self._fundo_btn)
 
+        # HABILIDADES NATIVAS (Skill 07): o catálogo é a única fonte destes
+        # atalhos. Eles entram no fim da ordem e podem ser reordenados ou
+        # ocultados em Aparência → Ferramentas do dock.
+        rotulos = {
+            'secretaria': "☎\nSECRETARIA\nABRIR",
+            'buscar_arquivos': "⌕\nBUSCAR\nARQUIVOS",
+            'resumo_dia': "▤\nRESUMO\nDO DIA",
+        }
+        self._botoes_habilidades = {}
+        for habilidade in _catalogo_habilidades.todas():
+            botao = self._make_control_button(
+                f'skill_{habilidade.id}',
+                rotulos.get(habilidade.id, habilidade.nome[:18]),
+                C.PRI)
+            botao.setToolTip(
+                f'{habilidade.nome}: {habilidade.descricao}\n'
+                f'Exemplo: {habilidade.exemplo}')
+            botao.clicked.connect(
+                lambda _=False, ident=habilidade.id:
+                _catalogo_habilidades.executar(ident))
+            self._botoes_habilidades[habilidade.id] = botao
+            row.addWidget(botao)
 
         self._drop_zone = FileDropZone()
         self._drop_zone.setObjectName("fileUpload")
@@ -5612,6 +5713,136 @@ class MainWindow(QMainWindow):
 
     def _show_content(self, title: str, text: str):
         self._stage.show_content(title, text)
+
+    def _hoje_visibilidade_mudou(self, visivel: bool) -> None:
+        # O × do próprio cartão passa por aqui: guardar a escolha evita que o
+        # resumo volte a ocupar a tela sozinho na próxima abertura.
+        cartoes = self._prefs.data.get('cards')
+        if not isinstance(cartoes, dict):
+            cartoes = {}
+            self._prefs.data['cards'] = cartoes
+        cartoes['hoje'] = bool(visivel)
+        try:
+            self._prefs.save()
+        except Exception:
+            pass
+        if visivel:
+            self._atualizar_cartao_hoje()
+        else:
+            self._tmr_hoje.stop()
+
+    def _mostrar_hoje(self, texto: str, gerado_em: str, status: str) -> None:
+        self._stage.set_hoje_texto(texto, gerado_em)
+        if status:
+            self._stage.set_hoje_status(status)
+
+    def _status_hoje(self, mensagem: str, estado: str = 'info') -> None:
+        self._stage.set_hoje_status(mensagem)
+
+    def _agendar_virada_hoje(self) -> None:
+        if not self._stage.hoje_visivel:
+            return
+        from datetime import datetime, timedelta
+        agora = datetime.now()
+        amanha = datetime.combine(agora.date() + timedelta(days=1),
+                                  datetime.min.time())
+        ms = max(1000, int((amanha - agora).total_seconds() * 1000))
+        self._tmr_hoje.start(ms)
+
+    def _atualizar_cartao_hoje(self) -> None:
+        if not self._stage.hoje_visivel:
+            return
+        self._hoje_seq += 1
+        seq = self._hoje_seq
+
+        def ler():
+            try:
+                from core import resumo_dia as RD  # noqa: PLC0415
+                salvo = RD.carregar()
+                if seq != self._hoje_seq or not self._stage.hoje_visivel:
+                    return
+                if salvo:
+                    self._hoje_sig.emit(
+                        str(salvo.get('texto') or ''),
+                        str(salvo.get('gerado_em') or ''), '')
+                else:
+                    self._hoje_sig.emit(
+                        'Sem resumo salvo. Use “Gerar agora” para criar um.',
+                        '', '')
+            except Exception as exc:
+                self._hoje_status_sig.emit(f'Falha ao ler: {type(exc).__name__}', 'erro')
+
+        threading.Thread(target=ler, daemon=True, name='nia-hoje-leitura').start()
+        self._agendar_virada_hoje()
+
+    def _gerar_resumo_agora(self) -> None:
+        if self._hoje_gerando:
+            self._status_hoje('Já há uma geração em andamento.', 'aviso')
+            return
+        self._hoje_gerando = True
+        self._hoje_seq += 1
+        seq = self._hoje_seq
+        self._status_hoje('Gerando resumo…', 'info')
+
+        def gerar():
+            try:
+                from core import resumo_dia as RD  # noqa: PLC0415
+                resultado = RD.gerar_e_salvar()
+            except Exception as exc:
+                resultado = {'ok': False, 'erro': type(exc).__name__}
+            finally:
+                # Uma atualizacao do cartao pode incrementar _hoje_seq enquanto
+                # esta thread roda; sem isto "Gerar agora" ficaria travado.
+                self._hoje_gerando = False
+            if seq != self._hoje_seq:
+                return
+            if resultado.get('ok'):
+                self._hoje_sig.emit(
+                    str(resultado.get('texto') or ''),
+                    str(resultado.get('gerado_em') or ''),
+                    'Gerado agora' + ('' if resultado.get('salvo')
+                                      else ' · não foi possível salvar'))
+            else:
+                self._status_hoje(
+                    f"Falha ao gerar: {resultado.get('erro', 'tente de novo')}",
+                    'erro')
+
+        threading.Thread(target=gerar, daemon=True, name='nia-hoje-gerar').start()
+
+    def _ouvir_resumo(self) -> None:
+        texto = str(self._stage.hoje_texto.text() or '')
+        if not texto or texto.startswith('Sem resumo'):
+            self._status_hoje('Gere um resumo antes de ouvir.', 'aviso')
+            return
+        falar = getattr(self, 'on_falar_resumo', None)
+        if falar is None:
+            self._status_hoje('Leitura em voz indisponível; texto permanece no card.',
+                              'aviso')
+            return
+        try:
+            falar(texto)
+        except Exception:
+            self._status_hoje('Falha na voz; texto permanece no card.', 'erro')
+
+    def _abrir_rotinas_config(self) -> None:
+        self._abrir_dashboard_config('geral')
+        alvo = getattr(getattr(self, '_dashboard_config', None), 'rotina_titulo', None)
+        if alvo is not None:
+            QTimer.singleShot(0, lambda: alvo.setFocus(
+                Qt.FocusReason.OtherFocusReason))
+
+    def _abrir_fonte_local(self, caminho: str) -> None:
+        """Abre só se o arquivo ainda existir e permanecer autorizado."""
+        try:
+            from core.busca_fontes import permitido_abrir
+            from PyQt6.QtGui import QDesktopServices, QUrl
+            if not permitido_abrir(caminho):
+                self._log.append_log(
+                    "SIS: fonte indisponível ou fora das pastas autorizadas.")
+                return
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(caminho)))
+        except Exception:
+            self._log.append_log("SIS: não foi possível abrir a fonte.")
 
     def _on_files_selected(self, caminhos: list):
         """Varios arquivos soltos de uma vez: UM aviso so para o NIA, com o
@@ -6248,6 +6479,50 @@ class NiaUI:
     def show_content(self, title: str, text: str):
         """Thread-safe: display content in the panel below the HUD."""
         self._win._content_sig.emit(title[:48], text[:4000])
+
+    def show_sources(self, titulo: str, fontes) -> None:
+        """Thread-safe: fontes locais com ação 'Abrir fonte' no chat."""
+        self._win._log.append_fontes(titulo, fontes)
+
+    def atualizar_hoje(self) -> None:
+        """Thread-safe: pede uma leitura do último resumo para o card Hoje."""
+        QTimer.singleShot(0, self._win._atualizar_cartao_hoje)
+
+    def set_hoje_visivel(self, visivel: bool) -> None:
+        self._win._stage.set_hoje_visible(bool(visivel))
+        cartoes = self._win._prefs.data.get('cards')
+        if not isinstance(cartoes, dict):
+            cartoes = {}
+            self._win._prefs.data['cards'] = cartoes
+        cartoes['hoje'] = bool(visivel)
+        try:
+            self._win._prefs.save()
+        except Exception:
+            pass
+        if visivel:
+            self.atualizar_hoje()
+        else:
+            self._win._tmr_hoje.stop()
+
+    def abrir_pagina_config(self, pagina: str) -> None:
+        """Thread-safe: abre uma área do dashboard sem inferência."""
+        QTimer.singleShot(0, lambda: self._win._abrir_dashboard_config(pagina))
+
+    def focar_busca_canvas(self, termo: str = '') -> None:
+        """Thread-safe: deixa a caixa de entrada pronta para o termo da busca."""
+        def focar():
+            campo = self._win._input
+            self._win.showNormal()
+            self._win.raise_()
+            self._win.activateWindow()
+            campo.setText(termo or '')
+            campo.setPlaceholderText('Digite o termo da busca nos arquivos…')
+            campo.setFocus(Qt.FocusReason.OtherFocusReason)
+        QTimer.singleShot(0, focar)
+
+    def gerar_resumo_agora(self) -> None:
+        """Thread-safe: geração manual da Skill 05, sem tocar na rotina agendada."""
+        QTimer.singleShot(0, self._win._gerar_resumo_agora)
 
     def prompt_reconfig(self):
         """Thread-safe: show the API key setup overlay (e.g. after an auth error)."""

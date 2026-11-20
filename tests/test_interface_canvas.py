@@ -2,7 +2,9 @@
 import json
 import os
 import threading
+import time
 from pathlib import Path
+from unittest.mock import Mock
 
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 
@@ -12,6 +14,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QPushButton, QDialog, QListWidget
 
 import ui
+from core import catalogo_habilidades as CH
 from core.interface_canvas import DockPreferences, VerticalDock
 
 
@@ -75,6 +78,8 @@ def test_text_enter_hidden_log_and_interrupt(window,app):
 
 def test_results_thread_pin_update_copy_close_and_scroll(window,app):
     w=window
+    # O cartão Hoje é persistente; esconda-o para testar só os cartões de resultado.
+    w._stage.set_hoje_visible(False)
     center=w._hud_cam_stack.geometry().center().x()
     worker=threading.Thread(target=lambda:w._content_sig.emit('<b>Pesquisa</b>','<script>texto é dado</script>'))
     worker.start(); worker.join(); settle(app)
@@ -204,3 +209,117 @@ def test_dock_delega_a_aparencia_e_aplica_preferencias(window,app):
     w.resize(820,580); settle(app)
     assert dock.geometry().bottom()<w._composer.geometry().top()
     assert dock.scroll.verticalScrollBar().maximum()>0
+
+
+def test_hoje_card_visibilidade_e_acoes(window, app, monkeypatch):
+    w = window
+    settle(app)
+    assert w._stage.hoje_visivel
+    w._stage.set_hoje_texto('Resumo de teste', '2027-05-10T08:00:00+00:00')
+    assert 'Resumo de teste' in w._stage.hoje_texto.text()
+    assert 'Gerado em' in w._stage.hoje_status.text()
+
+    gerar, ouvir, rotinas = Mock(), Mock(), Mock()
+    for sinal, destino in ((w._stage.hoje_gerar, gerar),
+                           (w._stage.hoje_ouvir, ouvir),
+                           (w._stage.hoje_rotinas, rotinas)):
+        try:
+            sinal.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+        sinal.connect(destino)
+    for texto, destino in (('Gerar agora', gerar), ('Ouvir', ouvir),
+                           ('Rotinas', rotinas)):
+        botao = next(b for b in w._stage.hoje_host.findChildren(QPushButton)
+                     if b.text() == texto)
+        botao.click()
+        settle(app)
+        assert destino.called
+
+    w._stage.set_hoje_visible(False)
+    settle(app)
+    assert not w._stage.hoje_visivel
+    assert not w._tmr_hoje.isActive()
+
+    # O × do canto fecha o cartão e a escolha fica salva para a próxima abertura.
+    w._stage.set_hoje_visible(True)
+    settle(app)
+    assert w._stage.hoje_fechar.isVisible()
+    w._stage.hoje_fechar.click()
+    settle(app)
+    assert not w._stage.hoje_visivel
+    assert not w._tmr_hoje.isActive()
+    assert w._prefs.data['cards']['hoje'] is False
+
+
+def test_habilidades_alimentam_atalhos_do_canvas(window, app, monkeypatch):
+    w = window
+    botoes = w._right_panel.buttons
+    chaves = [f'skill_{h.id}' for h in CH.todas()]
+    assert all(chave in botoes for chave in chaves)
+
+    chamadas = []
+    monkeypatch.setattr(CH, '_EXECUTOR',
+                        lambda ident, termo: chamadas.append(ident) or (True, ''))
+    for chave in chaves:
+        botoes[chave].click()
+        app.processEvents()
+    assert chamadas == [h.id for h in CH.todas()]
+
+    dados = w._right_panel.preferences.data
+    assert all(chave in dados['hidden'] for chave in chaves)
+    antigas = [c for c in dados['order'] if not c.startswith('skill_')]
+    assert antigas.index('cowork') < antigas.index('globo')
+    assert [c for c in dados['order'] if c.startswith('skill_')] == chaves
+
+
+def test_gerar_resumo_libera_trava_se_resultado_fica_atrasado(window, app, monkeypatch):
+    from core import resumo_dia as RD
+    w = window
+    liberar = threading.Event()
+
+    def lento():
+        liberar.wait(2)
+        return {'ok': True, 'texto': 'Resumo antigo', 'gerado_em': ''}
+
+    monkeypatch.setattr(RD, 'gerar_e_salvar', lento)
+    w._gerar_resumo_agora()
+    assert w._hoje_gerando is True
+    w._hoje_seq += 1  # uma leitura do cartão invalidou este resultado
+    liberar.set()
+    fim = time.monotonic() + 2
+    while time.monotonic() < fim and w._hoje_gerando:
+        app.processEvents()
+        time.sleep(0.01)
+    assert w._hoje_gerando is False
+
+    chamadas = []
+
+    def novo():
+        chamadas.append(True)
+        return {'ok': True, 'texto': 'Resumo novo', 'gerado_em': ''}
+
+    monkeypatch.setattr(RD, 'gerar_e_salvar', novo)
+    w._gerar_resumo_agora()
+    assert chamadas == [True]  # o guard não ficou preso
+    fim = time.monotonic() + 2
+    while time.monotonic() < fim and w._hoje_gerando:
+        app.processEvents()
+        time.sleep(0.01)
+    assert w._hoje_gerando is False
+
+
+def test_dock_com_perfil_existente_preserva_posicoes(app, tmp_path):
+    caminho = tmp_path / 'interface.json'
+    caminho.write_text(json.dumps({
+        'order': ['globo', 'mute', 'cowork'],
+        'hidden': ['mute'],
+        'apps': [],
+    }), encoding='utf-8')
+    botoes = [(chave, QPushButton(chave)) for chave in
+              ('mute', 'cowork', 'globo', 'skill_secretaria')]
+    dock = VerticalDock(botoes, caminho)
+    assert dock.preferences.data['order'][:3] == ['globo', 'mute', 'cowork']
+    assert 'skill_secretaria' in dock.preferences.data['hidden']
+    assert dock.preferences.data.get('skill_atalhos_v1') is True
+    dock.hide(); dock.deleteLater(); app.processEvents()

@@ -182,6 +182,12 @@ class ResultCard(QFrame):
 
 class CanvasStage(QWidget):
     """O motor conserva o desenho; este widget decide somente a composição."""
+
+    hoje_gerar = pyqtSignal()
+    hoje_ouvir = pyqtSignal()
+    hoje_rotinas = pyqtSignal()
+    hoje_visibilidade = pyqtSignal(bool)
+
     def __init__(self, hud_stack, parent=None):
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -201,10 +207,83 @@ class CanvasStage(QWidget):
         self.card_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.results.setWidget(self.card_host)
         self.results.hide()
+
+        # Cartão Hoje: separado dos cartões de resultado para não ser fechado
+        # por show_content() e para não ocupar espaço quando estiver oculto.
+        self.hoje_host = QFrame(self)
+        self.hoje_host.setObjectName('Glass')
+        self.hoje_host.setStyleSheet(GLASS + '\nQFrame#Glass {border-radius:18px;}')
+        hoje_layout = QVBoxLayout(self.hoje_host)
+        hoje_layout.setContentsMargins(14, 12, 14, 12)
+        hoje_layout.setSpacing(8)
+        topo_hoje = QHBoxLayout()
+        topo_hoje.setContentsMargins(0, 0, 0, 0)
+        topo_hoje.setSpacing(6)
+        self.hoje_titulo = QLabel('HOJE', self.hoje_host)
+        self.hoje_titulo.setObjectName('HojeTitulo')
+        self.hoje_titulo.setWordWrap(True)
+        self.hoje_titulo.setStyleSheet('color:#8ceaf0; font-weight:600;')
+        topo_hoje.addWidget(self.hoje_titulo, 1)
+        self.hoje_fechar = QPushButton('×', self.hoje_host)
+        self.hoje_fechar.setObjectName('HojeFechar')
+        self.hoje_fechar.setAccessibleName('Fechar cartão Hoje')
+        self.hoje_fechar.setToolTip('Fechar cartão Hoje')
+        self.hoje_fechar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.hoje_fechar.setFixedSize(22, 22)
+        self.hoje_fechar.setStyleSheet(
+            'QPushButton {color:#8ceaf0; background:transparent; border:none;'
+            ' border-radius:11px; padding:0; font-size:15px; font-weight:600;}'
+            'QPushButton:hover, QPushButton:focus {color:#ffffff;'
+            ' background:rgba(50,215,232,65); border:none;}')
+        self.hoje_fechar.clicked.connect(lambda: self.set_hoje_visible(False))
+        topo_hoje.addWidget(self.hoje_fechar, 0, Qt.AlignmentFlag.AlignTop)
+        hoje_layout.addLayout(topo_hoje)
+        self.hoje_texto = QLabel('Carregando resumo…', self.hoje_host)
+        self.hoje_texto.setWordWrap(True)
+        self.hoje_texto.setTextFormat(Qt.TextFormat.PlainText)
+        self.hoje_texto.setStyleSheet('color:#d8f8ff;')
+        hoje_layout.addWidget(self.hoje_texto, 1)
+        self.hoje_status = QLabel('', self.hoje_host)
+        self.hoje_status.setWordWrap(True)
+        self.hoje_status.setStyleSheet('color:#7892a8;')
+        hoje_layout.addWidget(self.hoje_status)
+        hoje_botoes = QHBoxLayout()
+        hoje_botoes.setSpacing(6)
+        for rotulo, sinal in (('Gerar agora', self.hoje_gerar),
+                              ('Ouvir', self.hoje_ouvir),
+                              ('Rotinas', self.hoje_rotinas)):
+            b = QPushButton(rotulo, self.hoje_host)
+            b.setObjectName('glass-button')
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(sinal.emit)
+            hoje_botoes.addWidget(b)
+        hoje_botoes.addStretch(1)
+        hoje_layout.addLayout(hoje_botoes)
+        self.hoje_host.hide()
+
         self.anchor = 'center'
         self.chat_open = False
         self.motion = QPropertyAnimation(hud_stack,b'geometry',self)
         self.motion.setDuration(220); self.motion.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def set_hoje_visible(self, visivel: bool) -> None:
+        self.hoje_host.setVisible(bool(visivel))
+        self.arrange(True)
+        self.hoje_visibilidade.emit(bool(visivel))
+
+    @property
+    def hoje_visivel(self) -> bool:
+        return self.hoje_host.isVisible()
+
+    def set_hoje_texto(self, texto: str, gerado_em: str = '') -> None:
+        self.hoje_texto.setText(str(texto or 'Sem resumo salvo.')[:700])
+        if gerado_em:
+            self.hoje_status.setText(f'Gerado em {str(gerado_em)[:16].replace("T", " ")}')
+        else:
+            self.hoje_status.setText('')
+
+    def set_hoje_status(self, texto: str) -> None:
+        self.hoje_status.setText(str(texto or '')[:160])
 
     def show_content(self,title,text):
         match = next((c for c in self.cards if c.title == title and not c.pinned),None)
@@ -243,7 +322,8 @@ class CanvasStage(QWidget):
         from PyQt6.QtCore import QRect
         w,h = self.width(),self.height()
         bottom = max(160,h - (min(260,h//2) if self.chat_open else 0))
-        occupied = bool(self.cards) or self.tools_open
+        occupied = (bool(self.cards) or self.tools_open
+                    or self.hoje_host.isVisible())
         size = min(bottom,w if not occupied else int(w*.48))
         x = (w-size)//2
         if occupied: x = w-size
@@ -260,6 +340,11 @@ class CanvasStage(QWidget):
         self.results.setGeometry(12,8,max(220,int(w*.50)-24),max(80,bottom-16))
         self.results.setVisible(bool(self.cards) and not self.tools_open)
         self.results.raise_()
+        if self.hoje_host.isVisible():
+            largura = max(220, min(320, int(w * .36)))
+            altura = max(150, min(240, bottom - 16))
+            self.hoje_host.setGeometry(QRect(12, 8, largura, altura))
+            self.hoje_host.raise_()
 
 
 class DockPreferences:
@@ -273,6 +358,10 @@ class DockPreferences:
                 if key in self.data:
                     value = self.data[key]
                     self.data[key] = [v for v in value if isinstance(v,str)] if isinstance(value,list) else []
+            if 'cards' in self.data and isinstance(self.data['cards'], dict):
+                self.data['cards'] = {
+                    k: bool(v) for k, v in self.data['cards'].items()
+                    if k in ('hoje',)}
         except (OSError,ValueError): self.data = {}
 
     def save(self):
@@ -295,6 +384,19 @@ class VerticalDock(QFrame):
             defaults = ['mute','cowork','globo','webcam','config']
             self.preferences.data['hidden'] = [k for k in self.buttons if k not in defaults]
             self.preferences.data.setdefault('order',[k for k in defaults if k in self.buttons]+list(self.buttons))
+        elif not self.preferences.data.get('skill_atalhos_v1'):
+            # Skill 07: em perfis existentes os atalhos novos entram ocultos,
+            # para nao mudar posicoes nem a altura do dock. O dono ativa cada
+            # um em Aparência -> Ferramentas do dock, se quiser.
+            novos = [k for k in self.buttons
+                     if k.startswith('skill_') and k not in self.preferences.data['hidden']]
+            if novos:
+                self.preferences.data['hidden'].extend(novos)
+            self.preferences.data['skill_atalhos_v1'] = True
+            try:
+                self.preferences.save()
+            except OSError:
+                pass
         self.expanded = self.preferences.data.get('expanded',True)
         v = QVBoxLayout(self); v.setContentsMargins(5,12,5,10); v.setSpacing(6)
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)

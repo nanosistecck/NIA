@@ -32,6 +32,10 @@ from core.http_seguranca import validar_endpoint
 
 _CONFIG_LOCK = threading.RLock()
 _MOTOR_CONVERSA = 'nenhuma chamada nesta sessão'
+# Último resultado REAL de conversa: preenchido só no ponto do código que já
+# sabe qual provedor e modelo responderam. O diagnóstico manual NÃO escreve
+# aqui — as duas informações são exibidas separadamente no painel.
+_ULTIMA_RESPOSTA: dict | None = None
 
 
 def registrar_motor_conversa(nome):
@@ -41,6 +45,27 @@ def registrar_motor_conversa(nome):
 
 def motor_conversa_em_uso():
     return _MOTOR_CONVERSA
+
+
+def registrar_resposta_conversa(provedor, modelo=None, motivo: str = '') -> None:
+    """Memoriza apenas o último provedor/modelo que realmente responderam."""
+    global _ULTIMA_RESPOSTA
+    _ULTIMA_RESPOSTA = {
+        "provedor": str(provedor or ""),
+        "modelo": str(modelo or ""),
+        "motivo": str(motivo or ""),
+        "em": time.time(),
+    }
+
+
+def registrar_motivo_resposta(motivo: str) -> None:
+    """Anota o motivo da escolha sem trocar o provedor/modelo confirmados."""
+    if _ULTIMA_RESPOSTA is not None:
+        _ULTIMA_RESPOSTA["motivo"] = str(motivo or "")
+
+
+def ultima_resposta_conversa() -> dict | None:
+    return dict(_ULTIMA_RESPOSTA) if _ULTIMA_RESPOSTA else None
 
 # Matches a sentence boundary: [.!?] followed by whitespace, or a blank line.
 # Avoids splitting on decimals (3.5) because those have no space after the dot.
@@ -338,6 +363,7 @@ def call_llm(
                 }
                 for t in raw_tc
             ]
+            registrar_resposta_conversa("openai-compat", model)
             return {
                 "content":    (msg.get("content") or "").strip(),
                 "tool_calls": tc_list,
@@ -362,6 +388,7 @@ def call_llm(
         resp.raise_for_status()
         data = resp.json()
         msg  = data.get("message", {})
+        registrar_resposta_conversa("ollama", model)
         return {
             "content":    (msg.get("content") or "").strip(),
             "tool_calls": msg.get("tool_calls") or [],
@@ -374,6 +401,7 @@ def call_llm(
                 resp.raise_for_status()
                 data = resp.json()
                 msg  = data.get("message", {})
+                registrar_resposta_conversa("ollama", model)
                 return {
                     "content":    (msg.get("content") or "").strip(),
                     "tool_calls": msg.get("tool_calls") or [],
@@ -656,3 +684,43 @@ def call_llm_stream(
     except Exception as e:
         print(f"[LLM] Stream error: {type(e).__name__}: {e}")
         raise RuntimeError(f"LLM stream failed: {e}")
+
+
+def testar_geracao_ollama(modelo=None, url=None, timeout: float = 8.0) -> dict:
+    """Diagnóstico explícito: uma geração mínima, sem iniciar o serviço.
+
+    Difere de ``call_llm`` justamente por não chamar ``ensure_ollama_running``
+    e por não registrar a resposta como conversa real. Nenhum texto do servidor
+    é devolvido: apenas um estado classificado e o modelo confirmado.
+    """
+    base = validar_endpoint(url or get_llm_settings()[0])
+    modelo = str(modelo or get_llm_settings()[1])
+    corpo = {
+        "model": modelo,
+        "messages": [{"role": "user", "content": "Responda apenas OK."}],
+        "stream": False,
+        "options": {"num_predict": 8},
+    }
+    try:
+        resp = requests.post(base + "/api/chat", json=corpo, timeout=timeout,
+                             allow_redirects=False)
+        if resp.status_code == 404:
+            return {"estado": "modelo", "modelo": modelo}
+        resp.raise_for_status()
+        dados = resp.json() if resp.content else {}
+        if bool((dados.get("message") or {}).get("content") or "").strip() or dados.get("done") is True:
+            return {"estado": "ok", "modelo": modelo}
+        return {"estado": "inconclusivo", "modelo": modelo}
+    except requests.exceptions.Timeout:
+        return {"estado": "timeout", "modelo": modelo}
+    except requests.exceptions.ConnectionError:
+        return {"estado": "inacessivel", "modelo": modelo}
+    except requests.exceptions.HTTPError as exc:
+        codigo = getattr(getattr(exc, "response", None), "status_code", 0)
+        if codigo in (401, 403):
+            return {"estado": "acesso", "modelo": modelo}
+        if codigo == 404:
+            return {"estado": "modelo", "modelo": modelo}
+        return {"estado": "servidor", "modelo": modelo, "http": codigo}
+    except Exception:
+        return {"estado": "inconclusivo", "modelo": modelo}

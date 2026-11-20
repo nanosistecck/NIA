@@ -287,6 +287,31 @@ def _schedule_linux(target_dt: datetime, task_name: str,
     print("[Reminder] ❌ Neither systemd-run nor at found on this Linux system.")
     return ""
 
+def notificar(mensagem: str, os_name: str | None = None) -> bool:
+    """Notificação imediata, usada pelas rotinas locais (sem agendador do SO)."""
+    texto = _sanitise(str(mensagem or 'Rotina da NIA'))
+    sistema = (os_name or _get_os()).lower()
+    if sistema == "windows":
+        try:
+            from plyer import notification
+            notification.notify(title="N.I.A Rotina", message=texto, timeout=15)
+            return True
+        except Exception:
+            pass
+        try:
+            from win10toast import ToastNotifier
+            ToastNotifier().show_toast("N.I.A Rotina", texto, duration=15,
+                                       threaded=False)
+            return True
+        except Exception:
+            return False
+    try:
+        subprocess.run(["notify-send", "N.I.A Rotina", texto], check=False)
+        return True
+    except Exception:
+        return False
+
+
 def reminder(
     parameters: dict,
     response=None,

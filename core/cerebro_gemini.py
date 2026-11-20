@@ -63,6 +63,8 @@ def _gerar(cliente, **kw):
         try:
             r = cliente.models.generate_content(model=MODELOS[i], **kw)
             _indice = i
+            from core.llm_client import registrar_resposta_conversa  # noqa: PLC0415
+            registrar_resposta_conversa("gemini", MODELOS[i])
             return r
         except Exception as exc:
             texto = str(exc)

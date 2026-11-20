@@ -184,6 +184,75 @@ class ConfigService:
     def salvar_tema(self, tema: str) -> str:
         return salvar_tema(tema, self.dashboard_path)
 
+    # ── fontes do índice local de documentos ───────────────────────────────
+    def carregar_fontes_indice(self) -> list[str]:
+        with _TRAVA:
+            dados = _ler_json(self.dashboard_path)
+        fontes = dados.get('indice_fontes') or []
+        if not isinstance(fontes, list):
+            return []
+        return list(dict.fromkeys(
+            str(p) for p in fontes if isinstance(p, str) and p.strip()))
+
+    def salvar_fontes_indice(self, fontes) -> dict:
+        """Grava só a lista de pastas; preserva tema e chaves futuras."""
+        limpas = list(dict.fromkeys(
+            str(p).strip() for p in (fontes or [])
+            if isinstance(p, str) and p.strip()))
+        with _TRAVA:
+            dados = _ler_json(self.dashboard_path)
+            dados['indice_fontes'] = limpas
+            _gravar_json(self.dashboard_path, dados)
+        return {'fontes': limpas, 'salvo': True}
+
+    def _opcao_resumo(self, chave: str, padrao: bool = False) -> bool:
+        with _TRAVA:
+            dados = _ler_json(self.dashboard_path)
+        return bool(dados.get(chave, padrao))
+
+    def _salvar_opcao_resumo(self, chave: str, valor: bool) -> bool:
+        with _TRAVA:
+            dados = _ler_json(self.dashboard_path)
+            dados[chave] = bool(valor)
+            _gravar_json(self.dashboard_path, dados)
+        return bool(valor)
+
+    def resumo_voz_externa(self) -> bool:
+        return self._opcao_resumo('resumo_voz_externa', False)
+
+    def salvar_resumo_voz_externa(self, valor: bool) -> bool:
+        return self._salvar_opcao_resumo('resumo_voz_externa', valor)
+
+    def resumo_leitura_automatica(self) -> bool:
+        return self._opcao_resumo('resumo_leitura_automatica', False)
+
+    def salvar_resumo_leitura_automatica(self, valor: bool) -> bool:
+        return self._salvar_opcao_resumo('resumo_leitura_automatica', valor)
+
+    def hoje_visivel(self) -> bool:
+        # O Canvas lê interface.json; manter os dois arquivos em sincronia
+        # evita que a preferência do dashboard seja perdida ao reiniciar.
+        with _TRAVA:
+            dados = _ler_json(self.interface_path)
+            cartoes = dados.get('cards')
+            if isinstance(cartoes, dict) and 'hoje' in cartoes:
+                return bool(cartoes['hoje'])
+            antigo = _ler_json(self.dashboard_path).get('cards')
+            if isinstance(antigo, dict) and 'hoje' in antigo:
+                return bool(antigo['hoje'])
+            return True
+
+    def salvar_hoje_visivel(self, valor: bool) -> bool:
+        with _TRAVA:
+            dados = _ler_json(self.interface_path)
+            cartoes = dados.get('cards')
+            if not isinstance(cartoes, dict):
+                cartoes = {}
+            cartoes['hoje'] = bool(valor)
+            dados['cards'] = cartoes
+            _gravar_json(self.interface_path, dados)
+        return bool(valor)
+
     # ── dados que pertencem a outras telas (leitura/escrita existentes) ────
     def carregar_dono(self) -> dict:
         from core import dono  # noqa: PLC0415

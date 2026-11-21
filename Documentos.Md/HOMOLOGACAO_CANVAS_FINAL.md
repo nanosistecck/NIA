@@ -90,7 +90,21 @@ janela curta deve ser repetida com amostragem longa para conclusão.
 | Notificação com NIA fechada | Avisos só na próxima abertura | Integração com SO |
 | Publicação real | Saída permanece desativada | Integração própria |
 
-## Botões próprios da janela (22/11/2026)
+## Barra nativa colorida (22/11/2026) — estado final
+
+Os botões próprios foram **removidos** (não ficaram bonitos). A janela volta a usar os
+**controles nativos do Windows**, mas com a barra de título na cor principal da NIA
+(`#061a28`) via `DwmSetWindowAttribute` (`DWMWA_CAPTION_COLOR` + modo escuro), sem texto
+e sem ícone — restam apenas minimizar/maximizar/fechar, dando a sensação de barra
+integrada ao Canvas. A janela é **maximizada**, nunca tela cheia (F11), com barra de
+tarefas livre. Padrão da preferência: controles nativos (`janela_sem_bordas=false`).
+
+Verificação: `tests/test_barra_nativa.py` e `tests/test_controles_nativos.py` (6 testes
+RED→GREEN), mais os testes de janela ajustados. Suíte: **407 passaram**; `compileall` e
+`git diff --check` limpos. A cor da barra depende do Windows 11 22H2+; em versões
+anteriores a chamada DWM falha em silêncio e a barra permanece padrão.
+
+## Botões próprios da janela (22/11/2026 — substituído)
 
 A NIA passou a abrir **sem a barra de título do Windows** por padrão, mantendo a janela
 maximizada e a barra de tarefas livre. No canto superior direito do cabeçalho há três

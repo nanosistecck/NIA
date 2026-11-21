@@ -69,9 +69,8 @@ _TESTE_JANELA = False   # testes isolados instanciam MainWindow diretamente
 
 
 def janela_sem_bordas_padrao() -> bool:
-    # Sem bordas do Windows por padrão; os botões próprios ficam no canto
-    # superior direito para minimizar / alternar maximizar / fechar.
-    return True
+    # Controles nativos do Windows, com a faixa do cabeçalho na cor da NIA.
+    return False
 
 
 def janela_sem_bordas(caminho=None) -> bool:
@@ -4541,6 +4540,28 @@ class MainWindow(QMainWindow):
             self.showFullScreen()
 
     # ── JANELA EM TELA CHEIA / SEM BORDAS ────────────────────────────────
+    def _aplicar_barra_nativa(self) -> bool:
+        """Barra do Windows na cor da NIA, sem texto nem ícone (só os botões)."""
+        self.setWindowTitle("")
+        self.setWindowIcon(QIcon())
+        try:
+            import ctypes
+            from ctypes import wintypes
+            hwnd = int(self.winId())
+            dwmapi = ctypes.windll.dwmapi
+            # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            escuro = wintypes.BOOL(1)
+            dwmapi.DwmSetWindowAttribute(
+                wintypes.HWND(hwnd), 20, ctypes.byref(escuro), ctypes.sizeof(escuro))
+            # DWMWA_CAPTION_COLOR = 35 (Windows 11 22H2+). Cor principal da NIA
+            # em BGR: #061a28 -> 0x281a06.
+            cor = wintypes.DWORD(0x281A06)
+            dwmapi.DwmSetWindowAttribute(
+                wintypes.HWND(hwnd), 35, ctypes.byref(cor), ctypes.sizeof(cor))
+            return True
+        except Exception:
+            return False
+
     def aplicar_modo_janela(self, sem_bordas: bool | None = None) -> None:
         """Maximiza a janela, mantendo a barra de tarefas livre.
 
@@ -4565,6 +4586,7 @@ class MainWindow(QMainWindow):
             pass
         self.showMaximized()
         self._estado_maximizado = True
+        self._aplicar_barra_nativa()
         self.raise_()
         self.activateWindow()
 
@@ -4981,52 +5003,9 @@ class MainWindow(QMainWindow):
         self._rail_state_lbl.setStyleSheet(self._estilo_pilula(C.PRI))
         row.addWidget(self._rail_state_lbl)
         row.addStretch()
-        self._adicionar_botoes_janela(row)
         self._sub_topo_padrao = "Sistema Inteligente do NIA"
         self._lbl_titulo_topo.setToolTip(_nome_tela("subtitulo", self._sub_topo_padrao))
         return w
-
-    def _adicionar_botoes_janela(self, layout) -> None:
-        """Controles discretos no canto superior direito, no lugar dos do Windows."""
-        estilo = """
-            QPushButton {{
-                color: #9fd7ec; background: rgba(10,34,50,120);
-                border: 1px solid rgba(150,215,240,45); border-radius: 7px;
-                font-size: 13px; qproperty-iconSize: 12px;
-            }}
-            QPushButton:hover {{ color: #ffffff;
-                background: rgba(35,110,140,190);
-                border: 1px solid rgba(160,230,255,120); }}
-            QPushButton:focus {{ border: 2px solid #00d4ff; }}
-            QPushButton#janela_fechar:hover {{ background: rgba(180,45,70,210); }}
-        """
-        definicoes = (
-            ("janela_minimizar", "─", "Minimizar", self.showMinimized),
-            ("janela_maximizar", "▢", "Maximizar / Restaurar", self._alternar_maximizar),
-            ("janela_fechar", "×", "Fechar", self._fechar_janela),
-        )
-        for nome, simbolo, dica, callback in definicoes:
-            botao = QPushButton(simbolo, self)
-            botao.setObjectName(nome)
-            botao.setFixedSize(30, 26)
-            botao.setCursor(Qt.CursorShape.PointingHandCursor)
-            botao.setToolTip(dica)
-            botao.setAccessibleName(dica)
-            botao.setStyleSheet(estilo)
-            botao.clicked.connect(callback)
-            layout.addWidget(botao)
-
-    def _alternar_maximizar(self) -> None:
-        self._estado_maximizado = not getattr(self, "_estado_maximizado", self.isMaximized())
-        if self._estado_maximizado:
-            self.showMaximized()
-        else:
-            self.showNormal()
-        self.raise_()
-        self.activateWindow()
-
-    def _fechar_janela(self) -> None:
-        self.close()
 
     @staticmethod
     def _estilo_pilula(cor: str) -> str:

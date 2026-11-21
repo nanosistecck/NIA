@@ -19,7 +19,7 @@ def app():
 
 def test_preferencia_tela_cheia_padrao(app, tmp_path, monkeypatch):
     monkeypatch.setattr(ui, "CONFIG_DIR", tmp_path)
-    assert ui.janela_sem_bordas_padrao() is True
+    assert ui.janela_sem_bordas_padrao() is False
     ui.salvar_preferencia_janela(tmp_path / "interface.json", False)
     assert ui.janela_sem_bordas(tmp_path / "interface.json") is False
     ui.salvar_preferencia_janela(tmp_path / "interface.json", True)

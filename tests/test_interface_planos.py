@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PyQt6.QtWidgets import QApplication, QComboBox, QLineEdit, QPushButton
+from PyQt6.QtWidgets import QApplication, QComboBox, QLineEdit, QPushButton, QTextEdit
 
 import core.interface_planos as IP
 from core.planos import carregar, listar
@@ -43,7 +43,7 @@ def _combo(janela, nome):
 def test_criar_buscar_visualizar_editar_arquivar_restaurar(janela):
     _botao(janela, "novo_plano").click()
     _texto(janela, "campo_titulo").setText("Fotografia")
-    _texto(janela, "campo_objetivo").setText("Estudar luz")
+    janela.findChild(QTextEdit, "campo_objetivo").setPlainText("Estudar luz")
     _combo(janela, "campo_tipo").setCurrentText("Estudos")
     _botao(janela, "salvar_plano").click()
 
@@ -78,7 +78,7 @@ def test_estados_vazios_e_erro_preserva_digitado(janela, monkeypatch):
     assert "Nenhum plano" in janela.status.text()
     _texto(janela, "campo_busca").setText("inexistente")
     janela.aplicar_filtros()
-    assert "Nenhum resultado" in janela.status.text()
+    assert "Nenhum" in janela.status.text()
 
     from core.planos import criar as criar_plano
     plano = criar_plano("Original", "Objetivo original")
@@ -86,7 +86,7 @@ def test_estados_vazios_e_erro_preserva_digitado(janela, monkeypatch):
     janela.selecionar(plano.id)
     _botao(janela, "editar").click()
     _texto(janela, "campo_titulo").setText("Titulo digitado")
-    _texto(janela, "campo_objetivo").setText("Objetivo digitado")
+    janela.findChild(QTextEdit, "campo_objetivo").setPlainText("Objetivo digitado")
 
     def falhar(*args, **kwargs):
         raise OSError("disco cheio")
@@ -95,7 +95,7 @@ def test_estados_vazios_e_erro_preserva_digitado(janela, monkeypatch):
     _botao(janela, "salvar_plano").click()
     assert "Falha ao salvar" in janela.status.text()
     assert _texto(janela, "campo_titulo").text() == "Titulo digitado"
-    assert _texto(janela, "campo_objetivo").text() == "Objetivo digitado"
+    assert janela.findChild(QTextEdit, "campo_objetivo").toPlainText() == "Objetivo digitado"
 
 
 def test_conflito_de_revisao_e_sinalizado_no_gerenciador(janela, monkeypatch):

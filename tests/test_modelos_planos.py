@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QTextEdit
 
 from core import assistencia_planos as AP
 from core import modelos_planos as MP
@@ -147,7 +147,7 @@ def test_criar_plano_com_modelo_pelo_gerenciador(tmp_path, monkeypatch, app):
     janela = PlanosWindow()
     janela.findChild(QPushButton, "novo_plano").click()
     janela.findChild(QLineEdit, "campo_titulo").setText("Trilha de fotografia")
-    janela.findChild(QLineEdit, "campo_objetivo").setText("Aprender do zero")
+    janela.findChild(QTextEdit, "campo_objetivo").setPlainText("Aprender do zero")
     janela.findChild(QComboBox, "campo_tipo").setCurrentText("Estudos")
     janela.findChild(QPushButton, "salvar_plano").click()
     planos, _ = BP.listar()
@@ -158,10 +158,13 @@ def test_criar_plano_com_modelo_pelo_gerenciador(tmp_path, monkeypatch, app):
     app.processEvents()
 
 
-def test_adicionar_modelo_como_ramo_pelo_canvas(app, plano):
+def test_adicionar_modelo_como_ramo_pelo_canvas(app, plano, tmp_path):
     from PyQt6.QtWidgets import QWidget
     from core.interface_canvas_planos import CanvasEditor
+    from pathlib import Path as _Path
+    from core.interface_canvas import DockPreferences as _DP
     host = QWidget()
+    host._prefs = _DP(_Path(tmp_path) / "interface.json")
     host.resize(900, 600)
     editor = CanvasEditor(host)
     editor.abrir(plano)

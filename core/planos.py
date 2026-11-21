@@ -163,6 +163,10 @@ class Plano:
         mapa = dados.get("mapa")
         if not isinstance(mapa, dict):
             mapa = {}
+        elif mapa:
+            # Planos antigos ganham os campos novos na leitura, sem perder
+            # conteúdo, conexões ou posições já registrados.
+            mapa, _ = validar_mapa(mapa)
         conhecidas = {
             "id", "titulo", "objetivo", "tipo", "status", "criado_em",
             "atualizado_em", "formato", "revisao", "mapa",
@@ -304,6 +308,21 @@ def restaurar(plano_id: str, revisao_esperada: int) -> Plano:
 
 
 # ── mapa do Canvas (Etapa 2) ────────────────────────────────────────────
+def _centavos(valor: Any) -> str | None:
+    """Valor monetário em centavos inteiros; vazio continua sendo ``None``."""
+    if valor is None or str(valor).strip() == "":
+        return None
+    texto = str(valor).strip().replace(",", ".")
+    try:
+        from decimal import Decimal
+        numero = Decimal(texto)
+        if "." in texto:
+            numero = numero * 100
+        return str(int(numero))
+    except Exception:
+        return None
+
+
 def mapa_vazio() -> dict[str, Any]:
     """Estrutura inicial do mapa, promovida no primeiro `inicializar_mapa`."""
     return {
@@ -358,6 +377,10 @@ def validar_mapa(mapa: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]
             "y": float(cartao.get("y") or 0.0),
             "restrito": bool(cartao.get("restrito") or False),
             "financeiro": bool(cartao.get("financeiro") or False),
+            "modelo": str(cartao.get("modelo") or ""),
+            "estado": str(cartao.get("estado") or ""),
+            "valor": _centavos(cartao.get("valor")),
+            "acumulado": _centavos(cartao.get("acumulado")),
         })
     conexoes: list[dict] = []
     conexoes_brutas = base["conexoes"] if isinstance(base["conexoes"], list) else []

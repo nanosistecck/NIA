@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core import planos as BP
+from core import modelos_planos as MP
 from core.planos import (
     ConflitoDeRevisao, ErroPlano, PlanoInvalido, TIPOS,
     arquivar, atualizar, buscar, criar, listar, restaurar,
@@ -320,10 +321,21 @@ class PlanosWindow(QWidget):
         except (OSError, ValueError):
             self.status.setText("Falha ao salvar. Tente novamente.")
             return
+        aviso_estrutura = ""
+        if plano.tipo in MP.TIPOS_MODELO:
+            try:
+                plano = BP.inicializar_mapa(plano.id)
+                mapa = MP.aplicar_estrutura_no_mapa(
+                    plano.mapa,
+                    MP.estrutura_modelo(plano.tipo, plano.titulo, plano.objetivo),
+                    plano.mapa.get("raiz_id"))
+                plano = BP.atualizar(plano.id, {"mapa": mapa}, plano.revisao)
+            except (BP.ErroPlano, OSError, ValueError):
+                aviso_estrutura = "Plano criado, mas a estrutura inicial falhou."
         self._modo = None
         self.recarregar()
         self.selecionar(plano.id)
-        self.status.setText("Salvo.")
+        self.status.setText(aviso_estrutura or "Salvo.")
 
     def cancelar(self) -> None:
         self._modo = None

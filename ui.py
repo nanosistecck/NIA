@@ -6756,6 +6756,11 @@ class NiaUI:
                 _assistencia.aplicar_lote(editor.editor_internal, operacoes, rotulo)
         QTimer.singleShot(0, aplicar)
 
+    def adicionar_modelo_ramo(self, tipo: str) -> None:
+        """Thread-safe: adiciona um modelo como ramo do card selecionado."""
+        QTimer.singleShot(0, lambda: self._win._canvas_editor.adicionar_modelo(
+            str(tipo)) if getattr(self._win, "_canvas_editor", None) else None)
+
     def desfazer_lote_assistido(self) -> None:
         """Thread-safe: desfaz o lote assistido se for a última operação."""
         def desfazer():

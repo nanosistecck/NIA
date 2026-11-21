@@ -17,7 +17,10 @@ from dataclasses import dataclass
 
 from core.planos import STATUS_TAREFA, TIPOS_CARD, card_por_id
 
-_CAMPOS_EDITAVEIS = {"titulo", "resumo", "descricao", "tipo", "status"}
+_CAMPOS_EDITAVEIS = {
+    "titulo", "resumo", "descricao", "tipo", "status", "modelo", "estado",
+    "valor", "acumulado", "restrito", "financeiro",
+}
 _TIPOS_OP = {"criar_card", "editar_campos", "alterar_progresso", "conectar"}
 
 
@@ -203,7 +206,7 @@ def validar_lote(operacoes: list[dict], plano_atual, contexto: dict) \
             origem = op.get("origem")
             destino = op.get("destino")
             ref = op.get("destino_ref")
-            if origem not in cartoes:
+            if origem not in cartoes and origem not in temporarios:
                 erros.append(f"operação {i}: origem inexistente")
             if destino is None and ref not in temporarios:
                 erros.append(f"operação {i}: destino inexistente")
@@ -252,7 +255,12 @@ def aplicar_lote(editor, operacoes: list[dict], rotulo: str) -> bool:
                     str(op.get("descricao") or ""),
                     str(op.get("tipo_card") or "ideia"),
                     str(op.get("status") or ""),
-                    float(op.get("x") or 0.0), float(op.get("y") or 0.0))
+                    float(op.get("x") or 0.0), float(op.get("y") or 0.0),
+                    modelo=str(op.get("modelo") or ""),
+                    estado=str(op.get("estado") or ""),
+                    valor=op.get("valor"), acumulado=op.get("acumulado"),
+                    restrito=bool(op.get("restrito") or False),
+                    financeiro=bool(op.get("financeiro") or False))
                 if op.get("temp_id"):
                     ids[op["temp_id"]] = card_id
                 if (op.get("temp_id") not in refs
@@ -261,9 +269,9 @@ def aplicar_lote(editor, operacoes: list[dict], rotulo: str) -> bool:
                                     str(op.get("rotulo") or ""))
             elif tipo == "conectar":
                 destino = op.get("destino") or ids.get(op.get("destino_ref"))
-                if destino:
-                    editor.conectar(op["origem"], destino,
-                                    str(op.get("rotulo") or ""))
+                origem = ids.get(op.get("origem"), op.get("origem"))
+                if destino and origem in editor.cena.itens_cards:
+                    editor.conectar(origem, destino, str(op.get("rotulo") or ""))
             elif tipo == "editar_campos":
                 editor.editar_card(op["card_id"], dict(op.get("campos") or {}))
             elif tipo == "alterar_progresso":

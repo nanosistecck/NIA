@@ -14,6 +14,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
+from core import modelos_planos as MP
 from core import planos as BP
 from core.planos import TIPOS, buscar, resumo_progresso
 
@@ -222,6 +223,13 @@ class SessaoComandosPlanos:
             return ResultadoComando(True, pergunta, pendente=True)
         try:
             plano = storage.criar(titulo, objetivo, tipo)
+            if tipo in MP.TIPOS_MODELO and storage is BP:
+                plano = BP.inicializar_mapa(plano.id)
+                mapa = MP.aplicar_estrutura_no_mapa(
+                    plano.mapa,
+                    MP.estrutura_modelo(tipo, titulo, objetivo),
+                    plano.mapa.get("raiz_id"))
+                plano = BP.atualizar(plano.id, {"mapa": mapa}, plano.revisao)
         except Exception as exc:
             return ResultadoComando(
                 True, f"Não foi possível criar o plano ({type(exc).__name__}). "

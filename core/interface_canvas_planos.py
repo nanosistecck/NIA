@@ -8,8 +8,12 @@ layout (dock e núcleo) é de sessão: nada é gravado em preferências.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QRect, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget,
+)
 
+from core import assistencia_planos as AP
+from core import modelos_planos as MP
 from core.interface_mapa import EditorMapa
 
 _PRI = "#00d4ff"
@@ -53,6 +57,10 @@ class CanvasEditor(QWidget):
         self.botao_modo.setCheckable(True)
         self.botao_modo.clicked.connect(self.definir_modo)
         topo.addWidget(self.botao_modo)
+        self.botao_modelo = QPushButton("Adicionar modelo como ramo", self)
+        self.botao_modelo.setObjectName("adicionar_modelo")
+        self.botao_modelo.clicked.connect(self._mostrar_menu_modelos)
+        topo.addWidget(self.botao_modelo)
         self.status = QLabel("", self)
         self.status.setObjectName("status_canvas_editor")
         topo.addWidget(self.status, 1)
@@ -96,8 +104,57 @@ class CanvasEditor(QWidget):
         self.editor_internal.selecionar(card_id)
         self.contexto_mudou.emit(self.contexto())
 
+    def adicionar_modelo(self, tipo: str) -> bool:
+        """Adiciona um modelo como ramo do card selecionado, em um só undo."""
+        if tipo not in MP.TIPOS_MODELO:
+            return False
+        card_id = self.card_selecionado_id
+        if not card_id:
+            self.status.setText("Selecione um card para receber o ramo.")
+            return False
+        plano = self.editor_internal.plano_atual()
+        origem = next((c for c in plano.mapa.get("cards", [])
+                       if c.get("id") == card_id), None)
+        if origem is None:
+            self.status.setText("O card de origem não existe mais.")
+            return False
+        ops = MP.ramo_modelo(tipo, card_id, origem)
+        contexto = AP.montar_contexto(plano, card_id)
+        validas, erros = AP.validar_lote(ops, plano, contexto)
+        if erros or not validas:
+            self.status.setText(erros[0] if erros else "Ramo inválido.")
+            return False
+        AP.aplicar_lote(self.editor_internal, validas, f"Modelo {tipo}")
+        self.status.setText(f"Modelo {tipo} adicionado como ramo.")
+        self.contexto_mudou.emit(self.contexto())
+        return True
+
     def fechar_com_seguranca(self) -> bool:
         return self.editor_internal.fechar_com_seguranca()
+
+    def _mostrar_menu_modelos(self) -> None:
+        menu = QMenu(self)
+        for tipo in MP.TIPOS_MODELO:
+            menu.addAction(tipo, lambda checked=False, t=tipo: self.adicionar_modelo(t))
+        menu.addSeparator()
+        menu.addAction("Complementar ramo selecionado",
+                       self._complementar_ramo)
+        menu.exec(self.botao_modelo.mapToGlobal(
+            self.botao_modelo.rect().bottomLeft()))
+
+    def _complementar_ramo(self) -> None:
+        """Adiciona cards ao ramo já existente sem duplicar sua raiz."""
+        card_id = self.card_selecionado_id
+        if not card_id:
+            self.status.setText("Selecione um card para complementar.")
+            return
+        plano = self.editor_internal.plano_atual()
+        existentes = {c.get("modelo") for c in plano.mapa.get("cards", [])
+                      if c.get("modelo")}
+        if not existentes:
+            self.status.setText("Ainda não há ramo para complementar.")
+            return
+        self.adicionar_modelo(next(iter(existentes)))
 
     def _reposicionar(self) -> None:
         pai = self.parentWidget()

@@ -158,6 +158,7 @@ from core import busca_fontes as BF
 from core import catalogo_habilidades as CH
 from core import comandos_planos as CP
 from core import assistencia_planos as AP
+from core import modelos_planos as MP
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
@@ -7026,6 +7027,16 @@ class NiaLive:
                 return True
             return False
         contexto = AP.montar_contexto(plano, contexto_canvas.get("card_id"))
+        tipo_modelo = MP.reconhecer_tipo(texto)
+        if tipo_modelo and re.search(
+                r"monte|adicione ramo|adicionar modelo|modelo de|planejamento completo",
+                AP.normalizar(texto)):
+            if contexto_canvas.get("card_id"):
+                self.ui.adicionar_modelo_ramo(tipo_modelo)
+                self.ui.write_log(f"SIS: Modelo {tipo_modelo} adicionado como ramo.")
+            else:
+                self.ui.write_log("SIS: Selecione um card para receber o modelo.")
+            return True
         destino = AP.Destino(local=bool(getattr(self, "_modo_local", True)))
         # O contexto entregue ao provedor ja sai filtrado pelo destino mais
         # restritivo: um fallback local -> externo nunca recebe sigilo.

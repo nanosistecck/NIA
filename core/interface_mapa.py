@@ -579,7 +579,10 @@ class EditorMapa(QWidget):
 
     def criar_card(self, titulo: str, resumo: str = "", descricao: str = "",
                    tipo: str = "ideia", status: str = "",
-                   x: float = 0.0, y: float = 0.0) -> str:
+                   x: float = 0.0, y: float = 0.0,
+                   modelo: str = "", estado: str = "",
+                   valor=None, acumulado=None,
+                   restrito: bool = False, financeiro: bool = False) -> str:
         ident = novo_id()
         if tipo not in TIPOS_CARD:
             tipo = "ideia"
@@ -589,6 +592,9 @@ class EditorMapa(QWidget):
             "id": ident, "tipo": tipo, "titulo": titulo, "resumo": resumo,
             "descricao": descricao, "status": status,
             "x": float(x), "y": float(y),
+            "modelo": str(modelo or ""), "estado": str(estado or ""),
+            "valor": valor, "acumulado": acumulado,
+            "restrito": bool(restrito), "financeiro": bool(financeiro),
         }))
         return ident
 
@@ -638,8 +644,11 @@ class EditorMapa(QWidget):
             return
         antes = copy.deepcopy(item.dados)
         depois = copy.deepcopy(antes)
-        depois.update({k: v for k, v in mudancas.items()
-                       if k in ("titulo", "resumo", "descricao", "tipo", "status")})
+        permitidas = (
+            "titulo", "resumo", "descricao", "tipo", "status", "modelo",
+            "estado", "valor", "acumulado", "restrito", "financeiro",
+        )
+        depois.update({k: v for k, v in mudancas.items() if k in permitidas})
         if depois.get("tipo") == "tarefa" and depois.get("status") not in STATUS_TAREFA:
             depois["status"] = "pendente"
         if depois != antes:

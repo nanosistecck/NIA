@@ -123,4 +123,15 @@ Cobertura acrescentada: persistência após reinício, revisão/conflito/falha d
 
 **Verificação**: **304 testes passaram** com o mesmo comando acima; `compileall` e `git diff --check` limpos. Cobertura nova: contexto com vizinhos, filtro externo/local/fallback, lote de três soluções com desfazer em uma ação, lote inválido, conflito em memória, resposta atrasada após troca de plano e roteamento idêntico por texto e voz.
 
-**Limitações da Etapa 4**: os testes de edição assistida usam provedor simulado e interface Qt offscreen; nenhuma chamada real a API externa ou Ollama foi feita. Modelos completos por tipo (Prompt 05), lembretes e publicação ficam para etapas seguintes.
+**Limitações da Etapa 4**: os testes de edição assistida usam provedor simulado e interface Qt offscreen; nenhuma chamada real a API externa ou Ollama foi feita. Lembretes e publicação ficam para etapas seguintes.
+
+## Modelos de planejamento — Etapa 5 (20/11/2026)
+
+- `core/modelos_planos.py`: estruturas locais para Produto, Projeto, Conteúdo, Estudos e Finanças; inferência do tipo pelo tema; ramos conectados ao card escolhido sem mover cards existentes; progresso por ramo e cálculo financeiro em centavos inteiros, preservando campo vazio (`None`) versus zero.
+- **Novo plano** usa o modelo escolhido no tipo e já semeia a estrutura local. No Canvas, **Adicionar modelo como ramo** oferece os cinco modelos e **Complementar ramo** evita duplicar a raiz. Pedidos como “monte o planejamento completo” usam o mesmo caminho.
+- Campos novos do card (`modelo`, `estado`, `valor`, `acumulado`) são preenchidos na leitura de planos antigos, preservando conteúdo, conexões e posições. O tipo principal do plano não muda ao combinar ramos.
+- Cada geração é um único `QUndoCommand` (macro), validada antes de aplicar; conflitos, falha do provedor ou resposta atrasada preservam o mapa.
+
+**Verificação**: **315 testes passaram**; `compileall` e `git diff --check` limpos. Cobertura nova: cinco estruturas locais, reconhecimento de tipo, combinação de ramos, progresso por ramo, publicação de Conteúdo, cálculo monetário exato, lote único de desfazer/refazer e criação de plano com modelo pelo gerenciador.
+
+**Limitações da Etapa 5**: personalização por IA, explicações e exercícios de Estudos usam provedor simulado em testes; nenhuma chamada real a API externa/Ollama foi feita. Geração de exercícios com feedback e “Salvar no mapa” ainda dependem do provedor configurado; lembretes e publicação ficam para a próxima etapa.

@@ -11,13 +11,14 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSplitter,
-    QVBoxLayout, QWidget,
+    QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
+    QSplitter, QVBoxLayout, QWidget,
 )
 
 from core import planos as BP
 from core import modelos_planos as MP
+from core import lembretes as LEM
 from core.planos import (
     ConflitoDeRevisao, ErroPlano, PlanoInvalido, TIPOS,
     arquivar, atualizar, buscar, criar, listar, restaurar,
@@ -54,6 +55,69 @@ QPushButton:hover, QPushButton:focus {{ border: 2px solid {_PRI}; }}
 QPushButton:disabled {{ color: #3a6a7a; }}
 QFrame#PlanosForm {{ background: {_PANEL}; border: 1px solid {_BORDER}; border-radius: 8px; }}
 """
+
+
+class LembretesDialog(QDialog):
+    """Consulta local de próximos e vencidos, com ações manuais."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("NIA · Lembretes")
+        self.setMinimumSize(520, 360)
+        self.setStyleSheet(_ESTILO)
+        layout = QVBoxLayout(self)
+        self.lista = QListWidget(self)
+        self.lista.setObjectName("lista_lembretes")
+        layout.addWidget(self.lista, 1)
+        botoes = QHBoxLayout()
+        for nome, rotulo in (("adiar_lembrete", "Adiar"),
+                             ("concluir_lembrete", "Concluir"),
+                             ("cancelar_lembrete", "Cancelar"),
+                             ("fechar_lembretes", "Fechar")):
+            botao = QPushButton(rotulo, self)
+            botao.setObjectName(nome)
+            botoes.addWidget(botao)
+            setattr(self, nome, botao)
+        layout.addLayout(botoes)
+        self.adiar_lembrete.clicked.connect(self._adiar)
+        self.concluir_lembrete.clicked.connect(self._concluir)
+        self.cancelar_lembrete.clicked.connect(self._cancelar)
+        self.fechar_lembretes.clicked.connect(self.close)
+        self.recarregar()
+
+    def recarregar(self) -> None:
+        self.lista.clear()
+        for item in LEM.listar_todos():
+            if item.get("estado") != "pendente":
+                continue
+            rotulo = (f"{item.get('estado')} · {str(item.get('horario'))[:16]} · "
+                      f"{item.get('assunto')} · {item.get('plano_id')}")
+            lista_item = QListWidgetItem(rotulo)
+            lista_item.setData(0x0100, item.get("id"))
+            self.lista.addItem(lista_item)
+
+    def _selecionado(self):
+        atual = self.lista.currentItem()
+        return atual.data(0x0100) if atual else None
+
+    def _adiar(self) -> None:
+        ident = self._selecionado()
+        if ident:
+            LEM.adiar(ident, str(LEM.proximo().get("horario"))
+                      if LEM.proximo() else str(LEM.carregar(ident).get("horario")))
+            self.recarregar()
+
+    def _concluir(self) -> None:
+        ident = self._selecionado()
+        if ident:
+            LEM.concluir(ident)
+            self.recarregar()
+
+    def _cancelar(self) -> None:
+        ident = self._selecionado()
+        if ident:
+            LEM.cancelar(ident)
+            self.recarregar()
 
 
 class PlanosWindow(QWidget):
@@ -120,6 +184,7 @@ class PlanosWindow(QWidget):
             ("editar", "Editar"),
             ("abrir_canvas", "Editar no Canvas"),
             ("abrir_canvas_ia", "Editar com a NIA"),
+            ("lembretes", "Lembretes"),
             ("arquivar", "Arquivar"),
             ("restaurar", "Restaurar"),
         ):
@@ -179,6 +244,7 @@ class PlanosWindow(QWidget):
         self.botoes["editar"].clicked.connect(self.editar)
         self.botoes["abrir_canvas"].clicked.connect(self._abrir_canvas)
         self.botoes["abrir_canvas_ia"].clicked.connect(self._abrir_canvas_assistido)
+        self.botoes["lembretes"].clicked.connect(self._abrir_lembretes)
         self.botoes["arquivar"].clicked.connect(self._arquivar)
         self.botoes["restaurar"].clicked.connect(self._restaurar)
         self.salvar.clicked.connect(self.salvar_plano)
@@ -379,6 +445,10 @@ class PlanosWindow(QWidget):
     def _abrir_canvas(self) -> None:
         if self.plano_selecionado_id:
             self.abrir_canvas.emit(self.plano_selecionado_id)
+
+    def _abrir_lembretes(self) -> None:
+        dialogo = LembretesDialog(self)
+        dialogo.exec()
 
     def _abrir_canvas_assistido(self) -> None:
         if self.plano_selecionado_id:

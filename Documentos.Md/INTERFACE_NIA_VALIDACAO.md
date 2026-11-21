@@ -134,4 +134,14 @@ Cobertura acrescentada: persistência após reinício, revisão/conflito/falha d
 
 **Verificação**: **315 testes passaram**; `compileall` e `git diff --check` limpos. Cobertura nova: cinco estruturas locais, reconhecimento de tipo, combinação de ramos, progresso por ramo, publicação de Conteúdo, cálculo monetário exato, lote único de desfazer/refazer e criação de plano com modelo pelo gerenciador.
 
-**Limitações da Etapa 5**: personalização por IA, explicações e exercícios de Estudos usam provedor simulado em testes; nenhuma chamada real a API externa/Ollama foi feita. Geração de exercícios com feedback e “Salvar no mapa” ainda dependem do provedor configurado; lembretes e publicação ficam para a próxima etapa.
+**Limitações da Etapa 5**: personalização por IA, explicações e exercícios de Estudos usam provedor simulado em testes; nenhuma chamada real a API externa/Ollama foi feita. Geração de exercícios com feedback e “Salvar no mapa” ainda dependem do provedor configurado.
+
+## Lembretes, proteção de publicação e validação final — Etapa 6 (20/11/2026)
+
+- `core/lembretes.py`: lembretes no mesmo JSON versionado do plano (ID do plano/card, assunto, horário UTC, fuso, estado, ocorrências avisadas). Datas em linguagem natural com relógio simulado, vencimentos, aviso por ocorrência, adiar/concluir/cancelar e suspensão ao arquivar ou excluir card — com restauração no desfazer.
+- Interface: **Definir lembrete** no Card, consulta no Gerenciador, notificação com **Abrir plano/card** pelo fluxo normal do Canvas e rearmamento de um único timer para o próximo vencimento. Chat e voz compartilham `core/comandos_lembretes.py`.
+- `core/publicacao_segura.py`: prepara só a seleção, bloqueia card restrito/financeiro, resumo derivado, anexo interno e segredos; exige confirmação da prévia exata e revalida em cada envio/reenvio. Destinos fora do simulado são bloqueados — não há publicação real conectada ao Canvas.
+
+**Verificação**: **334 testes passaram**; `compileall` e `git diff --check` limpos. Relógio e destino simulados tornam datas/fusos e bloqueios reproduzíveis. Pela interface Qt offscreen: botões do gerenciador e do Canvas e abertura do card correto pelo lembrete. Por simulação: transcrição de voz, provedor de IA e publicação.
+
+**Limitações finais**: entrega de notificações com a NIA totalmente fechada depende de integração com o sistema operacional (fora desta etapa); avisos vencidos aparecem na próxima abertura. A comparação de CPU/memória/responsividade com núcleo falando e mapas grandes não foi executada neste ambiente — os testes cobrem contratos e persistência, não medição de desempenho. Chamadas reais a API/Ollama, microfone/STT reais e publicação real não foram exercitados.

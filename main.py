@@ -159,6 +159,8 @@ from core import catalogo_habilidades as CH
 from core import comandos_planos as CP
 from core import assistencia_planos as AP
 from core import modelos_planos as MP
+from core import comandos_lembretes as CL
+from core import lembretes as LEM
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
@@ -2622,6 +2624,7 @@ class NiaLive:
         self._sessao_planos        = CP.SessaoComandosPlanos()
         # Etapa 4: ponto de chamada injetável (None = respostas/lotes locais).
         self._provedor_assistido   = self._provedor_assistido_padrao
+        self._sessao_lembrete_pendente = None
         self.ui.on_text_command     = self._on_text_command
         # A janela ja esta de pe: o resto do que demora para carregar vai por tras.
         _aquecer_imports("google.genai", "google.genai.types")
@@ -7068,6 +7071,52 @@ class NiaLive:
         self.ui.write_log(f"SIS: Apliquei {len(validas)} operação(ões) no mapa.")
         return True
 
+    def _processar_pedido_lembrete(self, texto: str, origem: str) -> bool:
+        """Cria/consulta lembretes no mesmo fluxo de chat e voz."""
+        pendente = getattr(self, "_sessao_lembrete_pendente", None)
+        try:
+            if pendente:
+                horario, mensagem = LEM.interpretar(
+                    texto, fuso=pendente.get("fuso", "America/Sao_Paulo"))
+                if horario is None:
+                    self.ui.write_log(f"SIS: {mensagem}")
+                    return True
+                LEM.criar(pendente["plano_id"], pendente["assunto"], horario,
+                          pendente["fuso"], pendente.get("card_id"))
+                self._sessao_lembrete_pendente = None
+                self.ui.write_log(f"SIS: {mensagem}")
+                return True
+            resultado = CL.processar(texto, origem, self._contexto_planos())
+            if not resultado.get("tratado"):
+                return False
+            acao = resultado.get("acao")
+            if acao == "criar":
+                LEM.criar(resultado["plano_id"], resultado["assunto"],
+                          resultado["horario"], "America/Sao_Paulo",
+                          resultado.get("card_id"))
+            elif acao == "pendente":
+                self._sessao_lembrete_pendente = {
+                    "plano_id": resultado.get("plano_id"),
+                    "card_id": resultado.get("card_id"),
+                    "assunto": resultado.get("assunto"),
+                    "fuso": "America/Sao_Paulo",
+                }
+            elif acao == "adiar" and resultado.get("horario"):
+                proximos = LEM.vencidos()
+                if proximos:
+                    LEM.adiar(proximos[0]["id"], resultado["horario"])
+            elif acao in ("concluir", "cancelar"):
+                proximos = LEM.vencidos()
+                if proximos:
+                    (LEM.concluir if acao == "concluir" else LEM.cancelar)(
+                        proximos[0]["id"])
+            if resultado.get("resposta"):
+                self.ui.write_log(f"SIS: {resultado['resposta']}")
+        except Exception as exc:
+            _voice_diag("lembrete_erro", type(exc).__name__)
+            self.ui.write_log("SIS: Não foi possível salvar o lembrete.")
+        return True
+
     def _executar_frase_habilidade(self, texto: str, origem: str) -> bool:
         """Reconhece frases do catálogo e comandos de planejamento no chat/voz."""
         try:
@@ -7083,6 +7132,11 @@ class NiaLive:
                 return True
         except Exception as exc:
             _voice_diag('assistido_erro', type(exc).__name__)
+        try:
+            if self._processar_pedido_lembrete(texto, origem):
+                return True
+        except Exception as exc:
+            _voice_diag('lembrete_rota_erro', type(exc).__name__)
         habilidade, termo = CH.reconhecer(texto)
         if habilidade is None:
             return False

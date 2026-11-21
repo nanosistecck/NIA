@@ -400,6 +400,7 @@ class ExcluirCardCommand(_Comando):
             self.editor.cena.remover_conexao(lig["id"])
         self.editor.cena.remover_card(self.card_id)
         self._sincronizar()
+        self._lembretes(suspender=True)
 
     def undo(self):
         if self._card is not None:
@@ -407,6 +408,20 @@ class ExcluirCardCommand(_Comando):
             for lig in self._ligacoes:
                 self.editor.cena.adicionar_conexao(lig)
         self._sincronizar()
+        self._lembretes(suspender=False)
+
+    def _lembretes(self, suspender: bool) -> None:
+        plano = getattr(self.editor, "_plano", None)
+        if plano is None:
+            return
+        try:
+            from core import lembretes as _lembretes  # noqa: PLC0415
+            if suspender:
+                _lembretes.suspender_por_card(plano.id, self.card_id)
+            else:
+                _lembretes.restaurar_por_card(plano.id, self.card_id)
+        except Exception:
+            pass
 
 
 class EditorMapa(QWidget):

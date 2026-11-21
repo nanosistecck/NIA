@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QRect, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget,
+    QHBoxLayout, QInputDialog, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget,
 )
 
 from core import assistencia_planos as AP
+from core import lembretes as LEM
+from core.comandos_lembretes import assunto_de
 from core import modelos_planos as MP
 from core.interface_mapa import EditorMapa
 
@@ -61,6 +63,10 @@ class CanvasEditor(QWidget):
         self.botao_modelo.setObjectName("adicionar_modelo")
         self.botao_modelo.clicked.connect(self._mostrar_menu_modelos)
         topo.addWidget(self.botao_modelo)
+        self.botao_lembrete = QPushButton("Definir lembrete", self)
+        self.botao_lembrete.setObjectName("definir_lembrete")
+        self.botao_lembrete.clicked.connect(self.definir_lembrete)
+        topo.addWidget(self.botao_lembrete)
         self.status = QLabel("", self)
         self.status.setObjectName("status_canvas_editor")
         topo.addWidget(self.status, 1)
@@ -127,6 +133,23 @@ class CanvasEditor(QWidget):
         AP.aplicar_lote(self.editor_internal, validas, f"Modelo {tipo}")
         self.status.setText(f"Modelo {tipo} adicionado como ramo.")
         self.contexto_mudou.emit(self.contexto())
+        return True
+
+    def definir_lembrete(self, card_id: str | None = None) -> bool:
+        """Cria lembrete local para o card selecionado (ou para o plano)."""
+        texto, ok = QInputDialog.getText(
+            self, "Definir lembrete", "Quando? Ex.: amanhã às 19h revisar exercício")
+        if not ok or not str(texto or "").strip():
+            return False
+        horario, mensagem = LEM.interpretar(texto)
+        if not horario:
+            self.status.setText(mensagem)
+            return False
+        plano = self.editor_internal.plano_atual()
+        alvo = card_id if card_id is not None else self.card_selecionado_id
+        LEM.criar(plano.id, assunto_de(texto), horario,
+                  "America/Sao_Paulo", alvo)
+        self.status.setText(mensagem)
         return True
 
     def fechar_com_seguranca(self) -> bool:

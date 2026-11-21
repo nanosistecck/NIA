@@ -48,6 +48,8 @@ from core import catalogo_habilidades as _catalogo_habilidades
 from core import interface_planos as _interface_planos
 from core import interface_canvas_planos as _interface_canvas_planos
 from core import assistencia_planos as _assistencia
+from core import lembretes as _lembretes
+from datetime import datetime, timezone
 
 # ── CORES DO CLIENTE (08/10/2026) ──────────────────────────────────────────
 # Toda folha de estilo passa pelo `core/tema.py` na hora de ser aplicada. O
@@ -3964,6 +3966,11 @@ class MainWindow(QMainWindow):
         self._metric_tmr.start(3000)
         self._update_metrics()
 
+        # Lembretes locais: um único timer rearmado para o próximo vencimento.
+        self._lembrete_timer = QTimer(self)
+        self._lembrete_timer.setSingleShot(True)
+        QTimer.singleShot(2000, self._reagendar_lembretes)
+
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
         self._content_sig.connect(self._show_content)
@@ -5150,6 +5157,39 @@ class MainWindow(QMainWindow):
             gerenciador.showNormal()
             gerenciador.raise_()
             gerenciador.activateWindow()
+
+    def _reagendar_lembretes(self) -> None:
+        """Mostra vencidos pendentes earma o próximo; nunca varre arquivos."""
+        try:
+            self._lembrete_timer.stop()
+            for item in _lembretes.vencidos():
+                _lembretes.registrar_aviso(item["id"], item["horario"])
+                self._mostrar_aviso_lembrete(item)
+            proximo = _lembretes.proximo()
+            if proximo is not None:
+                quando = datetime.fromisoformat(
+                    str(proximo["horario"]).replace("Z", "+00:00"))
+                segundos = max(
+                    1.0, (quando - datetime.now(timezone.utc)).total_seconds())
+                self._lembrete_timer.singleShot(
+                    int(min(segundos, 86400) * 1000), self._reagendar_lembretes)
+        except Exception:
+            pass
+
+    def _mostrar_aviso_lembrete(self, lembrete: dict) -> None:
+        plano_id = lembrete.get("plano_id")
+        card_id = lembrete.get("card_id")
+        texto = ("Lembrete de card." if card_id else "Lembrete de plano.")
+        botoes = QMessageBox.StandardButton.Open
+        if card_id:
+            botoes |= QMessageBox.StandardButton.Discard
+        botoes |= QMessageBox.StandardButton.Close
+        escolha = QMessageBox.information(
+            self, "Lembrete", texto, botoes, QMessageBox.StandardButton.Open)
+        if int(escolha) == int(QMessageBox.StandardButton.Open) and plano_id:
+            casca = getattr(self, "_ui", None)
+            if casca is not None:
+                casca.abrir_lembrete(plano_id, card_id)
 
     @staticmethod
     def _cartao(nome_obj: str) -> QWidget:
@@ -6737,6 +6777,14 @@ class NiaUI:
                     and (not plano_id or editor.contexto()["plano_id"] == plano_id)):
                 editor.selecionar_card(card_id)
         QTimer.singleShot(0, aplicar)
+
+    def abrir_lembrete(self, plano_id: str, card_id: str | None = None) -> None:
+        """Thread-safe: abre o plano/card de um lembrete pelo fluxo normal."""
+        def abrir():
+            self._win._abrir_canvas_do_plano(plano_id)
+            self._win._canvas_editor.definir_modo(False)
+            self._win._canvas_editor.selecionar_card(card_id)
+        QTimer.singleShot(0, abrir)
 
     def abrir_plano_assistido(self, plano_id: str) -> None:
         """Thread-safe: abre o Canvas em modo 'Editar com a NIA'."""

@@ -115,6 +115,7 @@ class Plano:
     revisao: int = 0
     extras: dict[str, Any] = field(default_factory=dict)
     mapa: dict[str, Any] = field(default_factory=dict)
+    lembretes: list[dict[str, Any]] = field(default_factory=list)
 
     def para_json(self) -> dict:
         dados = dict(self.extras)
@@ -131,6 +132,8 @@ class Plano:
         })
         if self.mapa:
             dados["mapa"] = self.mapa
+        if self.lembretes:
+            dados["lembretes"] = self.lembretes
         return dados
 
     @classmethod
@@ -167,9 +170,13 @@ class Plano:
             # Planos antigos ganham os campos novos na leitura, sem perder
             # conteúdo, conexões ou posições já registrados.
             mapa, _ = validar_mapa(mapa)
+        lembretes = dados.get("lembretes")
+        if not isinstance(lembretes, list):
+            lembretes = []
+        lembretes = [dict(x) for x in lembretes if isinstance(x, dict)]
         conhecidas = {
             "id", "titulo", "objetivo", "tipo", "status", "criado_em",
-            "atualizado_em", "formato", "revisao", "mapa",
+            "atualizado_em", "formato", "revisao", "mapa", "lembretes",
         }
         extras = {k: v for k, v in dados.items() if k not in conhecidas}
         return cls(
@@ -184,6 +191,7 @@ class Plano:
             revisao=revisao,
             extras=extras,
             mapa=mapa,
+            lembretes=lembretes,
         )
 
 
@@ -246,7 +254,8 @@ def listar() -> tuple[list[Plano], list[str]]:
 def _validar_campos(mudancas: dict) -> dict:
     if not isinstance(mudancas, dict):
         raise PlanoInvalido("mudanças precisam ser um dicionário")
-    permitidas = {"titulo", "objetivo", "tipo", "status", "mapa", "formato"}
+    permitidas = {"titulo", "objetivo", "tipo", "status", "mapa", "formato",
+                  "lembretes"}
     limpas = {k: v for k, v in mudancas.items() if k in permitidas}
     if "titulo" in limpas:
         if not isinstance(limpas["titulo"], str) or not limpas["titulo"].strip():
@@ -262,6 +271,10 @@ def _validar_campos(mudancas: dict) -> dict:
         raise PlanoInvalido("status desconhecido")
     if "mapa" in limpas and not isinstance(limpas["mapa"], dict):
         raise PlanoInvalido("mapa inválido")
+    if "lembretes" in limpas:
+        if not isinstance(limpas["lembretes"], list) \
+                or any(not isinstance(x, dict) for x in limpas["lembretes"]):
+            raise PlanoInvalido("lembretes inválidos")
     if "formato" in limpas:
         formato = limpas["formato"]
         if isinstance(formato, bool) or not isinstance(formato, int) \
@@ -300,11 +313,23 @@ def atualizar(plano_id: str, mudancas: dict, revisao_esperada: int) -> Plano:
 
 
 def arquivar(plano_id: str, revisao_esperada: int) -> Plano:
-    return atualizar(plano_id, {"status": "arquivado"}, revisao_esperada)
+    plano = atualizar(plano_id, {"status": "arquivado"}, revisao_esperada)
+    try:
+        from core import lembretes as _lembretes  # noqa: PLC0415
+        _lembretes.suspender_por_plano(plano_id)
+    except Exception:
+        pass
+    return _carregar_ou_erro(plano_id)
 
 
 def restaurar(plano_id: str, revisao_esperada: int) -> Plano:
-    return atualizar(plano_id, {"status": "ativo"}, revisao_esperada)
+    plano = atualizar(plano_id, {"status": "ativo"}, revisao_esperada)
+    try:
+        from core import lembretes as _lembretes  # noqa: PLC0415
+        _lembretes.restaurar_por_plano(plano_id)
+    except Exception:
+        pass
+    return _carregar_ou_erro(plano_id)
 
 
 # ── mapa do Canvas (Etapa 2) ────────────────────────────────────────────

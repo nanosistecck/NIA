@@ -13,8 +13,8 @@ from typing import Any
 
 from PyQt6.QtCore import QEvent, Qt, QPointF, QRectF, QTimer, pyqtSignal
 from PyQt6.QtGui import (
-    QBrush, QColor, QFont, QKeySequence, QPainter, QPainterPath, QPen,
-    QShortcut, QUndoCommand, QUndoStack,
+    QBrush, QColor, QFont, QKeySequence, QPainter, QPainterPath,
+    QPainterPathStroker, QPen, QShortcut, QUndoCommand, QUndoStack,
 )
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFormLayout, QGraphicsItem, QGraphicsPathItem,
@@ -29,6 +29,7 @@ from core.planos import (
 )
 
 _PRI = "#00d4ff"
+_GREEN = "#00ff88"
 _TEXT = "#d8f8ff"
 _MUTED = "#8fb8cc"
 _BG = "#011520"
@@ -84,9 +85,12 @@ class CardItem(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None) -> None:
         ret = self.boundingRect()
         selecionado = self.isSelected()
+        origem = getattr(self.scene(), "origem_conexao", None) == self.dados.get("id") \
+            if self.scene() is not None else False
         tarefa = self.dados.get("tipo") == "tarefa"
-        painter.setPen(QPen(QColor(_PRI if selecionado else "#1a5c7a"),
-                            2.5 if selecionado else 1.4))
+        cor_borda = _GREEN if origem else (_PRI if selecionado else "#1a5c7a")
+        painter.setPen(QPen(QColor(cor_borda),
+                            3.0 if origem else (2.5 if selecionado else 1.4)))
         painter.setBrush(QBrush(QColor("#082538")))
         painter.drawRoundedRect(ret, 10, 10)
         if selecionado:
@@ -125,6 +129,14 @@ class CardItem(QGraphicsItem):
         return super().itemChange(change, value)
 
     def mousePressEvent(self, event):
+        cena = self.scene()
+        if cena is not None and getattr(cena, "origem_conexao", None) is not None:
+            if self.dados.get("id") != cena.origem_conexao:
+                editor = getattr(cena, "editor", None)
+                if editor is not None:
+                    editor.concluir_conexao(self.dados.get("id"))
+                event.accept()
+                return
         self._pos_antes = self.pos()
         super().mousePressEvent(event)
 
@@ -154,6 +166,8 @@ class ConexaoItem(QGraphicsPathItem):
         self.dados = dict(dados)
         self._cena = cena
         self.setPen(QPen(QColor("#3d9ab5"), 1.8))
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setAcceptHoverEvents(True)
         self.setZValue(-1)
         self._rotulo = QGraphicsTextItem(self)
         self._rotulo.setDefaultTextColor(QColor(_MUTED))
@@ -172,8 +186,18 @@ class ConexaoItem(QGraphicsPathItem):
         curva.moveTo(a)
         curva.cubicTo(QPointF(meio_x, a.y()), QPointF(meio_x, b.y()), b)
         self.setPath(curva)
+        self._forma = self._cena.stroker.createStroke(curva)
         self._rotulo.setPlainText(str(self.dados.get("rotulo") or ""))
         self._rotulo.setPos(QPointF(meio_x - 40, (a.y() + b.y()) / 2 - 10))
+
+    def shape(self):
+        return getattr(self, "_forma", super().shape())
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            painter.setPen(QPen(QColor(_TEXT), 2.8, Qt.PenStyle.DashLine))
+            painter.drawPath(self.path())
 
     def atualizar_dados(self, dados: dict) -> None:
         self.dados = dict(dados)
@@ -189,8 +213,49 @@ class CenaMapa(QGraphicsScene):
         self.pilha: QUndoStack | None = None
         self.itens_cards: dict[str, CardItem] = {}
         self.itens_conexoes: dict[str, ConexaoItem] = {}
+        self.origem_conexao: str | None = None
+        self.item_previa = None
+        self.stroker = QPainterPathStroker()
+        self.stroker.setWidth(14.0)
+
+    def iniciar_previa(self, card_id: str, ponto: QPointF) -> None:
+        self.cancelar_previa()
+        self.origem_conexao = card_id
+        origem = self.itens_cards.get(card_id)
+        if origem is None:
+            return
+        a = origem.pos() + QPointF(_CARD_W / 2, _CARD_H / 2)
+        linha = QPainterPath()
+        linha.moveTo(a)
+        linha.lineTo(ponto)
+        self.item_previa = self.addPath(linha, QPen(QColor(_GREEN), 2.0,
+                                                   Qt.PenStyle.DashLine))
+
+    def mover_previa(self, ponto: QPointF) -> None:
+        if self.item_previa is None or self.origem_conexao is None:
+            return
+        origem = self.itens_cards.get(self.origem_conexao)
+        if origem is None:
+            return
+        a = origem.pos() + QPointF(_CARD_W / 2, _CARD_H / 2)
+        linha = QPainterPath()
+        linha.moveTo(a)
+        linha.lineTo(ponto)
+        self.item_previa.setPath(linha)
+
+    def cancelar_previa(self) -> None:
+        if self.item_previa is not None:
+            self.removeItem(self.item_previa)
+            self.item_previa = None
+        self.origem_conexao = None
+        for item in self.itens_cards.values():
+            if item.isSelected():
+                item.setSelected(False)
+        for item in self.itens_conexoes.values():
+            item.setSelected(False)
 
     def montar(self, mapa: dict) -> None:
+        self.cancelar_previa()
         self.itens_cards.clear()
         self.itens_conexoes.clear()
         self.clear()
@@ -259,6 +324,12 @@ class MapaView(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+
+    def mouseMoveEvent(self, event):
+        cena = self.scene()
+        if cena is not None and getattr(cena, "origem_conexao", None) is not None:
+            cena.mover_previa(self.mapToScene(event.pos()))
+        super().mouseMoveEvent(event)
 
     def wheelEvent(self, event):
         fator = 1.18 if event.angleDelta().y() > 0 else 1 / 1.18
@@ -471,6 +542,8 @@ class EditorMapa(QWidget):
         self._plano: Plano | None = None
         self._camera = {"cx": 0.0, "cy": 0.0, "zoom": 1.0}
         self.mudancas_pendentes = False
+        self.modo_conexao = False
+        self.conexao_origem: str | None = None
         self._comando_texto = None
         self._card_texto_id: str | None = None
         self._carregando_dados = False
@@ -574,6 +647,7 @@ class EditorMapa(QWidget):
             ("Ctrl+Y", self.refazer),
             ("Ctrl+Shift+Z", self.refazer),
             ("Ctrl+Return", self._confirmar_texto),
+            ("Escape", self.cancelar_conexao),
         ):
             atalho = QShortcut(QKeySequence(seq), self)
             atalho.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -582,6 +656,7 @@ class EditorMapa(QWidget):
     # ── API pública ─────────────────────────────────────────────────────
     def carregar(self, plano: Plano) -> None:
         self._timer.stop()
+        self.cancelar_conexao()
         self._fechar_sessao_texto()
         self._plano = plano
         mapa, avisos = validar_mapa(plano.mapa)
@@ -616,8 +691,7 @@ class EditorMapa(QWidget):
         return self._selecionado if self._selecionado_tipo == "card" else None
 
     def selecionar(self, card_id: str | None) -> None:
-        if card_id != self._selecionado:
-            self._fechar_sessao_texto()
+        self._fechar_sessao_texto()
         self._selecionado = card_id
         self._selecionado_tipo = "card"
         self._card_texto_id = card_id
@@ -644,6 +718,46 @@ class EditorMapa(QWidget):
         self.rotulo_detalhes.setText(f"Card: {dados.get('titulo') or 'sem título'}")
         self._carregando_dados = False
 
+    # ── modo de conexão ──────────────────────────────────────────────────
+    def iniciar_conexao(self, card_id: str) -> None:
+        if card_id not in self.cena.itens_cards:
+            self.status.setText("Selecione um card para iniciar a conexão.")
+            return
+        self._fechar_sessao_texto()
+        self.modo_conexao = True
+        self.conexao_origem = card_id
+        self.cena.cancelar_previa()
+        centro = self.cena.itens_cards[card_id].pos() + QPointF(120, 120)
+        self.cena.iniciar_previa(card_id, centro)
+        self.cena.origem_conexao = card_id
+        self.cena.itens_cards[card_id].setSelected(True)
+        self.cena.update()
+        self.status.setText(
+            "Escolha o card de destino · Esc cancela.")
+
+    def concluir_conexao(self, destino_id: str) -> bool:
+        if not self.modo_conexao or not self.conexao_origem:
+            return False
+        origem = self.conexao_origem
+        if origem == destino_id or destino_id not in self.cena.itens_cards:
+            self.status.setText("Destino inválido. Escolha outro card.")
+            return False
+        try:
+            self.conectar(origem, destino_id)
+        except BP.PlanoInvalido as exc:
+            self.status.setText(str(exc))
+            return False
+        self.cancelar_conexao()
+        self.status.setText("Conexão criada.")
+        return True
+
+    def cancelar_conexao(self) -> None:
+        self.modo_conexao = False
+        self.conexao_origem = None
+        if self.cena is not None:
+            self.cena.cancelar_previa()
+            self.cena.update()
+
     # ── sessão de edição de texto ────────────────────────────────────────
     def eventFilter(self, objeto, evento):
         if (objeto is self.campo_descricao
@@ -658,6 +772,9 @@ class EditorMapa(QWidget):
     def _ao_digitar_texto(self) -> None:
         if self._carregando_dados or not self._card_texto_id:
             return
+        if (self._comando_texto is not None
+                and self._comando_texto.card_id != self._card_texto_id):
+            self._fechar_sessao_texto()
         if self._comando_texto is None:
             item = self.cena.itens_cards.get(self._card_texto_id)
             if item is None:
@@ -880,10 +997,14 @@ class EditorMapa(QWidget):
             self.adicionar_conectado(self.card_selecionado_id)
 
     def _conectar_selecionados(self) -> None:
-        selecionados = [i.dados.get("id") for i in self.cena.selectedItems()
-                        if isinstance(i, CardItem)]
-        if len(selecionados) == 2:
-            self.conectar(selecionados[0], selecionados[1])
+        if self.modo_conexao:
+            self.cancelar_conexao()
+            return
+        ident = self.card_selecionado_id
+        if ident:
+            self.iniciar_conexao(ident)
+        else:
+            self.status.setText("Selecione um card de origem.")
 
     def _salvar_detalhes(self) -> None:
         ident = self.card_selecionado_id

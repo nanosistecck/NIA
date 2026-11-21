@@ -6851,6 +6851,45 @@ class NiaUI:
                 _assistencia.desfazer_lote(editor.editor_internal)
         QTimer.singleShot(0, desfazer)
 
+    def estado_canvas_vivo(self):
+        """Plano do editor aberto, com edições pendentes (thread-safe)."""
+        editor = getattr(self._win, "_canvas_editor", None)
+        if editor is None or not editor.isVisible():
+            return None
+        return editor.editor_internal.plano_atual()
+
+    def destacar_card(self, plano_id: str, card_id: str | None) -> None:
+        """Destaca o card de uma resposta somente se o plano estiver visível."""
+        def aplicar():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if editor is None or not editor.isVisible() or not card_id:
+                return
+            if editor.editor_internal.plano_atual().id != str(plano_id):
+                return
+            editor.selecionar_card(card_id)
+            editor.editor_internal._view.centerOn(
+                editor.editor_internal.cena.itens_cards[card_id])
+        QTimer.singleShot(0, aplicar)
+
+    def perguntar_sobre_card(self, card_id: str | None,
+                             pergunta: str = "O que escrevi neste card?") -> None:
+        """Abre a conversa com o alvo identificado, sem digitar o nome."""
+        def aplicar():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if editor is None or not editor.isVisible():
+                return
+            alvo = card_id or editor.card_selecionado_id
+            if not alvo:
+                return
+            editor.selecionar_card(alvo)
+            campo = self._win._input
+            self._win._drawer.setVisible(True)
+            self._win._stage.chat_open = True
+            self._win._stage.arrange(True)
+            campo.setText(f"{pergunta} (card: {alvo})")
+            campo.setFocus(Qt.FocusReason.OtherFocusReason)
+        QTimer.singleShot(0, aplicar)
+
     def focar_busca_canvas(self, termo: str = '') -> None:
         """Thread-safe: deixa a caixa de entrada pronta para o termo da busca."""
         def focar():

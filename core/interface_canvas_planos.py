@@ -67,6 +67,10 @@ class CanvasEditor(QWidget):
         self.botao_lembrete.setObjectName("definir_lembrete")
         self.botao_lembrete.clicked.connect(self.definir_lembrete)
         topo.addWidget(self.botao_lembrete)
+        self.botao_perguntar = QPushButton("Perguntar à NIA sobre este card", self)
+        self.botao_perguntar.setObjectName("perguntar_nia_card")
+        self.botao_perguntar.clicked.connect(self._perguntar_nia)
+        topo.addWidget(self.botao_perguntar)
         self.status = QLabel("", self)
         self.status.setObjectName("status_canvas_editor")
         topo.addWidget(self.status, 1)
@@ -158,6 +162,14 @@ class CanvasEditor(QWidget):
                   "America/Sao_Paulo", alvo)
         self.status.setText(mensagem)
         return True
+
+    def _perguntar_nia(self) -> None:
+        janela = self.window()
+        casca = getattr(janela, "_ui", None)
+        if casca is not None:
+            casca.perguntar_sobre_card(self.card_selecionado_id)
+        else:
+            self.status.setText("Abra a conversa para perguntar sobre o card.")
 
     def fechar_com_seguranca(self) -> bool:
         return self.editor_internal.fechar_com_seguranca()

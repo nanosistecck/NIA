@@ -16,8 +16,8 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
-def test_preferencia_padrao_e_maximizada_com_bordas():
-    assert ui.janela_sem_bordas_padrao() is False
+def test_preferencia_padrao_e_maximizada_sem_bordas():
+    assert ui.janela_sem_bordas_padrao() is True
 
 
 def test_aplicar_modo_janela_nunca_usa_fullscreen(app, tmp_path, monkeypatch):
@@ -45,10 +45,10 @@ def test_niaui_abre_maximizada_sem_fullscreen(app, tmp_path, monkeypatch):
     monkeypatch.setattr(ui.MainWindow, "_check_config", lambda self: True)
     casca = ui.NiaUI("face.png")
     app.processEvents()
-    assert casca._win.janela_tela_cheia is False
+    assert casca._win.janela_tela_cheia is True
     assert not casca._win.isFullScreen()
     assert casca._win.windowState() & Qt.WindowState.WindowMaximized
-    assert not (casca._win.windowFlags() & Qt.WindowType.FramelessWindowHint)
+    assert casca._win.windowFlags() & Qt.WindowType.FramelessWindowHint
     for t in casca._win.findChildren(__import__("PyQt6.QtCore", fromlist=["QTimer"]).QTimer):
         t.stop()
     casca._win.hide()

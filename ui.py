@@ -69,7 +69,9 @@ _TESTE_JANELA = False   # testes isolados instanciam MainWindow diretamente
 
 
 def janela_sem_bordas_padrao() -> bool:
-    return False
+    # Sem bordas do Windows por padrão; os botões próprios ficam no canto
+    # superior direito para minimizar / alternar maximizar / fechar.
+    return True
 
 
 def janela_sem_bordas(caminho=None) -> bool:
@@ -4562,6 +4564,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.showMaximized()
+        self._estado_maximizado = True
         self.raise_()
         self.activateWindow()
 
@@ -4978,9 +4981,52 @@ class MainWindow(QMainWindow):
         self._rail_state_lbl.setStyleSheet(self._estilo_pilula(C.PRI))
         row.addWidget(self._rail_state_lbl)
         row.addStretch()
+        self._adicionar_botoes_janela(row)
         self._sub_topo_padrao = "Sistema Inteligente do NIA"
         self._lbl_titulo_topo.setToolTip(_nome_tela("subtitulo", self._sub_topo_padrao))
         return w
+
+    def _adicionar_botoes_janela(self, layout) -> None:
+        """Controles discretos no canto superior direito, no lugar dos do Windows."""
+        estilo = """
+            QPushButton {{
+                color: #9fd7ec; background: rgba(10,34,50,120);
+                border: 1px solid rgba(150,215,240,45); border-radius: 7px;
+                font-size: 13px; qproperty-iconSize: 12px;
+            }}
+            QPushButton:hover {{ color: #ffffff;
+                background: rgba(35,110,140,190);
+                border: 1px solid rgba(160,230,255,120); }}
+            QPushButton:focus {{ border: 2px solid #00d4ff; }}
+            QPushButton#janela_fechar:hover {{ background: rgba(180,45,70,210); }}
+        """
+        definicoes = (
+            ("janela_minimizar", "─", "Minimizar", self.showMinimized),
+            ("janela_maximizar", "▢", "Maximizar / Restaurar", self._alternar_maximizar),
+            ("janela_fechar", "×", "Fechar", self._fechar_janela),
+        )
+        for nome, simbolo, dica, callback in definicoes:
+            botao = QPushButton(simbolo, self)
+            botao.setObjectName(nome)
+            botao.setFixedSize(30, 26)
+            botao.setCursor(Qt.CursorShape.PointingHandCursor)
+            botao.setToolTip(dica)
+            botao.setAccessibleName(dica)
+            botao.setStyleSheet(estilo)
+            botao.clicked.connect(callback)
+            layout.addWidget(botao)
+
+    def _alternar_maximizar(self) -> None:
+        self._estado_maximizado = not getattr(self, "_estado_maximizado", self.isMaximized())
+        if self._estado_maximizado:
+            self.showMaximized()
+        else:
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _fechar_janela(self) -> None:
+        self.close()
 
     @staticmethod
     def _estilo_pilula(cor: str) -> str:

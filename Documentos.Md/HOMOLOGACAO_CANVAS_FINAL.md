@@ -90,6 +90,21 @@ janela curta deve ser repetida com amostragem longa para conclusão.
 | Notificação com NIA fechada | Avisos só na próxima abertura | Integração com SO |
 | Publicação real | Saída permanece desativada | Integração própria |
 
+## Botões próprios da janela (22/11/2026)
+
+A NIA passou a abrir **sem a barra de título do Windows** por padrão, mantendo a janela
+maximizada e a barra de tarefas livre. No canto superior direito do cabeçalho há três
+controles discretos e estilizados: **─** minimizar, **▢** alternar maximizar/restaurar e
+**×** fechar. Todos têm tooltip/nome acessível, foco visível e hover vermelho no fechar.
+O menu de contexto com botão direito continua disponível com as mesmas ações.
+
+A preferência `janela_sem_bordas` agora tem padrão **`true`**. O F11 continua como tela
+cheia pontual; o estado inicial da aplicação é maximizado, nunca `showFullScreen()`.
+
+Verificação: `tests/test_botoes_janela.py` (3 testes RED→GREEN), além dos testes de
+janela atualizados. três botões no cabeçalho, estado maximizado sem fullscreen e
+alternância maximizar/restaurar.
+
 ## Janela principal maximizada (22/11/2026)
 
 A NIA abre por padrão **maximizada com as bordas normais do Windows**, preservando o

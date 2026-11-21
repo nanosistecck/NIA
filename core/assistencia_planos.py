@@ -21,7 +21,8 @@ _CAMPOS_EDITAVEIS = {
     "titulo", "resumo", "descricao", "tipo", "status", "modelo", "estado",
     "valor", "acumulado", "restrito", "financeiro",
 }
-_TIPOS_OP = {"criar_card", "editar_campos", "alterar_progresso", "conectar"}
+_TIPOS_OP = {"criar_card", "editar_campos", "alterar_progresso", "conectar",
+            "anexar_texto"}
 
 
 @dataclass(frozen=True)
@@ -105,7 +106,11 @@ def reconhecer_intencao(texto: str) -> str:
     n = normalizar(texto)
     if re.search(r"desfaca|desfazer|reverta|volte.*(adicion|ultimo|lote)", n):
         return "DESFAZER"
-    if re.search(r"adicion|adicione|crie|criar|transforme|reescreva|altere|mude", n):
+    if re.search(r"que ideias|quais ideias|ideias posso|sugestoes de ideias", n):
+        return "SUGERIR"
+    if re.search(r"conecte|conecte este|ligue este", n):
+        return "EDITAR"
+    if re.search(r"adicion|adicione|crie|criar|transforme|reescreva|altere|mude|acrescente", n):
         return "EDITAR"
     if re.search(r"que solucoes|alternativas|sugestoes|opcoes", n):
         return "SUGERIR"
@@ -188,6 +193,61 @@ def parse_resposta(bruto: str, contexto: dict) -> tuple[list[dict], list[str]]:
     return ops, []
 
 
+def intencao_para_lote(texto: str, contexto: dict) -> tuple[list[dict], list[str]]:
+    """Converte um pedido em linguagem natural em operações estruturadas."""
+    n = normalizar(texto)
+    alvo = contexto.get("card_id")
+    if not alvo:
+        return [], ["Selecione um card ou me diga qual card você quer editar."]
+    if re.search(r"acrescente.*(texto|descricao|ideias ao texto)|"
+                 r"adicionar.*ideias.*(texto|descricao)", n):
+        ideias = re.findall(r"([^,.;]+?)(?=,| e |;|\.|$)", n)
+        ideias = [i.strip() for i in ideias
+                  if i.strip() and not re.match(
+                      r"^(acrescente|adicione|estas|duas|ideias|ao|texto|neste|card)$",
+                      i.strip())]
+        if not ideias:
+            ideias = ["Ideia acrescentada pela NIA"]
+        return [{"tipo": "anexar_texto", "card_id": alvo, "ideias": ideias}], []
+    if re.search(r"reescreva.*resumo", n):
+        atual = contexto.get("card") or {}
+        origem = atual.get("descricao") or atual.get("titulo") or ""
+        return [{"tipo": "editar_campos", "card_id": alvo,
+                 "campos": {"resumo": _duas_frases(origem)}}], []
+    if re.search(r"conecte|ligue", n):
+        alvo_nome = None
+        encontrado = re.search(r"(?:a|ao|com)\s+(publico-alvo|[^?]+)", n)
+        if encontrado:
+            alvo_nome = encontrado.group(1).strip(" .!?;:")
+            alvo_nome = re.sub(r"\s+(?:ele|este card|card|no mapa).*$", "",
+                               alvo_nome).strip()
+        if not alvo_nome:
+            return [], ["Qual é o card de destino da conexão?"]
+        destinos = [c for c in contexto.get("cartoes", [])
+                    if c.get("id") != alvo
+                    and normalizar(c.get("titulo") or "") == alvo_nome]
+        if not destinos:
+            destinos = [c for c in contexto.get("cartoes", [])
+                        if c.get("id") != alvo
+                        and alvo_nome in normalizar(c.get("titulo") or "")]
+        if len(destinos) > 1:
+            return [], ["Encontrei vários destinos: "
+                        + ", ".join(str(c.get("titulo")) for c in destinos)]
+        if not destinos:
+            return [], [f"Não encontrei o card {alvo_nome}."]
+        return [{"tipo": "conectar", "origem": alvo,
+                 "destino": destinos[0].get("id")}], []
+    if re.search(r"(crie|criar|adicione|acrescente).*cards?.*(ligt|conectad)"
+                 r"|(crie|criar) tres cards|monte um ramo", n):
+        quantos = 3
+        if re.search(r"(um|uma|1)\b", n):
+            quantos = 1
+        elif re.search(r"(dois|duas|2)\b", n):
+            quantos = 2
+        return _ramo(alvo, "ideia", "Divulgação gratuita", quantos), []
+    return [], ["Não entendi a alteração pedida."]
+
+
 def validar_lote(operacoes: list[dict], plano_atual, contexto: dict) \
         -> tuple[list[dict], list[str]]:
     """Valida o lote inteiro contra o estado ATUAL do editor, antes de aplicar."""
@@ -229,7 +289,11 @@ def validar_lote(operacoes: list[dict], plano_atual, contexto: dict) \
             if ident not in cartoes:
                 erros.append(f"operação {i}: card alvo removido")
                 continue
-            if tipo == "editar_campos":
+            if tipo == "anexar_texto":
+                ideias = op.get("ideias")
+                if not isinstance(ideias, list) or not ideias:
+                    erros.append(f"operação {i}: sem ideias para anexar")
+            elif tipo == "editar_campos":
                 campos = op.get("campos")
                 if not isinstance(campos, dict) or not campos:
                     erros.append(f"operação {i}: campos vazios")
@@ -282,6 +346,14 @@ def aplicar_lote(editor, operacoes: list[dict], rotulo: str) -> bool:
                 origem = ids.get(op.get("origem"), op.get("origem"))
                 if destino and origem in editor.cena.itens_cards:
                     editor.conectar(origem, destino, str(op.get("rotulo") or ""))
+            elif tipo == "anexar_texto":
+                item = editor.cena.itens_cards.get(op["card_id"])
+                if item is not None:
+                    atual = str(item.dados.get("descricao") or "")
+                    novas = "\n".join(str(x) for x in (op.get("ideias") or []))
+                    editor.editar_card(
+                        op["card_id"],
+                        {"descricao": (atual.rstrip() + "\n" + novas).strip()})
             elif tipo == "editar_campos":
                 editor.editar_card(op["card_id"], dict(op.get("campos") or {}))
             elif tipo == "alterar_progresso":

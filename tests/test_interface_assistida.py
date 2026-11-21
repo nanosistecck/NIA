@@ -105,7 +105,7 @@ def test_pedido_assistido_por_texto_e_voz_usam_mesmo_caminho(window, app):
         write_log=lambda texto: registros.append(texto),
         aplicar_lote_assistido=lambda ops, rotulo: registros.append((ops, rotulo)),
     )
-    frase = "Adicione três soluções a este card."
+    frase = "Crie três cards de divulgação gratuita ligados a este."
     r1 = main.NiaLive._processar_pedido_assistido(nia, frase, "texto")
     r2 = main.NiaLive._processar_pedido_assistido(nia, frase, "voz")
     assert r1 is True and r2 is True

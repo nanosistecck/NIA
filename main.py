@@ -7186,6 +7186,10 @@ class NiaLive:
                 return True
             return False
         contexto = AP.montar_contexto(plano, contexto_canvas.get("card_id"))
+        contexto.update({
+            "cartoes": plano.mapa.get("cards", []),
+            "plano": plano,
+        })
         tipo_modelo = MP.reconhecer_tipo(texto)
         if tipo_modelo and re.search(
                 r"monte|adicione ramo|adicionar modelo|modelo de|planejamento completo",
@@ -7209,7 +7213,29 @@ class NiaLive:
             resposta = self._resposta_assistida_local(intencao, contexto)
             self.ui.write_log(f"SIS: {resposta}")
             return True
-        operacoes, erros = AP.pedido_local(texto, contexto)
+        alvo_id = contexto_canvas.get("card_id")
+        fingerprint = AP.fingerprint(plano)
+        ponte_viva = getattr(self.ui, "estado_canvas_vivo", None)
+        vivo = None
+        if ponte_viva is not None:
+            try:
+                vivo = ponte_viva()
+            except Exception:
+                vivo = None
+        if vivo is not None and getattr(vivo, "id", None) != plano.id:
+            self.ui.write_log(
+                "SIS: O plano mudou desde o pedido; a resposta não foi aplicada.")
+            return True
+        if contexto_canvas.get("plano_id") is not None \
+                and contexto_canvas.get("plano_id") != plano.id:
+            self.ui.write_log(
+                "SIS: O plano mudou desde o pedido; a resposta não foi aplicada.")
+            return True
+        if not alvo_id:
+            self.ui.write_log("SIS: Selecione um card para receber a alteração.")
+            return True
+
+        operacoes, erros = AP.intencao_para_lote(texto, contexto)
         provedor = getattr(self, "_provedor_assistido", None)
         if not operacoes and provedor is not None:
             bruto = provedor(texto, seguro)
@@ -7218,6 +7244,45 @@ class NiaLive:
             self.ui.write_log("SIS: " + (erros[0] if erros
                                          else "Não entendi a alteração pedida."))
             return True
+
+        # Reescrita explícita: propor um resumo novo a partir do texto existente.
+        if re.search(r"reescreva|reformule", AP.normalizar(texto)):
+            alvo_atual = next((c for c in plano.mapa.get("cards", [])
+                               if c.get("id") == alvo_id), {})
+            origem = " ".join(str(alvo_atual.get(k) or "") for k in
+                              ("descricao", "titulo"))
+            partes = [p.strip() for p in re.split(r"[.!?]+", origem) if p.strip()]
+            proposto = ". ".join(partes[:2])[:240] or "Resumo a revisar"
+            for op in operacoes:
+                if op.get("tipo") == "editar_campos" \
+                        and "resumo" in (op.get("campos") or {}):
+                    op["campos"]["resumo"] = proposto
+
+        # Alvo capturado no envio: trocar seleção não muda o destino.
+        if vivo is not None:
+            if AP.fingerprint(vivo) != fingerprint:
+                self.ui.write_log(
+                    "SIS: Conflito: o mapa mudou desde o pedido. "
+                    "A edição manual foi preservada.")
+                contexto_vivo = AP.montar_contexto(vivo, alvo_id)
+                contexto_vivo.update({"cartoes": vivo.mapa.get("cards", [])})
+                for op in operacoes:
+                    if op.get("tipo") == "editar_campos" \
+                            and op.get("card_id") == alvo_id:
+                        for chave in (op.get("campos") or {}):
+                            alvo_atual = next(
+                                (c for c in vivo.mapa.get("cards", [])
+                                 if c.get("id") == alvo_id), {})
+                            anterior = next(
+                                (c for c in contexto.get("cartoes", [])
+                                 if c.get("id") == alvo_id), {})
+                            if alvo_atual.get(chave) != anterior.get(chave):
+                                self.ui.write_log(
+                                    "SIS: Conflito com edição manual: "
+                                    f"campo '{chave}' mudou. Nada foi alterado.")
+                                return True
+                contexto = contexto_vivo
+                plano = vivo
         validas, erros = AP.validar_lote(operacoes, plano, contexto)
         if erros:
             self.ui.write_log("SIS: " + erros[0]

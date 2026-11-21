@@ -163,6 +163,28 @@ seleção e card restrito. Suíte: **366 testes passaram**; `compileall` e
 `git diff --check` limpos. Pela interface: apenas roteamento Qt offscreen; voz com
 transcrição simulada; nenhuma chamada real de IA/síntese.
 
+## Revisão Prompt 05 — edição assistida (21/11/2026)
+
+Causa confirmada: o fluxo assistido usava apenas `pedido_local` (limitado a soluções,
+tarefas e resumo), não capturava o alvo no envio e comparava conflitos contra um snapshot
+em vez do estado vivo do editor.
+
+Solução aplicada: `AP.intencao_para_lote` converte pedidos em operações estruturadas
+(`anexar_texto`, `editar_campos`, `criar_card`, `conectar`) com IDs gerados pelo app;
+`_processar_pedido_assistido` captura `plano_id`, `card_id` e fingerprint no envio, consulta
+`NiaUI.estado_canvas_vivo()`, descarta respostas quando o plano mudou, detecta conflito no
+campo afetado e valida o lote inteiro antes de aplicar. Reescrita de resumo passa a propor
+texto novo em vez de repetir o antigo. Voz e texto seguem o mesmo caminho.
+
+Reaproveitados: `AP.validar_lote`/`aplicar_lote`/`filtrar_contexto`, `QUndoStack`, autosave,
+`NiaUI.aplicar_lote_assistido` e `_resolver_alvo_canvas`. Remoções: nenhuma.
+
+Verificação: `tests/test_edicao_assistida_revisao.py` (8 testes RED→GREEN), cobrindo as seis
+frases do prompt, acrecentar ideias ao texto, ramo de três cards em um lote, conexão por
+nome, conflito com edição manual, troca de plano, lote inválido e destino duplicado. Suíte:
+**374 testes passaram**; `compileall` e `git diff --check` limpos. Tudo simulado (provedor,
+voz, interface Qt offscreen), sem chamada externa real.
+
 ## Pendências reais
 
 | Pendência | Impacto | Motivo | Etapa de origem |

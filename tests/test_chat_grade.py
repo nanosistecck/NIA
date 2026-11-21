@@ -40,6 +40,14 @@ def test_chat_maior(janela):
 def test_botao_esconde_e_mostra_o_input(janela, app):
     botao = janela.findChild(QPushButton, "chat_inferior")
     assert botao is not None and botao.isVisible()
+    #Oculto por padrão, com ícone e nome no botão
+    assert botao.isChecked() is False
+    assert not janela._composer.isVisible()
+    assert "Conversa" in botao.text()
+    assert not botao.icon().isNull()
+
+    botao.click()
+    app.processEvents()
     assert botao.isChecked() is True
     assert janela._composer.isVisible()
 
@@ -47,11 +55,6 @@ def test_botao_esconde_e_mostra_o_input(janela, app):
     app.processEvents()
     assert botao.isChecked() is False
     assert not janela._composer.isVisible()
-
-    botao.click()
-    app.processEvents()
-    assert botao.isChecked() is True
-    assert janela._composer.isVisible()
 
 
 def test_grade_azul_escuro(janela):

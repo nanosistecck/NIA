@@ -4009,26 +4009,31 @@ class MainWindow(QMainWindow):
             " stop:0 rgba(14,42,64,160), stop:1 rgba(7,22,38,170));"
             " border: 1px solid rgba(25,211,243,51); border-radius: 24px; }")
         # Botão abaixo do campo: mostra ou esconde o histórico da conversa.
-        self._btn_chat_abajo = QPushButton("▤  Chat", self)
+        self._btn_chat_abajo = QPushButton(self)
         self._btn_chat_abajo.setObjectName("chat_inferior")
+        self._btn_chat_abajo.setIcon(icon("mic"))
+        self._btn_chat_abajo.setText("  Conversa")
         self._btn_chat_abajo.setCheckable(True)
-        self._btn_chat_abajo.setChecked(True)
+        self._btn_chat_abajo.setChecked(False)
         self._btn_chat_abajo.setToolTip("Mostrar ou esconder o campo de conversa")
         self._btn_chat_abajo.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_chat_abajo.setStyleSheet(
             "QPushButton { color:#8FD9EE; background: rgba(10,34,50,150);"
             " border:1px solid rgba(25,211,243,55); border-radius:12px;"
-            " padding:3px 12px; font-size:11px; min-height:22px; }"
+            " padding:3px 12px; font-size:11px; min-height:22px;"
+            " qproperty-iconSize: 16px; }"
             "QPushButton:hover { background: rgba(25,211,243,40); color:#E6F6FF; }"
             "QPushButton:focus { border:2px solid #19D3F3; }"
             "QPushButton:checked { background: rgba(25,211,243,70); color:#E6F6FF; }")
         self._btn_chat_abajo.clicked.connect(self._toggle_chat_abajo)
+        self._btn_chat_abajo.setToolTip("Mostrar ou esconder o campo de conversa")
         abaixo = QHBoxLayout()
         abaixo.setContentsMargins(0, 2, 0, 0)
         abaixo.addStretch()
         abaixo.addWidget(self._btn_chat_abajo)
         abaixo.addStretch()
         root.addLayout(abaixo)
+        self._composer.hide()  #oculto por padrão; botão "Conversa" revela
 
         # Metrik güncelleme timer'ı
         self._metric_tmr = QTimer(self)

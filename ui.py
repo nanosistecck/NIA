@@ -4009,23 +4009,24 @@ class MainWindow(QMainWindow):
             " stop:0 rgba(14,42,64,160), stop:1 rgba(7,22,38,170));"
             " border: 1px solid rgba(25,211,243,51); border-radius: 24px; }")
         # Botão abaixo do campo: mostra ou esconde o histórico da conversa.
-        self._btn_historico_abajo = QPushButton("▤  Histórico", self)
-        self._btn_historico_abajo.setObjectName("historico_inferior")
-        self._btn_historico_abajo.setCheckable(True)
-        self._btn_historico_abajo.setToolTip("Mostrar ou recolher histórico")
-        self._btn_historico_abajo.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_historico_abajo.setStyleSheet(
+        self._btn_chat_abajo = QPushButton("▤  Chat", self)
+        self._btn_chat_abajo.setObjectName("chat_inferior")
+        self._btn_chat_abajo.setCheckable(True)
+        self._btn_chat_abajo.setChecked(True)
+        self._btn_chat_abajo.setToolTip("Mostrar ou esconder o campo de conversa")
+        self._btn_chat_abajo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_chat_abajo.setStyleSheet(
             "QPushButton { color:#8FD9EE; background: rgba(10,34,50,150);"
             " border:1px solid rgba(25,211,243,55); border-radius:12px;"
             " padding:3px 12px; font-size:11px; min-height:22px; }"
             "QPushButton:hover { background: rgba(25,211,243,40); color:#E6F6FF; }"
             "QPushButton:focus { border:2px solid #19D3F3; }"
             "QPushButton:checked { background: rgba(25,211,243,70); color:#E6F6FF; }")
-        self._btn_historico_abajo.clicked.connect(self._toggle_history)
+        self._btn_chat_abajo.clicked.connect(self._toggle_chat_abajo)
         abaixo = QHBoxLayout()
         abaixo.setContentsMargins(0, 2, 0, 0)
         abaixo.addStretch()
-        abaixo.addWidget(self._btn_historico_abajo)
+        abaixo.addWidget(self._btn_chat_abajo)
         abaixo.addStretch()
         root.addLayout(abaixo)
 
@@ -5648,12 +5649,18 @@ class MainWindow(QMainWindow):
     def _toggle_history(self):
         self._drawer.setVisible(not self._drawer.isVisible())
         self._history_btn.setChecked(self._drawer.isVisible())
-        abaixo = getattr(self, "_btn_historico_abajo", None)
-        if abaixo is not None:
-            abaixo.setChecked(self._drawer.isVisible())
         self._stage.chat_open = self._drawer.isVisible()
         self._stage.arrange(True)
         self._position_canvas_panels()
+
+    def _toggle_chat_abajo(self) -> None:
+        """Mostra ou esconde o campo de entrada do chat."""
+        visivel = self._btn_chat_abajo.isChecked()
+        self._composer.setVisible(visivel)
+        if visivel:
+            self._input.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._stage.chat_open = self._drawer.isVisible()
+        self._stage.arrange(True)
 
     def _position_canvas_panels(self):
         canvas = getattr(self, "_canvas_editor", None)

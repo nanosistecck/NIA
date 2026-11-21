@@ -37,13 +37,21 @@ def test_chat_maior(janela):
     assert janela._composer.height() == 56
 
 
-def test_botao_historico_abaixo(janela, app):
-    botao = janela.findChild(QPushButton, "historico_inferior")
+def test_botao_esconde_e_mostra_o_input(janela, app):
+    botao = janela.findChild(QPushButton, "chat_inferior")
     assert botao is not None and botao.isVisible()
-    assert botao.isChecked() == janela._drawer.isVisible()
+    assert botao.isChecked() is True
+    assert janela._composer.isVisible()
+
     botao.click()
     app.processEvents()
-    assert janela._drawer.isVisible() == botao.isChecked()
+    assert botao.isChecked() is False
+    assert not janela._composer.isVisible()
+
+    botao.click()
+    app.processEvents()
+    assert botao.isChecked() is True
+    assert janela._composer.isVisible()
 
 
 def test_grade_azul_escuro(janela):

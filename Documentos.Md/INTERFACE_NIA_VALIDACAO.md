@@ -113,3 +113,14 @@ Resultado: **289 testes passaram** (Python 3.12.14, PyQt6 6.12.1, pytest 9.2.0).
 Cobertura acrescentada: persistência após reinício, revisão/conflito/falha de escrita, arquivo corrompido isolado, formato antigo sem mapa, card central idempotente, exclusão com conexões desfeita e refeita junta, restauração de câmera/posições, falha de gravação, recolhimento de dock e retorno do núcleo sem persistir preferência, intenções do Prompt 03, escolha por ordinal, negação e reentrega de transcrição.
 
 **Limitações**: a voz foi validada com transcrição final simulada, não com microfone/STT reais; pan/zoom e edição foram exercitados em testes Qt offscreen, não em sessão manual com núcleo falando. Movimento reduzido é lido de `appearance.movimento_reducido` (padrão `false`), ainda sem controle de UI dedicado. Nenhuma chamada de rede, API externa ou Ollama foi feita nesta entrega.
+
+## Edição assistida e memória local do Canvas — Etapa 4 (20/11/2026)
+
+- `core/assistencia_planos.py`: contexto mínimo do plano (objetivo, card selecionado e vizinhos), intenções local/sugestão/edição/desfazer, operações estruturadas validadas contra o **estado atual do editor**, aplicação em um único `QUndoCommand` e filtro de saída antes de qualquer provedor.
+- Gerenciador ganhou **Editar com a NIA**; o Canvas tem alternância **Manual / Com a NIA** que preserva mapa, seleção, câmera e mudanças pendentes.
+- Os campos `restrito` e `financeiro` passaram a fazer parte do card. `filtrar_contexto` remove esses cards de chamadas externas — inclusive no fallback local → externo — e o provedor configurado da NIA é chamado pelo mesmo ponto de entrada de chat/voz (`_executar_frase_habilidade`).
+- Lotes inválidos, conflito com edição manual e troca/fechamento do plano são recusados antes de qualquer alteração; o desfazer do lote só age quando ele é a última operação.
+
+**Verificação**: **304 testes passaram** com o mesmo comando acima; `compileall` e `git diff --check` limpos. Cobertura nova: contexto com vizinhos, filtro externo/local/fallback, lote de três soluções com desfazer em uma ação, lote inválido, conflito em memória, resposta atrasada após troca de plano e roteamento idêntico por texto e voz.
+
+**Limitações da Etapa 4**: os testes de edição assistida usam provedor simulado e interface Qt offscreen; nenhuma chamada real a API externa ou Ollama foi feita. Modelos completos por tipo (Prompt 05), lembretes e publicação ficam para etapas seguintes.

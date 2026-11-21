@@ -47,6 +47,7 @@ from core import segundo_plano as _segundo_plano
 from core import catalogo_habilidades as _catalogo_habilidades
 from core import interface_planos as _interface_planos
 from core import interface_canvas_planos as _interface_canvas_planos
+from core import assistencia_planos as _assistencia
 
 # ── CORES DO CLIENTE (08/10/2026) ──────────────────────────────────────────
 # Toda folha de estilo passa pelo `core/tema.py` na hora de ser aplicada. O
@@ -5037,6 +5038,8 @@ class MainWindow(QMainWindow):
         try:
             janela = _interface_planos.PlanosWindow()
             janela.abrir_canvas.connect(self._abrir_canvas_do_plano)
+            janela.abrir_canvas_assistido.connect(
+                lambda plano_id: self._abrir_canvas_do_plano(plano_id, assistido=True))
             janela.fechada.connect(self._planos_fechou)
             self._planos_window = janela
             janela.show()
@@ -5050,7 +5053,8 @@ class MainWindow(QMainWindow):
                     f"ERR: nao abri os planos — {type(exc).__name__}: {str(exc)[:110]}")
             return None
 
-    def _abrir_canvas_do_plano(self, plano_id: str, plano=None) -> bool:
+    def _abrir_canvas_do_plano(self, plano_id: str, plano=None,
+                               assistido: bool = False) -> bool:
         """Abre o mapa de um plano no editor embutido no Canvas."""
         from core import planos as _planos
         plano = plano or _planos.carregar(str(plano_id))
@@ -5091,6 +5095,7 @@ class MainWindow(QMainWindow):
             editor.voltar.connect(self._voltar_dos_planos)
             editor.contexto_mudou.connect(self._contexto_canvas_mudou)
             self._canvas_editor = editor
+        editor.definir_modo(assistido)
         editor.abrir(plano)
         editor.show()
         editor.raise_()
@@ -6732,6 +6737,32 @@ class NiaUI:
                     and (not plano_id or editor.contexto()["plano_id"] == plano_id)):
                 editor.selecionar_card(card_id)
         QTimer.singleShot(0, aplicar)
+
+    def abrir_plano_assistido(self, plano_id: str) -> None:
+        """Thread-safe: abre o Canvas em modo 'Editar com a NIA'."""
+        QTimer.singleShot(
+            0, lambda: self._win._abrir_canvas_do_plano(str(plano_id), assistido=True))
+
+    def definir_modo_assistido(self, assistido: bool) -> None:
+        """Thread-safe: alterna Manual/Com a NIA sem recriar o editor."""
+        QTimer.singleShot(0, lambda: self._win._canvas_editor.definir_modo(
+            bool(assistido)) if getattr(self._win, "_canvas_editor", None) else None)
+
+    def aplicar_lote_assistido(self, operacoes: list, rotulo: str) -> None:
+        """Thread-safe: aplica operações validadas em uma só ação de desfazer."""
+        def aplicar():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if editor is not None and editor.isVisible():
+                _assistencia.aplicar_lote(editor.editor_internal, operacoes, rotulo)
+        QTimer.singleShot(0, aplicar)
+
+    def desfazer_lote_assistido(self) -> None:
+        """Thread-safe: desfaz o lote assistido se for a última operação."""
+        def desfazer():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if editor is not None and editor.isVisible():
+                _assistencia.desfazer_lote(editor.editor_internal)
+        QTimer.singleShot(0, desfazer)
 
     def focar_busca_canvas(self, termo: str = '') -> None:
         """Thread-safe: deixa a caixa de entrada pronta para o termo da busca."""

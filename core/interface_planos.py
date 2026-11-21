@@ -60,6 +60,7 @@ class PlanosWindow(QWidget):
 
     fechada = pyqtSignal()
     abrir_canvas = pyqtSignal(str)
+    abrir_canvas_assistido = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -117,6 +118,7 @@ class PlanosWindow(QWidget):
             ("visualizar", "Visualizar"),
             ("editar", "Editar"),
             ("abrir_canvas", "Editar no Canvas"),
+            ("abrir_canvas_ia", "Editar com a NIA"),
             ("arquivar", "Arquivar"),
             ("restaurar", "Restaurar"),
         ):
@@ -175,6 +177,7 @@ class PlanosWindow(QWidget):
         self.botoes["visualizar"].clicked.connect(self.visualizar)
         self.botoes["editar"].clicked.connect(self.editar)
         self.botoes["abrir_canvas"].clicked.connect(self._abrir_canvas)
+        self.botoes["abrir_canvas_ia"].clicked.connect(self._abrir_canvas_assistido)
         self.botoes["arquivar"].clicked.connect(self._arquivar)
         self.botoes["restaurar"].clicked.connect(self._restaurar)
         self.salvar.clicked.connect(self.salvar_plano)
@@ -259,6 +262,8 @@ class PlanosWindow(QWidget):
         self.botoes["visualizar"].setEnabled(selecionado is not None)
         self.botoes["editar"].setEnabled(selecionado is not None)
         self.botoes["abrir_canvas"].setEnabled(
+            selecionado is not None and selecionado.status == "ativo")
+        self.botoes["abrir_canvas_ia"].setEnabled(
             selecionado is not None and selecionado.status == "ativo")
         self.botoes["arquivar"].setEnabled(
             selecionado is not None and selecionado.status == "ativo")
@@ -362,6 +367,10 @@ class PlanosWindow(QWidget):
     def _abrir_canvas(self) -> None:
         if self.plano_selecionado_id:
             self.abrir_canvas.emit(self.plano_selecionado_id)
+
+    def _abrir_canvas_assistido(self) -> None:
+        if self.plano_selecionado_id:
+            self.abrir_canvas_assistido.emit(self.plano_selecionado_id)
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt)
         self.fechada.emit()

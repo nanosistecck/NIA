@@ -356,6 +356,8 @@ def validar_mapa(mapa: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]
             "status": status,
             "x": float(cartao.get("x") or 0.0),
             "y": float(cartao.get("y") or 0.0),
+            "restrito": bool(cartao.get("restrito") or False),
+            "financeiro": bool(cartao.get("financeiro") or False),
         })
     conexoes: list[dict] = []
     conexoes_brutas = base["conexoes"] if isinstance(base["conexoes"], list) else []

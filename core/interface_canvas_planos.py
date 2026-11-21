@@ -31,6 +31,7 @@ class CanvasEditor(QWidget):
 
     voltar = pyqtSignal()
     contexto_mudou = pyqtSignal(dict)
+    modo_mudou = pyqtSignal(bool)
 
     def __init__(self, stage, parent=None):
         super().__init__(stage if parent is None else parent)
@@ -38,6 +39,7 @@ class CanvasEditor(QWidget):
         self.setObjectName("CanvasEditorOverlay")
         self.setStyleSheet(_ESTILO)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.modo_assistido = False
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(8)
@@ -46,6 +48,11 @@ class CanvasEditor(QWidget):
         botao.setObjectName("voltar_planos")
         botao.clicked.connect(self.voltar.emit)
         topo.addWidget(botao)
+        self.botao_modo = QPushButton("Modo: Manual", self)
+        self.botao_modo.setObjectName("alternar_modo")
+        self.botao_modo.setCheckable(True)
+        self.botao_modo.clicked.connect(self.definir_modo)
+        topo.addWidget(self.botao_modo)
         self.status = QLabel("", self)
         self.status.setObjectName("status_canvas_editor")
         topo.addWidget(self.status, 1)
@@ -55,6 +62,18 @@ class CanvasEditor(QWidget):
         self.editor_internal.estado_salvamento.connect(self.status.setText)
         root.addWidget(self.editor_internal, 1)
         self._reposicionar()
+
+    def definir_modo(self, assistido: bool) -> None:
+        """Alterna Manual/Com a NIA sem tocar no mapa, seleção ou câmera."""
+        self.modo_assistido = bool(assistido)
+        self.botao_modo.setChecked(self.modo_assistido)
+        self.botao_modo.setText(
+            "Modo: Com a NIA" if self.modo_assistido else "Modo: Manual")
+        self.modo_mudou.emit(self.modo_assistido)
+
+    @property
+    def card_selecionado_id(self) -> str | None:
+        return self.editor_internal.card_selecionado_id
 
     @property
     def mudancas_pendentes(self) -> bool:

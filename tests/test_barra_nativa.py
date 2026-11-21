@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Barra de título nativa do Windows sem texto/ícone, na cor da NIA."""
+"""Quadro DWM com controles nativos e identidade preservada."""
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -38,11 +38,14 @@ def test_controles_nativos_e_maximizado(janela):
     assert not janela.isFullScreen()
 
 
-def test_sem_texto_e_icone_na_barra(janela):
-    assert janela.windowTitle() == ""
-    assert janela.windowIcon().isNull()
+def test_preserva_identidade_da_janela(janela):
+    assert janela.windowTitle() == "NIA"
+    from PyQt6.QtGui import QIcon
+    janela.setWindowIcon(QIcon(str(ui._app_icon_path())))
+    antes = janela.windowIcon().cacheKey()
+    janela._aplicar_barra_nativa()
+    assert janela.windowIcon().cacheKey() == antes
 
 
-def test_cor_da_barra_e_aplicada(janela):
-    # No offscreen a API DWM não existe; o método deve falhar em silêncio.
-    assert janela._aplicar_barra_nativa() in (True, False)
+def test_offscreen_mantem_moldura_padrao(janela):
+    assert janela._aplicar_barra_nativa() is False

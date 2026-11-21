@@ -28,10 +28,11 @@ def test_aplicar_modo_janela_nunca_usa_fullscreen(app, tmp_path, monkeypatch):
         w.aplicar_modo_janela(sem_bordas)
         w.show()
         app.processEvents()
-        assert w.janela_tela_cheia is sem_bordas
+        esperado_sem_bordas = sem_bordas and ui.platform.system() != "Windows"
+        assert w.janela_tela_cheia is esperado_sem_bordas
         assert not w.isFullScreen(), "F11/fullscreen não deve ser o padrão"
         assert w.windowState() & Qt.WindowState.WindowMaximized
-        if sem_bordas:
+        if esperado_sem_bordas:
             assert w.windowFlags() & Qt.WindowType.FramelessWindowHint
         else:
             assert not (w.windowFlags() & Qt.WindowType.FramelessWindowHint)

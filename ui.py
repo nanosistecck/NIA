@@ -69,7 +69,7 @@ _TESTE_JANELA = False   # testes isolados instanciam MainWindow diretamente
 
 
 def janela_sem_bordas_padrao() -> bool:
-    # Controles nativos do Windows, com a faixa do cabeçalho na cor da NIA.
+    # Controles nativos do Windows sobre o próprio gradiente da NIA.
     return False
 
 
@@ -3829,6 +3829,7 @@ class MainWindow(QMainWindow):
     _trans_voz_sig    = pyqtSignal(str, str, str)  # (fase, antigo, novo) — uma voz chama a outra
     _hoje_sig         = pyqtSignal(str, str, str)  # (texto, gerado_em, status)
     _hoje_status_sig  = pyqtSignal(str, str)       # (mensagem, estado)
+    _canvas_action_sig = pyqtSignal(object)
     _brief_sig        = pyqtSignal(object)         # card temporário (hora/data/clima)
 
     def __init__(self, face_path: str):
@@ -3989,6 +3990,7 @@ class MainWindow(QMainWindow):
         composer_layout.addWidget(self._file_hint)
         composer_layout.addLayout(self._build_input_row())
         footer = QHBoxLayout()
+        self._composer_layout = footer
         footer.addStretch()
         footer.addWidget(self._composer, 1)
         footer.addStretch()
@@ -4010,6 +4012,7 @@ class MainWindow(QMainWindow):
 
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
+        self._canvas_action_sig.connect(lambda fn: fn())
         self._content_sig.connect(self._show_content)
         self._brief_sig.connect(self._show_canvas_brief)
         self._hoje_sig.connect(self._mostrar_hoje)
@@ -4541,52 +4544,53 @@ class MainWindow(QMainWindow):
 
     # ── JANELA EM TELA CHEIA / SEM BORDAS ────────────────────────────────
     def _aplicar_barra_nativa(self) -> bool:
-        """Barra do Windows na cor da NIA, sem texto nem ícone (só os botões)."""
-        self.setWindowTitle("")
-        self.setWindowIcon(QIcon())
-        # Se o applicationName continuar "python", o Windows mostra essa
-        # palavra na barra mesmo com o título vazio.
-        try:
-            if QApplication.applicationName() in ("python", "", "pythonw"):
-                QApplication.setApplicationName("NIA")
-        except Exception:
-            pass
-        try:
-            import ctypes
-            from ctypes import wintypes
-            hwnd = int(self.winId())
-            # Remove o ícone do sistema e o texto da barra de título nativa.
-            try:
-                user32 = ctypes.windll.user32
-                user32.SetWindowTextW(wintypes.HWND(hwnd), "")
-                icon = wintypes.HICON()
-                user32.SendMessageTimeoutW(
-                    wintypes.HWND(hwnd), 0x007F, 0, ctypes.byref(icon),
-                    0x0002, 100, None)  # WM_SETICON, ICON_SMALL = 0
-            except Exception:
-                pass
-            dwmapi = ctypes.windll.dwmapi
-            # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-            escuro = wintypes.BOOL(1)
-            dwmapi.DwmSetWindowAttribute(
-                wintypes.HWND(hwnd), 20, ctypes.byref(escuro), ctypes.sizeof(escuro))
-            # DWMWA_CAPTION_COLOR = 35 (Windows 11 22H2+). Cor principal da NIA
-            # em BGR: #061a28 -> 0x281a06.
-            cor = wintypes.DWORD(0x281A06)
-            dwmapi.DwmSetWindowAttribute(
-                wintypes.HWND(hwnd), 35, ctypes.byref(cor), ctypes.sizeof(cor))
-            return True
-        except Exception:
+        """Integra apenas esta janela ao quadro nativo do DWM."""
+        if platform.system() != "Windows":
             return False
+        if not hasattr(self, "_dwm_frame"):
+            from core.windows_frame import WindowsFrame
+            self._dwm_frame = WindowsFrame(self)
+        return self._dwm_frame.install()
+
+    def event(self, event):
+        try:
+            result = super().event(event)
+        except RuntimeError:
+            return True  # widget already deleted during shutdown
+        try:
+            frame = getattr(self, "_dwm_frame", None)
+        except RuntimeError:
+            return result
+        if frame is not None and frame.active:
+            from core.windows_frame import CAPTION_PAINT_EVENT
+            if event.type() in (QEvent.Type.UpdateRequest, CAPTION_PAINT_EVENT):
+                frame.paint_caption()
+        return result
+
+    def nativeEvent(self, event_type, message):
+        try:
+            frame = getattr(self, "_dwm_frame", None)
+        except RuntimeError:
+            return super().nativeEvent(event_type, message)
+        if frame is not None:
+            result = frame.native_event(message)
+            if result is not None:
+                return True, result
+        # Let Qt dispatch unhandled messages to DefWindowProc. Calling the
+        # wrapped base nativeEvent can dereference Qt platform state during winId().
+        return False, 0
 
     def aplicar_modo_janela(self, sem_bordas: bool | None = None) -> None:
         """Maximiza a janela, mantendo a barra de tarefas livre.
 
-        `sem_bordas` controla apenas o FramelessWindowHint; nunca usamos
-        `showFullScreen()` (equivalente ao F11) como estado padrão.
+        No Windows os estilos nativos são mantidos mesmo com a preferência
+        antiga de janela sem bordas. Nas outras plataformas ela é preservada.
+        Não usamos `showFullScreen()` (F11) como estado padrão.
         """
         if sem_bordas is None:
             sem_bordas = janela_sem_bordas()
+        if platform.system() == "Windows":
+            sem_bordas = False
         self.janela_tela_cheia = bool(sem_bordas)
         flags = self.windowFlags()
         if sem_bordas:
@@ -4601,9 +4605,9 @@ class MainWindow(QMainWindow):
                 self.setGeometry(disponivel)
         except Exception:
             pass
+        self._aplicar_barra_nativa()
         self.showMaximized()
         self._estado_maximizado = True
-        self._aplicar_barra_nativa()
         self.raise_()
         self.activateWindow()
 
@@ -4869,6 +4873,14 @@ class MainWindow(QMainWindow):
             pass
 
     def closeEvent(self, event):
+        canvas = getattr(self, '_canvas_editor', None)
+        if canvas is not None and canvas.isVisible():
+            if canvas.mudancas_pendentes and not canvas.fechar_com_seguranca():
+                escolha = int(_perguntar_salvar_mapa(self))
+                if escolha == _SB_CANCELAR or (escolha == _SB_SALVAR and not canvas.fechar_com_seguranca()):
+                    event.ignore()
+                    return
+            canvas.editor_internal._timer.stop()
         self._hoje_seq += 1
         self._tmr_hoje.stop()
         super().closeEvent(event)
@@ -5227,7 +5239,10 @@ class MainWindow(QMainWindow):
                     atual.editor_internal.mudancas_pendentes = False
                 atual.editor_internal._timer.stop()
 
-        self._canvas_estado = {
+        if not getattr(self, "_canvas_estado", None):
+            self._canvas_estado = {
+            "header": self.centralWidget().layout().itemAt(0).widget().isVisible(),
+            "dock": self._right_panel.isVisible(),
             "expanded": self._right_panel.expanded,
             "anchor": self._stage.anchor,
             "results": self._stage.results.isVisible(),
@@ -5243,6 +5258,8 @@ class MainWindow(QMainWindow):
 
         self._right_panel.expanded = False      # sessão: sem persist()
         self._right_panel.apply()
+        self._right_panel.hide()
+        self.centralWidget().layout().itemAt(0).widget().hide()
 
         # Esconder os painéis ANTES de ancorar: com brief visível, arrange()
         # usa _brief_geometries(), que ignora a âncora e deixa o núcleo no
@@ -5258,18 +5275,22 @@ class MainWindow(QMainWindow):
         self._drawer.hide()
         self._stage.tools_open = False
         self._stage.chat_open = False
-        self._stage.set_anchor("bottom-right")
+        self._stage.anchor = "bottom-left"
+        self._stage.motion.stop()
         self._stage.hud_stack.raise_()
 
         editor = getattr(self, "_canvas_editor", None)
         if editor is None:
-            editor = _interface_canvas_planos.CanvasEditor(self._stage)
+            editor = _interface_canvas_planos.CanvasEditor(self._stage, self.centralWidget())
+            self._state_sig.connect(editor.atualizar_estado)
             editor.voltar.connect(self._voltar_dos_planos)
             editor.contexto_mudou.connect(self._contexto_canvas_mudou)
             self._canvas_editor = editor
         editor.definir_modo(assistido)
         editor.abrir(plano)
         editor.show()
+        editor.montar_janela()
+        editor._reposicionar()
         editor.raise_()
         self._stage.hud_stack.raise_()
         QTimer.singleShot(0, self._position_canvas_panels)
@@ -5289,12 +5310,15 @@ class MainWindow(QMainWindow):
                     return
                 if escolha == _SB_SALVAR and not editor.fechar_com_seguranca():
                     return
+            editor.desmontar_janela()
             editor.hide()
             editor.editor_internal._timer.stop()
         self._contexto_canvas = {"plano_id": None, "card_id": None, "plano": None}
 
         estado = getattr(self, "_canvas_estado", None)
         if estado is not None:
+            self.centralWidget().layout().itemAt(0).widget().setVisible(estado["header"])
+            self._right_panel.setVisible(estado["dock"])
             self._right_panel.expanded = bool(estado["expanded"])
             self._right_panel.apply()
             self._stage._canvas_editor_ativo = False
@@ -5599,6 +5623,9 @@ class MainWindow(QMainWindow):
         self._position_canvas_panels()
 
     def _position_canvas_panels(self):
+        canvas = getattr(self, "_canvas_editor", None)
+        if canvas is not None and canvas.isVisible():
+            canvas._reposicionar()
         if not hasattr(self, "_drawer"): return
         cw = self.centralWidget()
         pos = self._composer.mapTo(cw, self._composer.rect().topLeft())
@@ -6546,7 +6573,10 @@ class MainWindow(QMainWindow):
     def aplicar_nomes(self) -> None:
         """Poe na tela os nomes da aba NOMES (chamado ao salvar, sem reabrir)."""
         try:
-            self.setWindowTitle(_nome_tela("janela", "NIA"))
+            # A barra nativa éPersonalizada (sem título/ícone); não reaplicar o
+            # nome do Windows aqui sob pena de mostrar "python"/"NIA" nela.
+            if not getattr(self, "_barra_sem_titulo", False):
+                self.setWindowTitle(_nome_tela("janela", "NIA"))
             if getattr(self, "_lbl_titulo_topo", None) is not None:
                 self._lbl_titulo_topo.setText(_nome_tela("titulo", "N.I.A"))
             self._lbl_titulo_topo.setToolTip(_nome_tela("subtitulo", self._sub_topo_padrao))
@@ -6970,25 +7000,45 @@ class NiaUI:
 
     def abrir_plano_assistido(self, plano_id: str) -> None:
         """Thread-safe: abre o Canvas em modo 'Editar com a NIA'."""
-        QTimer.singleShot(
-            0, lambda: self._win._abrir_canvas_do_plano(str(plano_id), assistido=True))
+        self._win._canvas_action_sig.emit(
+            lambda: self._win._abrir_canvas_do_plano(str(plano_id), assistido=True))
 
     def definir_modo_assistido(self, assistido: bool) -> None:
         """Thread-safe: alterna Manual/Com a NIA sem recriar o editor."""
-        QTimer.singleShot(0, lambda: self._win._canvas_editor.definir_modo(
+        self._win._canvas_action_sig.emit(lambda: self._win._canvas_editor.definir_modo(
             bool(assistido)) if getattr(self._win, "_canvas_editor", None) else None)
 
     def aplicar_lote_assistido(self, operacoes: list, rotulo: str) -> None:
         """Thread-safe: aplica operações validadas em uma só ação de desfazer."""
         def aplicar():
             editor = getattr(self._win, "_canvas_editor", None)
-            if editor is not None and editor.isVisible():
-                _assistencia.aplicar_lote(editor.editor_internal, operacoes, rotulo)
-        QTimer.singleShot(0, aplicar)
+            if editor is None or not editor.isVisible():
+                return
+            plano = editor.editor_internal.plano_atual()
+            expected = operacoes[0] if operacoes else {}
+            if (expected.get('_plano_id', plano.id) != plano.id
+                    or expected.get('_fingerprint', _assistencia.fingerprint(plano)) != _assistencia.fingerprint(plano)):
+                self.write_log('SIS: O plano mudou desde o pedido; nada foi aplicado.')
+                return
+            try:
+                mudou = _assistencia.aplicar_lote(editor.editor_internal, operacoes, rotulo)
+                if not mudou:
+                    self.write_log("SIS: O mapa já estava nesse estado; nenhuma alteração necessária.")
+                    return
+                if expected.get('_desfazer_apos'):
+                    editor.editor_internal.pilha.undo()
+                    self.write_log('SIS: Alteração aplicada e desfeita no plano '+plano.titulo+'.')
+                else:
+                    ids = [op.get('card_id') or op.get('titulo') or op.get('origem') for op in operacoes]
+                    self.write_log('SIS: Alteração concluída em '+plano.titulo+': '+', '.join(str(i) for i in ids if i)+'.')
+                editor.contexto_mudou.emit(editor.contexto())
+            except ValueError as exc:
+                self.write_log('SIS: Não foi possível aplicar a alteração: '+str(exc))
+        self._win._canvas_action_sig.emit(aplicar)
 
     def adicionar_modelo_ramo(self, tipo: str) -> None:
         """Thread-safe: adiciona um modelo como ramo do card selecionado."""
-        QTimer.singleShot(0, lambda: self._win._canvas_editor.adicionar_modelo(
+        self._win._canvas_action_sig.emit(lambda: self._win._canvas_editor.adicionar_modelo(
             str(tipo)) if getattr(self._win, "_canvas_editor", None) else None)
 
     def desfazer_lote_assistido(self) -> None:
@@ -6997,14 +7047,11 @@ class NiaUI:
             editor = getattr(self._win, "_canvas_editor", None)
             if editor is not None and editor.isVisible():
                 _assistencia.desfazer_lote(editor.editor_internal)
-        QTimer.singleShot(0, desfazer)
+        self._win._canvas_action_sig.emit(desfazer)
 
     def estado_canvas_vivo(self):
         """Plano do editor aberto, com edições pendentes (thread-safe)."""
-        editor = getattr(self._win, "_canvas_editor", None)
-        if editor is None or not editor.isVisible():
-            return None
-        return editor.editor_internal.plano_atual()
+        return self.contexto_canvas().get('plano')
 
     def destacar_card(self, plano_id: str, card_id: str | None) -> None:
         """Destaca o card de uma resposta somente se o plano estiver visível."""
@@ -7017,7 +7064,7 @@ class NiaUI:
             editor.selecionar_card(card_id)
             editor.editor_internal._view.centerOn(
                 editor.editor_internal.cena.itens_cards[card_id])
-        QTimer.singleShot(0, aplicar)
+        self._win._canvas_action_sig.emit(aplicar)
 
     def perguntar_sobre_card(self, card_id: str | None,
                              pergunta: str = "O que escrevi neste card?") -> None:
@@ -7036,7 +7083,7 @@ class NiaUI:
             self._win._stage.arrange(True)
             campo.setText(f"{pergunta} (card: {alvo})")
             campo.setFocus(Qt.FocusReason.OtherFocusReason)
-        QTimer.singleShot(0, aplicar)
+        self._win._canvas_action_sig.emit(aplicar)
 
     def focar_busca_canvas(self, termo: str = '') -> None:
         """Thread-safe: deixa a caixa de entrada pronta para o termo da busca."""
@@ -7048,7 +7095,7 @@ class NiaUI:
             campo.setText(termo or '')
             campo.setPlaceholderText('Digite o termo da busca nos arquivos…')
             campo.setFocus(Qt.FocusReason.OtherFocusReason)
-        QTimer.singleShot(0, focar)
+        self._win._canvas_action_sig.emit(focar)
 
     def gerar_resumo_agora(self) -> None:
         """Thread-safe: geração manual da Skill 05, sem tocar na rotina agendada."""

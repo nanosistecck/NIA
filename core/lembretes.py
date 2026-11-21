@@ -139,18 +139,24 @@ def cancelar(lembrete_id: str) -> dict:
 
 def suspender_por_card(plano_id: str, card_id: str) -> None:
     plano = _plano(plano_id)
+    mudou = False
     for item in plano.lembretes:
-        if item.get("card_id") == card_id and item.get("estado") == "pendente":
-            item["estado"] = "suspenso"
-    _salvar(plano, plano.lembretes)
+        if item.get('card_id') == card_id and item.get('estado') == 'pendente':
+            item['estado'] = 'suspenso'
+            mudou = True
+    if mudou:
+        _salvar(plano, plano.lembretes)
 
 
 def restaurar_por_card(plano_id: str, card_id: str) -> None:
     plano = _plano(plano_id)
+    mudou = False
     for item in plano.lembretes:
-        if item.get("card_id") == card_id and item.get("estado") == "suspenso":
-            item["estado"] = "pendente"
-    _salvar(plano, plano.lembretes)
+        if item.get('card_id') == card_id and item.get('estado') == 'suspenso':
+            item['estado'] = 'pendente'
+            mudou = True
+    if mudou:
+        _salvar(plano, plano.lembretes)
 
 
 def suspender_por_plano(plano_id: str) -> None:

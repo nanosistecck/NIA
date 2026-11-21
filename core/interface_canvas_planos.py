@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 """Overlay do editor de mapa dentro da janela principal da NIA.
 
-O overlay é filho do ``CanvasStage`` — e não do ``centralWidget`` — para que
-``stage.hud_stack.raise_()`` mantenha o núcleo acima dele. Toda mudança de
+O overlay cobre o ``centralWidget`` e recebe o núcleo real durante a sessão. Toda mudança de
 layout (dock e núcleo) é de sessão: nada é gravado em preferências.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QRect, pyqtSignal
+from PyQt6.QtCore import Qt, QRect, QEvent, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QInputDialog, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget,
+    QHBoxLayout, QInputDialog, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget, QCheckBox, QFrame, QComboBox, QApplication,
 )
 
 from core import assistencia_planos as AP
@@ -24,10 +23,7 @@ _TEXT = "#d8f8ff"
 # Glass escuro estático: gradientes e bordas de 1 px sem blur em tempo real.
 _ESTILO = f"""
 QWidget#CanvasEditorOverlay {{
-    background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-        stop:0 rgba(6,22,34,252), stop:0.5 rgba(3,15,26,250),
-        stop:1 rgba(9,28,42,252));
-    border: none; border-radius: 0px;
+    background: transparent; border: none;
 }}
 QLabel {{ color: {_TEXT}; background: transparent; }}
 QPushButton {{
@@ -35,7 +31,7 @@ QPushButton {{
     background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
         stop:0 rgba(38,84,110,180), stop:1 rgba(12,40,58,190));
     border: 1px solid rgba(150,215,240,70); border-radius: 9px;
-    padding: 7px 13px; min-height: 32px;
+    padding: 7px 13px; min-height: 32px; font-size:14px;
 }}
 QPushButton:hover {{
     background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
@@ -61,56 +57,170 @@ class CanvasEditor(QWidget):
     def __init__(self, stage, parent=None):
         super().__init__(stage if parent is None else parent)
         self._stage = stage
-        self.setObjectName("CanvasEditorOverlay")
+        self._mounted = False
+        self._chat_aberto = True
+        self.setObjectName('CanvasEditorOverlay')
         self.setStyleSheet(_ESTILO)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.modo_assistido = False
-        root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(8)
-        topo = QHBoxLayout()
-        botao = QPushButton("← Voltar aos planos", self)
-        botao.setObjectName("voltar_planos")
+        self.header = QWidget(self)
+        topo = QHBoxLayout(self.header)
+        topo.setContentsMargins(8, 0, 8, 0)
+        botao = QPushButton('←', self.header)
+        botao.setObjectName('voltar_planos')
+        botao.setToolTip('Voltar aos planos · salva as edições pendentes')
         botao.clicked.connect(self.voltar.emit)
         topo.addWidget(botao)
-        self.botao_modo = QPushButton("Modo: Manual", self)
-        self.botao_modo.setObjectName("alternar_modo")
-        self.botao_modo.setCheckable(True)
-        self.botao_modo.clicked.connect(self.definir_modo)
-        topo.addWidget(self.botao_modo)
-        self.botao_modelo = QPushButton("Adicionar modelo como ramo", self)
-        self.botao_modelo.setObjectName("adicionar_modelo")
-        self.botao_modelo.clicked.connect(self._mostrar_menu_modelos)
-        topo.addWidget(self.botao_modelo)
-        self.botao_lembrete = QPushButton("Definir lembrete", self)
-        self.botao_lembrete.setObjectName("definir_lembrete")
-        self.botao_lembrete.clicked.connect(self.definir_lembrete)
-        topo.addWidget(self.botao_lembrete)
-        self.botao_perguntar = QPushButton("Perguntar à NIA sobre este card", self)
-        self.botao_perguntar.setObjectName("perguntar_nia_card")
-        self.botao_perguntar.clicked.connect(self._perguntar_nia)
-        topo.addWidget(self.botao_perguntar)
-        self.botao_salvar = QPushButton("Salvar", self)
-        self.botao_salvar.setObjectName("salvar_canvas")
-        self.botao_salvar.setMinimumSize(76, 32)
-        self.botao_salvar.clicked.connect(self._salvar)
-        topo.addWidget(self.botao_salvar)
-        self.status = QLabel("", self)
-        self.status.setObjectName("status_canvas_editor")
-        topo.addWidget(self.status, 1)
-        root.addLayout(topo)
-
+        self.titulo = QLabel('Plano', self.header)
+        self.titulo.setStyleSheet('font-size:18px;font-weight:600;')
+        topo.addWidget(self.titulo, 1)
+        self.status = QLabel('Salvo', self.header)
+        self.status.setObjectName('status_canvas_editor')
+        topo.addWidget(self.status)
+        self.botao_detalhes = QPushButton('Detalhes', self.header)
+        self.botao_detalhes.clicked.connect(lambda: self.editor_internal.detalhes())
+        topo.addWidget(self.botao_detalhes)
+        self.gear = QPushButton('⚙', self.header)
+        self.gear.setToolTip('Configurações deste canvas')
+        self.gear.clicked.connect(self._configuracoes)
+        topo.addWidget(self.gear)
         self.editor_internal = EditorMapa(self)
         self.editor_internal.estado_salvamento.connect(self.status.setText)
-        self.editor_internal.estado_editado.connect(
-            lambda: self.contexto_mudou.emit(self.contexto()))
-        root.addWidget(self.editor_internal, 1)
+        self.editor_internal.estado_editado.connect(lambda: self.contexto_mudou.emit(self.contexto()))
+        self.editor_internal.selecao_mudou.connect(lambda: self.contexto_mudou.emit(self.contexto()))
+        self.editor_internal.acoes_extras = self._acoes_extras
+        # Secondary actions retain the existing slots and object names.
+        for attr, name, label, slot in (
+            ('botao_modo', 'alternar_modo', 'Modo: Com a NIA', lambda: self.definir_modo(not self.modo_assistido)),
+            ('botao_modelo', 'adicionar_modelo', 'Adicionar modelo como ramo', self._mostrar_menu_modelos),
+            ('botao_lembrete', 'definir_lembrete', 'Definir lembrete', lambda: self.definir_lembrete()),
+            ('botao_perguntar', 'perguntar_nia_card', 'Perguntar à NIA sobre este card', self._perguntar_nia),
+            ('botao_salvar', 'salvar_canvas', 'Salvar · Ctrl+S', self._salvar),
+        ):
+            button = QPushButton(label, self)
+            button.setObjectName(name)
+            button.clicked.connect(slot)
+            button.hide()
+            setattr(self, attr, button)
+        self.botao_modo.setCheckable(True)
+        self.estado_nia = QLabel('NIA  |  ● Iniciando', self)
+        self.estado_nia.setStyleSheet('font-size:14px;color:#bcebf5;')
+        self.chat_toggle = QPushButton('Chat', self)
+        self.chat_toggle.setToolTip('Recolher/abrir chat sem perder o texto')
+        self.chat_toggle.clicked.connect(self._alternar_chat)
+        self.navegar = QPushButton('☰', self)
+        self.navegar.setToolTip('Ferramentas e navegação da NIA')
+        self.navegar.clicked.connect(lambda: self.window()._right_panel.show_tools())
+        self.editor_internal.zoom_bar.setParent(self)
+        self._config_panel = None
+        self.parentWidget().installEventFilter(self)
+        QApplication.instance().installEventFilter(self)
         self._reposicionar()
-        # O núcleo muda de tamanho durante a animação de 220 ms da âncora;
-        # acompanhar cada quadro evita que o mapa fique sob ele.
-        animacao = getattr(stage, "motion", None)
-        if animacao is not None:
-            animacao.valueChanged.connect(lambda *_: self._reposicionar())
+
+    def _acoes_extras(self, menu):
+        menu.addSeparator()
+        modelos = menu.addMenu('Adicionar modelo como ramo')
+        modelos.setEnabled(bool(self.card_selecionado_id))
+        for tipo in MP.TIPOS_MODELO:
+            modelos.addAction(tipo, lambda checked=False, t=tipo: self.adicionar_modelo(t))
+        modelos.addAction('Complementar ramo', self._complementar_ramo)
+        for button in (self.botao_lembrete, self.botao_perguntar, self.botao_modo):
+            action = menu.addAction(button.text(), button.click)
+            if button is not self.botao_modo:
+                action.setEnabled(bool(self.card_selecionado_id))
+
+    def montar_janela(self):
+        if self._mounted:
+            return
+        window = self.window()
+        self._mounted = True
+        self._composer = window._composer
+        self._composer.setParent(self)
+        self._composer.setMinimumWidth(240)
+        self._composer.show()
+        self._stage.motion.stop()
+        self._stage.hud_stack.setParent(self)
+        self._stage.hud_stack.show()
+        self.atualizar_estado()
+        self._reposicionar()
+
+    def desmontar_janela(self):
+        if not self._mounted:
+            return
+        self._mounted = False
+        window = self.window()
+        self._composer.setParent(window.centralWidget())
+        self._composer.setMinimumWidth(460)
+        window._composer_layout.insertWidget(1, self._composer, 1)
+        self._composer.show()
+        self._stage.hud_stack.setParent(self._stage)
+        self._stage.hud_stack.show()
+        self._stage.arrange(False)
+
+    def atualizar_estado(self, *_):
+        window = self.window()
+        label = getattr(window, '_rail_state_lbl', None)
+        self.estado_nia.setText('NIA  |  ' + (label.text() if label else '● Iniciando'))
+
+    def _alternar_chat(self):
+        self._chat_aberto = not self._chat_aberto
+        self._reposicionar()
+        (self._composer if self._chat_aberto else self.chat_toggle).setFocus()
+
+    def _configuracoes(self):
+        if self._config_panel is None:
+            panel = QFrame(self)
+            panel.setStyleSheet('QFrame {background:#092637;border:1px solid #35617a;border-radius:12px;} QLabel,QCheckBox {color:#d8f8ff;}')
+            layout = QVBoxLayout(panel)
+            layout.addWidget(QLabel('Visualização'))
+            grade = QCheckBox('Exibir grade pontilhada')
+            grade.setChecked(self.editor_internal.cena.grade)
+            layout.addWidget(grade)
+            layout.addWidget(QLabel('Interação'))
+            roda = QComboBox()
+            roda.addItems(['Roda aproxima o mapa', 'Roda navega · Ctrl+roda aproxima'])
+            roda.setCurrentIndex(1 if getattr(self.editor_internal._view,'roda_navega',False) else 0)
+            layout.addWidget(roda)
+            fechar = QPushButton('Fechar · Esc')
+            fechar.clicked.connect(lambda: (panel.hide(), self.gear.setFocus()))
+            layout.addWidget(fechar)
+            def salvar():
+                self.editor_internal.cena.grade = grade.isChecked()
+                self.editor_internal._view.roda_navega = bool(roda.currentIndex())
+                self.editor_internal._view.viewport().update()
+                from core.interface_canvas import DockPreferences
+                from pathlib import Path
+                prefs = DockPreferences(self.window()._prefs.path)
+                prefs.data['canvas'] = dict(grade=grade.isChecked(), roda_navega=bool(roda.currentIndex()))
+                try:
+                    prefs.save()
+                except OSError:
+                    self.status.setText('Não foi possível salvar as preferências.')
+            grade.toggled.connect(salvar)
+            roda.currentIndexChanged.connect(salvar)
+            self._config_panel = panel
+        panel = self._config_panel
+        panel.setGeometry(max(12, self.width()-330), self.header.geometry().bottom()+4, 310, 240)
+        panel.setVisible(not panel.isVisible())
+        panel.raise_()
+        if panel.isVisible():
+            panel.findChild(QCheckBox).setFocus()
+
+    def eventFilter(self, obj, event):
+        if self.isVisible() and event.type() in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress) and event.key() == Qt.Key.Key_Escape:
+            if event.type() == QEvent.Type.KeyPress:
+                if self._config_panel is not None and self._config_panel.isVisible():
+                    self._config_panel.hide()
+                    self.gear.setFocus()
+                else:
+                    self.editor_internal.cancelar_conexao()
+                    self.editor_internal.detalhes(False)
+                    self.botao_detalhes.setFocus()
+            event.accept()
+            return True
+        if obj is self.parentWidget() and event.type() == QEvent.Type.Resize:
+            self._reposicionar()
+        return super().eventFilter(obj, event)
 
     def definir_modo(self, assistido: bool) -> None:
         """Alterna Manual/Com a NIA sem tocar no mapa, seleção ou câmera."""
@@ -130,7 +240,14 @@ class CanvasEditor(QWidget):
 
     def abrir(self, plano) -> None:
         self.editor_internal.carregar(plano)
-        self.status.setText(f"{plano.titulo} · {plano.tipo}")
+        self.titulo.setText(f'{plano.tipo} / {plano.titulo}')
+        self.status.setText('✓ Salvo')
+        from core.interface_canvas import DockPreferences
+        from pathlib import Path
+        prefs = DockPreferences(self.window()._prefs.path).data.get('canvas', {})
+        self.editor_internal.cena.grade = prefs.get('grade', True)
+        self.editor_internal._view.roda_navega = prefs.get('roda_navega', False)
+        self.editor_internal.detalhes(self.width() >= 1400)
         self.contexto_mudou.emit(self.contexto())
 
     def contexto(self) -> dict:
@@ -182,8 +299,14 @@ class CanvasEditor(QWidget):
             return False
         plano = self.editor_internal.plano_atual()
         alvo = card_id if card_id is not None else self.card_selecionado_id
-        LEM.criar(plano.id, assunto_de(texto), horario,
-                  "America/Sao_Paulo", alvo)
+        if self.editor_internal.mudancas_pendentes and not self.editor_internal.salvar()[0]:
+            self.status.setText('Salve as alterações do mapa antes de criar o lembrete.')
+            return False
+        LEM.criar(plano.id, assunto_de(texto), horario, 'America/Sao_Paulo', alvo)
+        from core import planos as BP
+        disco = BP.carregar(plano.id)
+        self.editor_internal._plano = BP.replace(self.editor_internal._plano,
+            revisao=disco.revisao, lembretes=disco.lembretes)
         self.status.setText(mensagem)
         return True
 
@@ -229,21 +352,44 @@ class CanvasEditor(QWidget):
             return
         self.adicionar_modelo(next(iter(existentes)))
 
-    def _reposicionar(self) -> None:
+    def _reposicionar(self):
         pai = self.parentWidget()
-        if pai is None:
+        if pai is None or not hasattr(self, 'editor_internal'):
             return
-        w, h = pai.width(), pai.height()
-        # O canvas cobre a JANELA INTEIRA — sem borda interna, sem moldura.
-        # A reserva para o núcleo vai para as margens do conteúdo, não para
-        # o tamanho do overlay: assim o fundo do mapa continua até as bordas
-        # e o núcleo flutua no canto inferior direito sobre o glass.
-        self.setGeometry(QRect(0, 0, max(1, w), max(1, h)))
-        nucleo = getattr(pai, "hud_stack", None)
-        reserva = max(150, nucleo.width() + 18) if nucleo is not None else 150
-        self.layout().setContentsMargins(14, 14, reserva, 14)
-        self.updateGeometry()
+        if self.geometry() != pai.rect():
+            self.setGeometry(pai.rect())
+        w, h = self.width(), self.height()
+        frame = getattr(self.window(), '_dwm_frame', None)
+        top = int(frame.caption_height / self.devicePixelRatioF()) if frame and frame.active else 0
+        compacto = w < 1100 or h < 650
+        self.layout_compacto = compacto
+        footer = 154 if compacto and self._chat_aberto else 86
+        self.header.setGeometry(14, top+8, max(100,w-28), 48)
+        self.editor_internal.setGeometry(0, top+62, w, max(160,h-top-62-footer))
+        self.editor_internal._dispor()
+        self.editor_internal.zoom_bar.adjustSize()
+        zoom = self.editor_internal.zoom_bar
+        zoom.move(max(4,w-zoom.width()-18), h-zoom.height()-16)
+        self.navegar.setGeometry(16, h-48, 40, 36)
+        self.estado_nia.setGeometry(142, h-57, 210 if w>=800 else 130, 36)
+        self.chat_toggle.setGeometry(max(320,w-zoom.width()-86), h-52, 58, 36)
+        self.chat_toggle.setVisible(compacto)
+        if self._mounted:
+            size = 72 if compacto else 86
+            self._stage.hud_stack.setGeometry(62, h-size-9, size, size)
+            self._stage.hud_stack.raise_()
+            width = min(600, w-32 if compacto else max(280, w-740))
+            x = (w-width)//2
+            y = h-145 if compacto else h-78
+            self._composer.setGeometry(x, y, width, 60)
+            self._composer.setVisible(self._chat_aberto or not compacto)
+            self._composer.raise_()
+        self.editor_internal.zoom_bar.show()
+        self.header.raise_()
+        self.estado_nia.raise_()
+        self.navegar.raise_()
+        self.chat_toggle.raise_()
 
-    def resizeEvent(self, event):  # noqa: N802 (Qt)
+    def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposicionar()

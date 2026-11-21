@@ -58,7 +58,7 @@ def test_abrir_editor_recolhe_dock_e_restaura_sem_persistir(window, app):
     assert dock.expanded is False
     assert dock.preferences.data.get("expanded") == preferencia_antes
     assert dock.expanded != expanded_antes or expanded_antes is False
-    assert w._stage.anchor == "bottom-right"
+    assert w._stage.anchor == "bottom-left"
     assert getattr(w._stage, "_canvas_editor_ativo", False) is True
     editor = w._canvas_editor
     assert editor.isVisible()

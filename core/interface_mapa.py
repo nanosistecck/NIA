@@ -19,7 +19,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFormLayout, QGraphicsItem, QGraphicsPathItem,
-    QGraphicsScene, QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel,
+    QGraphicsScene, QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel, QFrame, QMenu, QScrollArea,
     QLineEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -48,7 +48,7 @@ QGraphicsView:focus {{ border: none; outline: none; }}
 QGraphicsView viewport {{ background: transparent; border: none; }}
 QLabel {{ color: {_TEXT}; background: transparent; }}
 QLineEdit, QComboBox {{
-    color: {_TEXT}; background: rgba(4,22,36,210);
+    color: {_TEXT}; font-size:13px; background: rgba(4,22,36,210);
     border: 1px solid rgba(150,215,240,80); border-radius: 7px; padding: 5px 8px;
 }}
 QLineEdit:focus, QComboBox:focus, QTextEdit:focus {{
@@ -61,7 +61,7 @@ QPushButton {{
     background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
         stop:0 rgba(38,84,110,170), stop:1 rgba(10,38,56,185));
     border: 1px solid rgba(150,215,240,80); border-radius: 8px;
-    padding: 6px 11px; min-height: 30px;
+    padding: 6px 11px; min-height: 30px; font-size:14px;
 }}
 QPushButton:hover {{
     background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
@@ -125,8 +125,10 @@ class CardItem(QGraphicsItem):
         painter.setBrush(QBrush(QColor(10, 40, 60, 226)))
         painter.drawRoundedRect(ret, 10, 10)
         if selecionado:
-            painter.setPen(QPen(QColor(_TEXT), 1.2, Qt.PenStyle.DashLine))
-            painter.drawRoundedRect(ret.adjusted(-5, -5, 5, 5), 13, 13)
+            painter.setPen(QPen(QColor(_PRI), 1.5))
+            painter.setBrush(QColor('#073244'))
+            for point in (QPointF(0,_CARD_H/2),QPointF(_CARD_W,_CARD_H/2),QPointF(_CARD_W/2,0),QPointF(_CARD_W/2,_CARD_H)):
+                painter.drawEllipse(point, 3.5, 3.5)
         fonte = QFont("Segoe UI", 10)
         fonte.setBold(True)
         painter.setFont(fonte)
@@ -196,7 +198,7 @@ class ConexaoItem(QGraphicsPathItem):
         super().__init__()
         self.dados = dict(dados)
         self._cena = cena
-        self.setPen(QPen(QColor("#3d9ab5"), 1.8))
+        self.setPen(QPen(QColor("#00d9ea"), 1.8))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
         self.setZValue(-1)
@@ -241,6 +243,8 @@ class CenaMapa(QGraphicsScene):
     def __init__(self, editor=None):
         super().__init__()
         self.editor = editor
+        self.grade = True
+        self.setSceneRect(-100000, -100000, 200000, 200000)
         self.pilha: QUndoStack | None = None
         self.itens_cards: dict[str, CardItem] = {}
         self.itens_conexoes: dict[str, ConexaoItem] = {}
@@ -286,14 +290,19 @@ class CenaMapa(QGraphicsScene):
             item.setSelected(False)
 
     def drawBackground(self, painter, rect) -> None:
-        """Fundo escuro com profundidade suave, sem blur nem timer."""
-        centro = QPointF(rect.center().x(), rect.center().y())
-        raio = max(400.0, float(rect.width()) * 0.75)
-        gradiente = QRadialGradient(centro, raio)
-        gradiente.setColorAt(0.0, QColor(18, 60, 84, 255))
-        gradiente.setColorAt(0.55, QColor(8, 30, 48, 255))
-        gradiente.setColorAt(1.0, QColor(3, 14, 25, 255))
-        painter.fillRect(rect, gradiente)
+        # Transparent: the main CanvasBackground is the only gradient painter.
+        if not self.grade:
+            return
+        zoom = painter.transform().m11()
+        step = 28 if zoom >= .65 else 84
+        if rect.width() / step > 200 or rect.height() / step > 200:
+            return
+        painter.setPen(QPen(QColor(65, 180, 205, 42), 1 / max(.2, zoom)))
+        points = [QPointF(x, y)
+                  for x in range(int(rect.left() // step) * step, int(rect.right()) + step, step)
+                  for y in range(int(rect.top() // step) * step, int(rect.bottom()) + step, step)]
+        if points:
+            painter.drawPoints(points)
 
     def montar(self, mapa: dict) -> None:
         self.cancelar_previa()
@@ -372,17 +381,41 @@ class MapaView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
 
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if self.scene().editor is not None:
+            self.scene().editor._camera_alterada()
+
     def mouseMoveEvent(self, event):
         cena = self.scene()
         if cena is not None and getattr(cena, "origem_conexao", None) is not None:
             cena.mover_previa(self.mapToScene(event.pos()))
         super().mouseMoveEvent(event)
 
+    zoom_mudou = pyqtSignal(float)
+
+    def resizeEvent(self, event):
+        editor = self.scene().editor
+        camera = getattr(editor, '_camera', {})
+        center = QPointF(camera.get('cx',0), camera.get('cy',0))
+        super().resizeEvent(event)
+        self.centerOn(center)
+
     def wheelEvent(self, event):
+        if getattr(self, 'roda_navega', False) and not (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            super().wheelEvent(event)
+            return
+        if not event.angleDelta().y():
+            event.ignore()
+            return
         fator = 1.18 if event.angleDelta().y() > 0 else 1 / 1.18
         atual = self.transform().m11()
         if 0.2 <= atual * fator <= 3.0:
             self.scale(fator, fator)
+            self.zoom_mudou.emit(self.transform().m11())
+            self.scene().editor._camera_alterada()
+            self.scene().editor._apos_mudanca()
+        event.accept()
 
     def posicao_central(self) -> tuple[float, float, float]:
         centro = self.mapToScene(self.viewport().rect().center())
@@ -392,6 +425,7 @@ class MapaView(QGraphicsView):
         self.resetTransform()
         self.scale(max(0.2, min(3.0, zoom or 1.0)), max(0.2, min(3.0, zoom or 1.0)))
         self.centerOn(QPointF(cx, cy))
+        self.zoom_mudou.emit(self.transform().m11())
 
     def enquadrar(self) -> None:
         ret = self.scene().itemsBoundingRect()
@@ -399,6 +433,7 @@ class MapaView(QGraphicsView):
             ret = QRectF(-200, -120, 400, 240)
         ret.adjust(-60, -60, 60, 60)
         self.fitInView(ret, Qt.AspectRatioMode.KeepAspectRatio)
+        self.zoom_mudou.emit(self.transform().m11())
 
 
 # ── comandos de desfazer/refazer ────────────────────────────────────────
@@ -567,10 +602,19 @@ class ExcluirCardCommand(_Comando):
             return
         try:
             from core import lembretes as _lembretes  # noqa: PLC0415
+            disco = BP.carregar(plano.id)
+            if disco is None:
+                return
+            # Only reminder-only external revisions may be merged here.
+            if disco.revisao != plano.revisao and disco.mapa != plano.mapa:
+                return
             if suspender:
                 _lembretes.suspender_por_card(plano.id, self.card_id)
             else:
                 _lembretes.restaurar_por_card(plano.id, self.card_id)
+            disco = BP.carregar(plano.id)
+            if disco is not None:
+                self.editor._plano = BP.replace(plano, revisao=disco.revisao, lembretes=disco.lembretes)
         except Exception:
             pass
 
@@ -580,6 +624,7 @@ class EditorMapa(QWidget):
 
     estado_salvamento = pyqtSignal(str)
     estado_editado = pyqtSignal()
+    selecao_mudou = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -609,45 +654,60 @@ class EditorMapa(QWidget):
     # ── construção ──────────────────────────────────────────────────────
     def _construir(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(8)
-        barra = QHBoxLayout()
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(self._view)
+        self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._view.customContextMenuRequested.connect(self._menu_contexto)
+        self.barra = QFrame(self)
+        self.barra.setObjectName('AcoesMapa')
+        self.barra.setStyleSheet('QFrame#AcoesMapa {background:rgba(7,34,51,240); border:1px solid #35617a; border-radius:16px;}')
+        barra = QHBoxLayout(self.barra)
+        barra.setContentsMargins(8, 6, 8, 6)
         self.botoes = {}
         for nome, rotulo in (
-            ("novo_card", "Novo card"),
-            ("adicionar_conectado", "Card conectado"),
-            ("conectar", "Conectar"),
-            ("excluir", "Excluir"),
-            ("desfazer", "Desfazer"),
-            ("refazer", "Refazer"),
-            ("enquadrar", "Enquadrar"),
-            ("central", "Card central"),
-            ("salvar", "Salvar"),
+            ('novo_card', '+  Novo card'), ('conectar', 'Conectar'),
+            ('desfazer', '↶'), ('refazer', '↷'), ('mais', '•••'),
+            ('adicionar_conectado', 'Card conectado'), ('excluir', 'Excluir'),
+            ('enquadrar', 'Enquadrar'), ('central', 'Card central'), ('salvar', 'Salvar'),
         ):
-            botao = QPushButton(rotulo, self)
+            botao = QPushButton(rotulo, self.barra)
             botao.setObjectName(nome)
             self.botoes[nome] = botao
-            barra.addWidget(botao)
-        root.addLayout(barra)
-
-        corpo = QSplitter(Qt.Orientation.Horizontal, self)
-        corpo.addWidget(self._view)
-        detalhes = QWidget(corpo)
-        detalhes.setObjectName("Detalhes")
+            if nome in ('novo_card', 'conectar', 'desfazer', 'refazer', 'mais'):
+                barra.addWidget(botao)
+            else:
+                botao.hide()
+        self.botoes['novo_card'].setStyleSheet('background:#007f94; border:1px solid #00dfee; font-weight:600;')
+        self.botoes['desfazer'].setToolTip('Desfazer · Ctrl+Z')
+        self.botoes['refazer'].setToolTip('Refazer · Ctrl+Y / Ctrl+Shift+Z')
+        self.botoes['mais'].clicked.connect(self._menu_acoes)
+        self.painel = QScrollArea(self)
+        self.painel.setObjectName('PainelDetalhes')
+        self.painel.setWidgetResizable(True)
+        self.painel.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.painel.setStyleSheet('QScrollArea#PainelDetalhes {background:rgba(5,28,42,240); border:1px solid #35617a; border-radius:16px;}')
+        detalhes = QWidget()
+        detalhes.setObjectName('Detalhes')
+        self.painel.setWidget(detalhes)
         dv = QVBoxLayout(detalhes)
-        dv.setContentsMargins(10, 10, 10, 10)
-        self.rotulo_detalhes = QLabel("Nenhum card selecionado", detalhes)
+        dv.setContentsMargins(18, 16, 18, 16)
+        self.rotulo_detalhes = QLabel('Detalhes do card', detalhes)
+        self.rotulo_detalhes.setWordWrap(True)
+        self.rotulo_detalhes.setStyleSheet('font-size:17px;font-weight:600;')
         dv.addWidget(self.rotulo_detalhes)
         campos = QFormLayout()
+        self.campos = campos
         self.campo_titulo = QLineEdit(detalhes)
-        self.campo_titulo.setObjectName("mapa_titulo")
+        self.campo_titulo.setObjectName('mapa_titulo')
         self.campo_resumo = QLineEdit(detalhes)
-        self.campo_resumo.setObjectName("mapa_resumo")
+        self.campo_resumo.setObjectName('mapa_resumo')
         self.campo_descricao = QTextEdit(detalhes)
-        self.campo_descricao.setObjectName("mapa_descricao")
-        self.campo_descricao.setMinimumHeight(110)
-        self.campo_descricao.setToolTip(
-            "Escreva várias ideias: Enter cria uma nova linha.")
+        self.campo_descricao.setObjectName('mapa_descricao')
+        self.campo_descricao.setMinimumHeight(170)
+        self.campo_descricao.setAcceptRichText(False)
+        self.campo_descricao.setToolTip('Várias ideias, uma por linha. Ctrl+Enter confirma.')
         self.campo_descricao.textChanged.connect(self._ao_digitar_texto)
         self.campo_descricao.installEventFilter(self)
         self.combo_tipo = QComboBox(detalhes)
@@ -655,25 +715,129 @@ class EditorMapa(QWidget):
         self.combo_status = QComboBox(detalhes)
         self.combo_status.addItems(list(STATUS_TAREFA))
         self.campo_rotulo = QLineEdit(detalhes)
-        self.campo_rotulo.setPlaceholderText("Rótulo da conexão")
-        campos.addRow("Título", self.campo_titulo)
-        campos.addRow("Resumo", self.campo_resumo)
-        campos.addRow("Descrição", self.campo_descricao)
-        campos.addRow("Tipo", self.combo_tipo)
-        campos.addRow("Progresso", self.combo_status)
-        campos.addRow("Rótulo", self.campo_rotulo)
+        self.campo_rotulo.setPlaceholderText('Rótulo da conexão')
+        campos.addRow('Título', self.campo_titulo)
+        campos.addRow('Resumo', self.campo_resumo)
         dv.addLayout(campos)
-        self.salvar_detalhes = QPushButton("Salvar detalhes", detalhes)
-        self.salvar_detalhes.setObjectName("salvar_detalhes")
+        self.descricao_host = QSplitter(Qt.Orientation.Vertical)
+        self.descricao_label = QLabel('Descrição')
+        self.descricao_host.addWidget(self.descricao_label)
+        self.descricao_host.addWidget(self.campo_descricao)
+        self.descricao_host.setStretchFactor(1, 1)
+        dv.addWidget(self.descricao_host, 1)
+        self.campos_tipo = QFormLayout()
+        self.campos_tipo.addRow('Tipo', self.combo_tipo)
+        self.campos_tipo.addRow('Progresso', self.combo_status)
+        self.campos_tipo.addRow('Rótulo', self.campo_rotulo)
+        dv.addLayout(self.campos_tipo)
+        self.salvar_detalhes = QPushButton('Salvar detalhes', detalhes)
+        self.salvar_detalhes.setObjectName('salvar_detalhes')
         dv.addWidget(self.salvar_detalhes)
-        dv.addStretch(1)
-        corpo.addWidget(detalhes)
-        corpo.setStretchFactor(0, 4)
-        corpo.setStretchFactor(1, 1)
-        root.addWidget(corpo, 1)
-        self.status = QLabel("Pronto.", self)
-        self.status.setObjectName("status_mapa")
-        root.addWidget(self.status)
+        self._detalhes_aberto = True
+        self.zoom_bar = QFrame(self)
+        self.zoom_bar.setStyleSheet('QFrame {background:rgba(7,34,51,235);border-radius:12px;}')
+        zoom_layout = QHBoxLayout(self.zoom_bar)
+        zoom_layout.setContentsMargins(4, 4, 4, 4)
+        for texto, slot in (('−', lambda: self.zoom(.85)), ('100%', lambda: self.zoom(0)),
+                            ('+', lambda: self.zoom(1.18)), ('⛶', self.enquadrar)):
+            botao = QPushButton(texto)
+            botao.setMinimumSize(38, 34)
+            botao.clicked.connect(slot)
+            zoom_layout.addWidget(botao)
+            if texto == '100%':
+                self.percentual = botao
+        self._view.zoom_mudou.connect(lambda z: self.percentual.setText(f'{z:.0%}'))
+        self.status = QLabel('Pronto.', self)
+        self.status.setObjectName('status_mapa')
+        self.status.hide()
+        self._habilitar_campos(False)
+
+    def _habilitar_campos(self, card, conexao=False):
+        for field in (self.campo_titulo, self.campo_resumo, self.campo_descricao,
+                      self.combo_tipo, self.combo_status):
+            field.setEnabled(card)
+        self.campo_rotulo.setEnabled(conexao)
+        self.campos_tipo.setRowVisible(self.campo_rotulo, conexao)
+        self.campos_tipo.setRowVisible(self.combo_tipo, not conexao)
+        self.campos_tipo.setRowVisible(self.combo_status, not conexao)
+        self.descricao_host.setVisible(not conexao)
+        self.campos.setRowVisible(self.campo_titulo, not conexao)
+        self.campos.setRowVisible(self.campo_resumo, not conexao)
+        self.salvar_detalhes.setEnabled(card or conexao)
+
+    def detalhes(self, aberto=None):
+        if aberto is None:
+            aberto = not self._detalhes_aberto
+        self._detalhes_aberto = bool(aberto)
+        self._dispor()
+        if not aberto:
+            self._view.setFocus()
+
+    def _dispor(self):
+        if not hasattr(self, 'painel'):
+            return
+        w, h = self.width(), self.height()
+        largo = w >= 1400
+        if getattr(self, '_last_largo', None) is True and not largo:
+            self._detalhes_aberto = False
+        self._last_largo = largo
+        panel_w = min(354, max(280, w - 40))
+        right = panel_w+34 if largo and self._detalhes_aberto else 0
+        if getattr(self, '_reserved_right', None) != right:
+            self._reserved_right = right
+            self._view.setViewportMargins(0, 0, right, 0)
+        self.painel.setGeometry(w-panel_w-20, 82, panel_w, max(160, h-110))
+        self.painel.setVisible(self._detalhes_aberto)
+        self.barra.adjustSize()
+        free = w - (panel_w+30 if largo and self._detalhes_aberto else 0)
+        self.barra.move(max(12, (free-self.barra.width())//2), 12)
+        self.zoom_bar.adjustSize()
+        if self.zoom_bar.parentWidget() is self:
+            self.zoom_bar.move(max(8, w-self.zoom_bar.width()-20), max(0, h-self.zoom_bar.height()-12))
+        self.barra.raise_()
+        self.painel.raise_()
+        self.zoom_bar.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._dispor()
+
+    def zoom(self, fator):
+        cx, cy, atual = self._view.posicao_central()
+        self._view.aplicar_camera(cx, cy, 1 if not fator else max(.2, min(3, atual*fator)))
+        self._camera_alterada()
+        self._apos_mudanca()
+
+    def _camera_alterada(self):
+        if self._plano is not None:
+            cx, cy, zoom = self._view.posicao_central()
+            self._camera = dict(cx=cx, cy=cy, zoom=zoom)
+
+    def _menu_acoes(self):
+        menu = QMenu(self)
+        for nome in ('adicionar_conectado', 'central', 'enquadrar', 'excluir', 'salvar'):
+            button = self.botoes[nome]
+            menu.addAction(button.text(), button.click)
+        menu.addAction('Detalhes do item', lambda: self.detalhes())
+        extra = getattr(self, 'acoes_extras', None)
+        if extra:
+            extra(menu)
+        menu.exec(self.botoes['mais'].mapToGlobal(self.botoes['mais'].rect().bottomLeft()))
+
+    def _menu_contexto(self, pos):
+        item = self._view.itemAt(pos)
+        if isinstance(item, (CardItem, ConexaoItem)):
+            self.cena.clearSelection()
+            item.setSelected(True)
+        menu = QMenu(self)
+        for nome in ('novo_card', 'adicionar_conectado', 'conectar', 'excluir'):
+            button = self.botoes[nome]
+            menu.addAction(button.text(), button.click)
+        menu.addAction('Detalhes', lambda: self.detalhes(True))
+        extra = getattr(self, 'acoes_extras', None)
+        if extra:
+            extra(menu)
+        menu.exec(self._view.mapToGlobal(pos))
 
     def _conectar(self) -> None:
         self.botoes["novo_card"].clicked.connect(self._novo_card)
@@ -686,6 +850,10 @@ class EditorMapa(QWidget):
         self.botoes["central"].clicked.connect(self.voltar_ao_central)
         self.botoes["salvar"].setMinimumSize(64, 30)
         self.botoes["salvar"].clicked.connect(self.salvar)
+        self.pilha.canUndoChanged.connect(self.botoes["desfazer"].setEnabled)
+        self.pilha.canRedoChanged.connect(self.botoes["refazer"].setEnabled)
+        self.botoes["desfazer"].setEnabled(False)
+        self.botoes["refazer"].setEnabled(False)
         self.salvar_detalhes.clicked.connect(self._salvar_detalhes)
         self.cena.selectionChanged.connect(self._on_selection)
         for seq, destino in (
@@ -695,7 +863,11 @@ class EditorMapa(QWidget):
             ("Ctrl+Y", self.refazer),
             ("Ctrl+Shift+Z", self.refazer),
             ("Ctrl+Return", self._confirmar_texto),
-            ("Escape", self.cancelar_conexao),
+            ("Escape", self._escapar),
+            ("Ctrl+S", self.salvar),
+            ("Ctrl+=", lambda: self.zoom(1.18)),
+            ("Ctrl+-", lambda: self.zoom(.85)),
+            ("Ctrl+0", self.enquadrar),
         ):
             atalho = QShortcut(QKeySequence(seq), self)
             atalho.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -755,10 +927,13 @@ class EditorMapa(QWidget):
         finally:
             self.cena.blockSignals(False)
         self._selecionar_dados(self.cena.itens_cards.get(card_id) if card_id else None)
+        self.selecao_mudou.emit()
 
     def _selecionar_dados(self, item: CardItem | None) -> None:
         if item is None:
+            self._habilitar_campos(False)
             return
+        self._habilitar_campos(True)
         self._carregando_dados = True
         self.campo_descricao.blockSignals(True)
         dados = item.dados
@@ -852,6 +1027,10 @@ class EditorMapa(QWidget):
         self.mudancas_pendentes = True
         self._timer.start(600)
         self.estado_editado.emit()
+
+    def _escapar(self):
+        self.cancelar_conexao()
+        self.detalhes(False)
 
     def _foco_em_texto(self) -> bool:
         foco = QApplication.focusWidget()
@@ -997,6 +1176,7 @@ class EditorMapa(QWidget):
             self._apos_mudanca()
 
     def salvar(self) -> tuple[bool, str]:
+        self._timer.stop()
         if self._plano is None:
             return False, "Nenhum plano carregado."
         self.status.setText("Salvando…")
@@ -1029,11 +1209,15 @@ class EditorMapa(QWidget):
     def _apos_mudanca(self) -> None:
         self.mudancas_pendentes = True
         self._timer.start(600)
+        self.estado_salvamento.emit("Alterações pendentes")
+        self.estado_editado.emit()
 
     def _on_selection(self) -> None:
         itens = [i for i in self.cena.selectedItems()
                  if isinstance(i, (CardItem, ConexaoItem))]
         if not itens:
+            self._selecionado = None
+            self._habilitar_campos(False)
             return
         item = itens[0]
         if isinstance(item, CardItem):
@@ -1041,12 +1225,17 @@ class EditorMapa(QWidget):
                 self.selecionar(item.dados.get("id"))
         else:
             self._selecionado = item.dados.get("id")
+            self._fechar_sessao_texto()
             self._selecionado_tipo = "conexao"
+            self._habilitar_campos(False, True)
             self.campo_rotulo.setText(str(item.dados.get("rotulo") or ""))
             self.rotulo_detalhes.setText("Conexão selecionada")
 
     def _novo_card(self) -> None:
-        self.criar_card("Novo card")
+        x, y, _ = self._view.posicao_central()
+        ident = self.criar_card("Novo card", x=x, y=y)
+        self.selecionar(ident)
+        self.detalhes(True)
 
     def _adicionar_conectado(self) -> None:
         if self.card_selecionado_id:
@@ -1084,8 +1273,39 @@ class EditorMapa(QWidget):
         elif self._selecionado_tipo == "conexao" and self._selecionado:
             lig = self.cena.itens_conexoes.get(self._selecionado)
             if lig is not None:
-                dados = copy.deepcopy(lig.dados)
-                self.cena.remover_conexao(self._selecionado)
-                dados["rotulo"] = self.campo_rotulo.text()
-                self.cena.adicionar_conexao(dados)
-                self._apos_mudanca()
+                mapa = self.cena.mapa_atual()
+                for dados in mapa['conexoes']:
+                    if dados['id'] == self._selecionado:
+                        dados['rotulo'] = self.campo_rotulo.text()
+                self.aplicar_mapa(mapa, 'Editar rótulo da conexão')
+
+
+    def aplicar_mapa(self, mapa, rotulo):
+        self._fechar_sessao_texto()
+        self.pilha.push(SubstituirMapaCommand(self, self.cena.mapa_atual(), mapa, rotulo))
+
+
+class SubstituirMapaCommand(_Comando):
+    """A prevalidated snapshot is installed atomically as one reversible edit."""
+    def __init__(self, editor, antes, depois, rotulo):
+        super().__init__(editor, rotulo)
+        self.antes, self.depois = copy.deepcopy(antes), copy.deepcopy(depois)
+
+    def _aplicar(self, mapa):
+        selected = self.editor.card_selecionado_id
+        antigos = set(self.editor.cena.itens_cards)
+        self.editor.cena.montar(mapa)
+        novos = set(self.editor.cena.itens_cards)
+        for ident in antigos - novos:
+            ExcluirCardCommand(self.editor, ident)._lembretes(True)
+        for ident in novos - antigos:
+            ExcluirCardCommand(self.editor, ident)._lembretes(False)
+        if selected in self.editor.cena.itens_cards:
+            self.editor.selecionar(selected)
+        self._sincronizar()
+
+    def redo(self):
+        self._aplicar(self.depois)
+
+    def undo(self):
+        self._aplicar(self.antes)

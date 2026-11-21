@@ -7088,6 +7088,10 @@ class NiaLive:
             if not texto.strip():
                 return f"O card {titulo} está sem texto registrado."
             return f"O que está registrado em {titulo}: {texto}"
+        if intencao == 'DEPENDENCIAS':
+            ids={l.get('destino') for l in mapa.get('conexoes',[]) if l.get('origem')==card.get('id')}
+            nomes=[str(c.get('titulo')) for c in contexto.get('cartoes',[]) if c.get('id') in ids]
+            return ('Dependem de '+titulo+': '+', '.join(nomes)+'.') if nomes else 'Nenhum card depende diretamente de '+titulo+'.'
         if intencao == "CONEXOES_CARD":
             if not card:
                 return "Selecione um card ou me diga qual card você quer consultar."
@@ -7117,7 +7121,7 @@ class NiaLive:
         if intencao == "NENHUMA":
             return False
         contexto_canvas = self._contexto_planos()
-        if intencao in ("LISTAR_CARDS", "LER_CARD", "CONEXOES_CARD",
+        if intencao in ("LISTAR_CARDS", "LER_CARD", "CONEXOES_CARD", "DEPENDENCIAS",
                         "EXPLICAR_CARD", "EXPLICAR"):
             alvo = self._resolver_alvo_canvas(texto, contexto_canvas)
             if alvo.get("opcoes"):
@@ -7231,11 +7235,10 @@ class NiaLive:
             self.ui.write_log(
                 "SIS: O plano mudou desde o pedido; a resposta não foi aplicada.")
             return True
-        if not alvo_id:
-            self.ui.write_log("SIS: Selecione um card para receber a alteração.")
-            return True
-
         operacoes, erros = AP.intencao_para_lote(texto, contexto)
+        if not alvo_id and not operacoes:
+            self.ui.write_log('SIS: '+(erros[0] if erros else 'Selecione um card para receber a alteração.'))
+            return True
         provedor = getattr(self, "_provedor_assistido", None)
         if not operacoes and provedor is not None:
             bruto = provedor(texto, seguro)
@@ -7258,6 +7261,12 @@ class NiaLive:
                         and "resumo" in (op.get("campos") or {}):
                     op["campos"]["resumo"] = proposto
 
+        # Read again AFTER the provider returns; the user may have switched maps.
+        if ponte_viva is not None:
+            vivo = ponte_viva()
+            if vivo is None or vivo.id != plano.id:
+                self.ui.write_log('SIS: O plano mudou desde o pedido; nada foi aplicado.')
+                return True
         # Alvo capturado no envio: trocar seleção não muda o destino.
         if vivo is not None:
             if AP.fingerprint(vivo) != fingerprint:
@@ -7288,8 +7297,11 @@ class NiaLive:
             self.ui.write_log("SIS: " + erros[0]
                               + " A edição manual foi preservada.")
             return True
+        for op in validas:
+            op['_plano_id'] = plano.id
+            op['_fingerprint'] = AP.fingerprint(plano)
+            op['_desfazer_apos'] = ' e desfaca' in AP.normalizar(texto)
         self.ui.aplicar_lote_assistido(validas, "Edição assistida")
-        self.ui.write_log(f"SIS: Apliquei {len(validas)} operação(ões) no mapa.")
         return True
 
     def _processar_pedido_lembrete(self, texto: str, origem: str) -> bool:

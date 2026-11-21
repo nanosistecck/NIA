@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ _CAMPOS_EDITAVEIS = {
     "valor", "acumulado", "restrito", "financeiro",
 }
 _TIPOS_OP = {"criar_card", "editar_campos", "alterar_progresso", "conectar",
-            "anexar_texto"}
+            "anexar_texto", "mover_card", "desconectar", "excluir_card"}
 
 
 @dataclass(frozen=True)
@@ -104,10 +105,16 @@ def filtrar_contexto(contexto: dict, destino: Destino) -> dict:
 def reconhecer_intencao(texto: str) -> str:
     """EXPLICAR | SUGERIR | EDITAR | DESFAZER | NENHUMA."""
     n = normalizar(texto)
+    if " e desfaca" in n and re.search(r"marque|conclu", n):
+        return "EDITAR"
     if re.search(r"desfaca|desfazer|reverta|volte.*(adicion|ultimo|lote)", n):
         return "DESFAZER"
     if re.search(r"que ideias|quais ideias|ideias posso|sugestoes de ideias", n):
         return "SUGERIR"
+    if "dependem de" in n:
+        return "DEPENDENCIAS"
+    if re.search(r"marque|renomeie|renomear|mova|mover|exclua|excluir|desconecte|remova", n):
+        return "EDITAR"
     if re.search(r"conecte|conecte este|ligue este", n):
         return "EDITAR"
     if re.search(r"adicion|adicione|crie|criar|transforme|reescreva|altere|mude|acrescente", n):
@@ -195,6 +202,9 @@ def parse_resposta(bruto: str, contexto: dict) -> tuple[list[dict], list[str]]:
 
 def intencao_para_lote(texto: str, contexto: dict) -> tuple[list[dict], list[str]]:
     """Converte um pedido em linguagem natural em operações estruturadas."""
+    especiais, erros = pedido_estruturado(texto, contexto)
+    if especiais is not None:
+        return especiais, erros
     n = normalizar(texto)
     alvo = contexto.get("card_id")
     if not alvo:
@@ -248,7 +258,7 @@ def intencao_para_lote(texto: str, contexto: dict) -> tuple[list[dict], list[str
     return [], ["Não entendi a alteração pedida."]
 
 
-def validar_lote(operacoes: list[dict], plano_atual, contexto: dict) \
+def _validar_lote_base(operacoes: list[dict], plano_atual, contexto: dict) \
         -> tuple[list[dict], list[str]]:
     """Valida o lote inteiro contra o estado ATUAL do editor, antes de aplicar."""
     erros: list[str] = []
@@ -313,53 +323,121 @@ def validar_lote(operacoes: list[dict], plano_atual, contexto: dict) \
     return copy.deepcopy(operacoes), []
 
 
-def aplicar_lote(editor, operacoes: list[dict], rotulo: str) -> bool:
-    """Aplica o lote em UMA operação de desfazer, na thread da interface."""
-    ids: dict[str, str] = {}
-    refs = {op.get("destino_ref") for op in operacoes
-            if op.get("tipo") == "conectar"}
-    editor.pilha.beginMacro(f"Assistido: {rotulo}")
+def _simular_lote(operacoes, plano):
+    """Build the entire new state before touching scene or undo history."""
+    from core.planos import novo_id, PlanoInvalido
+    mapa = copy.deepcopy(plano.mapa)
+    cards = {c['id']: c for c in mapa.get('cards', [])}
+    ligs = list(mapa.get('conexoes', []))
+    ids = {}
+    def resolve(value):
+        return ids.get(value, value)
+    def card(ident):
+        if ident not in cards:
+            raise PlanoInvalido('Card alvo inexistente ou removido.')
+        return cards[ident]
+    def connect(origem, destino, rotulo=''):
+        card(origem); card(destino)
+        if origem == destino:
+            raise PlanoInvalido('Conexão inválida.')
+        if any(l['origem']==origem and l['destino']==destino for l in ligs):
+            return
+        ligs.append(dict(id=novo_id(), origem=origem, destino=destino, rotulo=str(rotulo)))
+    refs = {op.get('destino_ref') for op in operacoes if op.get('tipo')=='conectar'}
+    for op in operacoes:
+        tipo = op['tipo']
+        if tipo == 'criar_card':
+            temp = op.get('temp_id')
+            if temp and temp in ids:
+                raise PlanoInvalido('Identificador temporário duplicado.')
+            origem = resolve(op.get('origem'))
+            base = card(origem) if origem else {}
+            ident = novo_id()
+            dados = dict(id=ident, titulo=str(op.get('titulo') or '').strip(),
+                resumo=str(op.get('resumo') or ''), descricao=str(op.get('descricao') or ''),
+                tipo=op.get('tipo_card', 'ideia'), status=op.get('status', ''),
+                x=float(op.get('x', base.get('x',0)+270)), y=float(op.get('y',base.get('y',0)+110)))
+            for field in ('modelo','estado','valor','acumulado','restrito','financeiro'):
+                if field in op:
+                    dados[field] = op[field]
+            if not dados['titulo'] or dados['tipo'] not in TIPOS_CARD:
+                raise PlanoInvalido('Título ou tipo de card inválido.')
+            if dados['tipo']=='tarefa' and not dados['status']:
+                dados['status']='pendente'
+            cards[ident]=dados
+            if temp:
+                ids[temp]=ident
+            if origem and temp not in refs:
+                connect(origem,ident,op.get('rotulo',''))
+        elif tipo == 'conectar':
+            connect(resolve(op.get('origem')),resolve(op.get('destino') or op.get('destino_ref')),op.get('rotulo',''))
+        elif tipo == 'desconectar':
+            origem, destino = resolve(op.get('origem')), resolve(op.get('destino'))
+            card(origem); card(destino)
+            novas = [l for l in ligs if not (l['origem']==origem and l['destino']==destino)]
+            if len(novas)==len(ligs):
+                raise PlanoInvalido('A conexão indicada não existe.')
+            ligs=novas
+        else:
+            ident=resolve(op.get('card_id')); dados=card(ident)
+            if tipo=='editar_campos':
+                campos=op.get('campos')
+                if not isinstance(campos,dict) or not campos or set(campos)-_CAMPOS_EDITAVEIS:
+                    raise PlanoInvalido('Campos inválidos.')
+                dados.update(campos)
+            elif tipo=='alterar_progresso':
+                dados.update(tipo='tarefa', status=op.get('status'))
+            elif tipo=='anexar_texto':
+                ideias=op.get('ideias')
+                if not isinstance(ideias,list) or not ideias:
+                    raise PlanoInvalido('Sem ideias para anexar.')
+                dados['descricao']=(str(dados.get('descricao') or '').rstrip()+'\n'+'\n'.join(map(str,ideias))).strip()
+            elif tipo=='mover_card':
+                dados.update(x=float(op['x']), y=float(op['y']))
+            elif tipo=='excluir_card':
+                if ident==mapa.get('raiz_id'):
+                    raise PlanoInvalido('O card central não pode ser excluído.')
+                del cards[ident]
+                ligs=[l for l in ligs if ident not in (l['origem'],l['destino'])]
+            else:
+                raise PlanoInvalido('Tipo de operação desconhecido.')
+    for dados in cards.values():
+        if not math.isfinite(float(dados.get('x',0))) or not math.isfinite(float(dados.get('y',0))):
+            raise PlanoInvalido('Posição inválida.')
+        if not str(dados.get('titulo') or '').strip() or dados.get('tipo') not in TIPOS_CARD:
+            raise PlanoInvalido('Título ou tipo inválido.')
+        if dados.get('tipo')=='tarefa' and dados.get('status') not in STATUS_TAREFA:
+            raise PlanoInvalido('Progresso inválido.')
+    mapa.update(cards=list(cards.values()),conexoes=ligs)
+    return mapa
+
+
+def validar_lote(operacoes, plano_atual, contexto):
+    if contexto.get('plano_id') != plano_atual.id:
+        return [], ['O plano mudou desde o pedido; a resposta foi descartada.']
+    antigas=[op for op in operacoes if op.get('tipo') not in ('mover_card','desconectar','excluir_card')]
+    _, erros=_validar_lote_base(antigas,plano_atual,contexto)
+    if erros:
+        return [], erros
+    from core.planos import PlanoInvalido
     try:
-        for op in operacoes:
-            tipo = op["tipo"]
-            if tipo == "criar_card":
-                card_id = editor.criar_card(
-                    str(op.get("titulo") or "Novo card"),
-                    str(op.get("resumo") or ""),
-                    str(op.get("descricao") or ""),
-                    str(op.get("tipo_card") or "ideia"),
-                    str(op.get("status") or ""),
-                    float(op.get("x") or 0.0), float(op.get("y") or 0.0),
-                    modelo=str(op.get("modelo") or ""),
-                    estado=str(op.get("estado") or ""),
-                    valor=op.get("valor"), acumulado=op.get("acumulado"),
-                    restrito=bool(op.get("restrito") or False),
-                    financeiro=bool(op.get("financeiro") or False))
-                if op.get("temp_id"):
-                    ids[op["temp_id"]] = card_id
-                if (op.get("temp_id") not in refs
-                        and op.get("origem") in editor.cena.itens_cards):
-                    editor.conectar(op["origem"], card_id,
-                                    str(op.get("rotulo") or ""))
-            elif tipo == "conectar":
-                destino = op.get("destino") or ids.get(op.get("destino_ref"))
-                origem = ids.get(op.get("origem"), op.get("origem"))
-                if destino and origem in editor.cena.itens_cards:
-                    editor.conectar(origem, destino, str(op.get("rotulo") or ""))
-            elif tipo == "anexar_texto":
-                item = editor.cena.itens_cards.get(op["card_id"])
-                if item is not None:
-                    atual = str(item.dados.get("descricao") or "")
-                    novas = "\n".join(str(x) for x in (op.get("ideias") or []))
-                    editor.editar_card(
-                        op["card_id"],
-                        {"descricao": (atual.rstrip() + "\n" + novas).strip()})
-            elif tipo == "editar_campos":
-                editor.editar_card(op["card_id"], dict(op.get("campos") or {}))
-            elif tipo == "alterar_progresso":
-                editor.definir_progresso(op["card_id"], str(op.get("status") or ""))
-    finally:
-        editor.pilha.endMacro()
+        _simular_lote(operacoes,plano_atual)
+    except (ValueError,KeyError,TypeError,PlanoInvalido) as exc:
+        return [], [str(exc)]
+    return copy.deepcopy(operacoes), []
+
+
+def aplicar_lote(editor, operacoes, rotulo):
+    """Validate and publish one snapshot; a failure cannot leave half a branch."""
+    plano=editor.plano_atual()
+    contexto=montar_contexto(plano,editor.card_selecionado_id)
+    validas,erros=validar_lote(operacoes,plano,contexto)
+    if erros:
+        raise ValueError(erros[0])
+    mapa=_simular_lote(validas,plano)
+    if mapa == plano.mapa:
+        return False
+    editor.aplicar_mapa(mapa, 'Assistido: '+rotulo)
     return True
 
 
@@ -373,3 +451,62 @@ def desfazer_lote(editor) -> bool:
         return False
     editor.desfazer()
     return True
+
+
+def resolver_card(nome, contexto):
+    nome=re.sub(r'^(?:o |ao |a |do |este )?(?:card )?', '', nome.strip(' .?!"“”'), flags=re.I)
+    if normalizar(nome) in ('este','este card','selecionado','deste card'):
+        nome=contexto.get('card_id')
+    cards=contexto.get('cartoes') or (contexto.get('plano').mapa.get('cards',[]) if contexto.get('plano') else [])
+    encontrados=[c for c in cards if c.get('id')==nome or normalizar(c.get('titulo'))==normalizar(nome)]
+    if len(encontrados)>1:
+        selecionado=[c for c in encontrados if c.get('id')==contexto.get('card_id')]
+        if selecionado:
+            return selecionado[0]
+        raise ValueError('Há cards com o mesmo título. Selecione o card desejado.')
+    if not encontrados:
+        raise ValueError(f'Não encontrei o card {nome}.')
+    return encontrados[0]
+
+
+def pedido_estruturado(texto, contexto):
+    """Named edits shared by chat and voice; returns None for legacy grammar."""
+    n=normalizar(texto)
+    try:
+        m=re.search(r'(?:crie|criar) (?:um )?card (.+?) e conecte (?:ao|a|com) (?:o )?(?:card )?(.+?)[.!?]?$',texto,re.I)
+        if m:
+            base=resolver_card(m[2],contexto)
+            return [dict(tipo='criar_card',titulo=m[1].strip(),temp_id='novo',x=base.get('x',0)+270,y=base.get('y',0)+120),
+                    dict(tipo='conectar',origem=base['id'],destino_ref='novo')],[]
+        m=re.search(r'marque (?:o )?(?:card )?(.+?) como (conclu[ií]do|pendente|bloqueado|em andamento)',texto,re.I)
+        if m:
+            alvo=resolver_card(m[1],contexto)
+            status=normalizar(m[2]).replace(' ','_')
+            return [dict(tipo='alterar_progresso',card_id=alvo['id'],status=status)],[]
+        m=re.search(r'renomeie (?:o )?(?:card )?(.+?) para (.+)',texto,re.I)
+        if m:
+            alvo=resolver_card(m[1],contexto)
+            return [dict(tipo='editar_campos',card_id=alvo['id'],campos=dict(titulo=m[2].strip(' .')))],[]
+        m=re.search(r'(?:adicione|adicionar) (tr[eê]s|duas|dois|uma|um|[1-6]) ideias? (?:[àa] descri[cç][aã]o|ao texto) d[oe] (?:card )?([^:]+)(?::(.*))?$',texto,re.I)
+        if m:
+            alvo=resolver_card(m[2],contexto)
+            quantidade={'tres':3,'duas':2,'dois':2,'uma':1,'um':1}.get(normalizar(m[1]), int(m[1]) if m[1].isdigit() else 3)
+            ideias=[v.strip() for v in re.split(r';|\n',m[3] or '') if v.strip()]
+            if not ideias:
+                ideias=[f'Explorar um conceito de {alvo["titulo"]}.',f'Registrar exemplos práticos de {alvo["titulo"]}.',f'Anotar dúvidas e próximos passos de {alvo["titulo"]}.']
+            return [dict(tipo='anexar_texto',card_id=alvo['id'],ideias=ideias[:quantidade])],[]
+        m=re.search(r'mova (?:o )?(?:card )?(.+?) para (-?[0-9.]+)\s*,\s*(-?[0-9.]+)',texto,re.I)
+        if m:
+            alvo=resolver_card(m[1],contexto)
+            return [dict(tipo='mover_card',card_id=alvo['id'],x=float(m[2]),y=float(m[3]))],[]
+        m=re.search(r'(conecte|desconecte) (?:o )?card (.+?) (?:ao|a|de|do) (?:o )?card (.+?)[.!?]?$',texto,re.I)
+        if m:
+            a,b=resolver_card(m[2],contexto),resolver_card(m[3],contexto)
+            return [dict(tipo='conectar' if normalizar(m[1])=='conecte' else 'desconectar',origem=a['id'],destino=b['id'])],[]
+        m=re.search(r'(?:exclua|remova) (?:o )?card (.+?)[.!?]?$',texto,re.I)
+        if m:
+            alvo=resolver_card(m[1],contexto)
+            return [dict(tipo='excluir_card',card_id=alvo['id'])],[]
+    except ValueError as exc:
+        return [],[str(exc)]
+    return None,[]

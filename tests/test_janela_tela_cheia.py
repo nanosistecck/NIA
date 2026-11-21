@@ -34,8 +34,9 @@ def test_janela_abre_em_tela_cheia(app, tmp_path, monkeypatch):
     w.aplicar_modo_janela(True)
     w.show()
     app.processEvents()
-    assert w.janela_tela_cheia is True
-    assert w.windowFlags() & Qt.WindowType.FramelessWindowHint
+    esperado_sem_bordas = ui.platform.system() != "Windows"
+    assert w.janela_tela_cheia is esperado_sem_bordas
+    assert bool(w.windowFlags() & Qt.WindowType.FramelessWindowHint) is esperado_sem_bordas
     assert not w.isFullScreen()
     assert w.windowState() & Qt.WindowState.WindowMaximized
     w.hide()

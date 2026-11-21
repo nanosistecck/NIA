@@ -7,13 +7,14 @@ pelo fluxo do Canvas são preservados.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter
+from PyQt6.QtCore import QRectF, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (
+    QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPen,
+)
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-    QScrollArea, QSizePolicy, QSplitter, QStyledItemDelegate, QTextEdit,
-    QVBoxLayout, QWidget,
+    QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSizePolicy,
+    QSplitter, QStyle, QStyledItemDelegate, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from core import lembretes as LEM
@@ -26,86 +27,164 @@ from core.planos import (
 from core.planos import excluir_permanentemente as _excluir_permanentemente
 
 # ── design tokens ─────────────────────────────────────────────────────────
-COR_FUNDO = "#0A0F1E"
-COR_SECUNDARIO = "#0D1930"
-COR_PAINEL = "#10213B"
-COR_CAMPO = "#0E2038"
-COR_BORDA = "#254666"
-COR_BORDA_ATIVA = "#00B8FF"
-COR_AZUL = "#00B8FF"
-COR_AZUL_PROFUNDO = "#176BFF"
-COR_VIOLETA = "#8A5CFF"
-COR_TEXTO = "#EAF2FF"
-COR_TEXTO2 = "#9FB3C8"
-COR_TEXTO3 = "#7089A4"
-COR_SUCESSO = "#22C55E"
-COR_EXCLUSAO = "#EF4444"
-COR_ATENCAO = "#F5B942"
+COR_FUNDO = "#081527"
+COR_SECUNDARIO = "#0A1D33"
+COR_PAINEL = "#0C2236"
+COR_CAMPO = "#04121F"
+COR_BORDA = "#1B4A66"
+COR_BORDA_ATIVA = "#19D3F3"
+COR_AZUL = "#19D3F3"
+COR_AZUL_PROFUNDO = "#1673FF"
+COR_VIOLETA = "#7C5CFF"
+COR_TEXTO = "#E6F6FF"
+COR_TEXTO2 = "#8FB5C9"
+COR_TEXTO3 = "#6F93A9"          # rótulos e metadados secundários
+COR_SUCESSO = "#2EE6A0"
+COR_EXCLUSAO = "#FF7A7A"
+COR_ATENCAO = "#F2A13B"
 
 _ESTILO = f"""
 QWidget#PlanosRoot {{
     background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-        stop:0 {COR_FUNDO}, stop:0.6 #0B1930, stop:1 #101C38);
+        stop:0 #0C3646, stop:0.45 {COR_FUNDO}, stop:1 #0E1D40);
 }}
+
+/* ── textos ─────────────────────────────────────────────────────────── */
 QLabel {{ color: {COR_TEXTO}; background: transparent; }}
-QLabel#TituloJanela {{ font-size: 18px; font-weight: 600; }}
+QLabel#TituloJanela {{ font-size: 22px; font-weight: 600; }}
 QLabel#SubtituloJanela {{ color: {COR_TEXTO2}; font-size: 12px; }}
-QLabel#TituloSecao {{ color: {COR_TEXTO}; font-size: 14px; font-weight: 600; }}
+QLabel#TituloSecao {{
+    color: {COR_TEXTO2}; font-size: 12px; font-weight: 600;
+}}
+QLabel#Campo {{
+    color: {COR_TEXTO2}; font-size: 11px; font-weight: 600;
+}}
 QLabel#Meta {{ color: {COR_TEXTO3}; font-size: 12px; }}
+QLabel#Status {{ color: {COR_TEXTO2}; font-size: 12px; }}
+QLabel#TituloForm {{ font-size: 18px; font-weight: 600; }}
+
+/* ── campos ─────────────────────────────────────────────────────────── */
 QLineEdit, QTextEdit, QComboBox {{
     color: {COR_TEXTO}; background: {COR_CAMPO};
-    border: 1px solid {COR_BORDA}; border-radius: 9px; padding: 6px 10px;
-    font-size: 13px; selection-background-color: #176BFF;
+    border: 1px solid rgba(25,211,243,40); border-radius: 10px;
+    padding: 0 14px; font-size: 13px; selection-background-color: #176BFF;
+}}
+QTextEdit {{ padding: 10px 14px; }}
+QLineEdit:hover, QTextEdit:hover, QComboBox:hover {{
+    border-color: rgba(25,211,243,110);
 }}
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus {{
-    border: 2px solid {COR_BORDA_ATIVA}; background: #102a46;
+    border: 1px solid {COR_BORDA_ATIVA}; background: #061A2B;
 }}
-QLineEdit:read-only {{ color: {COR_TEXTO2}; }}
-QComboBox {{ min-height: 42px; padding-left: 12px; }}
-QListWidget {{
+QLineEdit:read-only, QTextEdit:read-only {{
+    color: {COR_TEXTO2}; background: rgba(4,18,31,160);
+    border-color: rgba(25,211,243,22);
+}}
+QLineEdit#campo_busca {{
+    background: transparent; border: none; padding: 0 4px; font-size: 14px;
+}}
+QLineEdit#campo_busca:focus {{ background: transparent; }}
+QComboBox {{ min-height: 36px; padding-left: 16px; border-radius: 18px; }}
+QComboBox:disabled {{ color: {COR_TEXTO3}; background: rgba(4,18,31,160); }}
+QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox QAbstractItemView {{
+    color: {COR_TEXTO}; background: #061A2B;
+    border: 1px solid {COR_BORDA}; border-radius: 10px; padding: 4px;
+    outline: 0; selection-background-color: rgba(25,211,243,40);
+}}
+
+/* ── listas ─────────────────────────────────────────────────────────── */
+QListWidget#lista_planos {{
+    background: rgba(8,26,44,150); border: 1px solid rgba(25,211,243,40);
+    border-radius: 18px; padding: 10px; outline: 0;
+}}
+QListWidget::item {{ border-radius: 14px; padding: 6px; }}
+QListWidget#lista_planos::item,
+QListWidget#lista_planos::item:selected,
+QListWidget#lista_planos::item:hover {{
+    background: transparent; border: none; padding: 0;
+}}
+QListWidget#lista_lembretes {{
     background: {COR_SECUNDARIO}; border: 1px solid {COR_BORDA};
-    border-radius: 14px; padding: 12px;
+    border-radius: 14px; padding: 8px; outline: 0;
 }}
-QListWidget::item {{ border-radius: 12px; padding: 6px; }}
-QListWidget::item:selected {{
+QListWidget#lista_lembretes::item:selected {{
     border: 1px solid {COR_BORDA_ATIVA}; background: #173E63;
 }}
-QScrollBar:vertical {{ background: transparent; width: 5px; }}
+QScrollBar:vertical {{ background: transparent; width: 8px; margin: 4px 2px; }}
 QScrollBar::handle:vertical {{
-    background: rgba(66,97,124,180); border-radius: 3px; min-height: 24px;
+    background: rgba(25,211,243,70); border-radius: 3px; min-height: 28px;
 }}
+QScrollBar::handle:vertical:hover {{ background: rgba(25,211,243,160); }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+QSplitter::handle {{ background: transparent; }}
+
+/* ── botões ─────────────────────────────────────────────────────────── */
 QPushButton {{
-    color: {COR_TEXTO}; background: #11243E;
-    border: 1px solid {COR_BORDA}; border-radius: 10px;
-    padding: 8px 14px; min-height: 40px; font-size: 13px;
+    color: #D9EEFA; background: rgba(10,36,58,140);
+    border: 1px solid rgba(25,211,243,50); border-radius: 10px;
+    padding: 0 16px; min-height: 38px; font-size: 13px;
 }}
-QPushButton:hover {{ background: #17395B; border-color: {COR_AZUL}; }}
-QPushButton:focus {{ border: 2px solid {COR_AZUL}; }}
-QPushButton:disabled {{ color: {COR_TEXTO3}; background: #0D1B2E; }}
+QPushButton:hover {{
+    background: rgba(18,58,88,200); border-color: rgba(25,211,243,140);
+}}
+QPushButton:pressed {{ background: rgba(10,40,64,220); }}
+QPushButton:focus {{ border: 1px solid {COR_AZUL}; }}
+QPushButton:disabled {{
+    color: rgba(143,181,201,90); background: rgba(10,36,58,50);
+    border-color: rgba(25,211,243,18);
+}}
+QPushButton#novo_plano {{
+    color: white; font-weight: 600; border: none;
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+        stop:0 #14C8EE, stop:0.6 {COR_AZUL_PROFUNDO}, stop:1 {COR_VIOLETA});
+}}
+QPushButton#novo_plano:hover {{
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+        stop:0 #3ED8F5, stop:0.6 #3585FF, stop:1 #9274FF);
+}}
 QPushButton#salvar_plano {{
     color: white; font-weight: 600; font-size: 14px; min-height: 44px;
+    border: none;
     background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-        stop:0 #00C8F8, stop:0.55 {COR_AZUL_PROFUNDO}, stop:1 {COR_VIOLETA});
-    border: none; border-radius: 10px;
+        stop:0 #14C8EE, stop:0.6 {COR_AZUL_PROFUNDO}, stop:1 {COR_VIOLETA});
 }}
+QPushButton#salvar_plano:disabled {{
+    color: rgba(143,181,201,90); background: rgba(10,36,58,50);
+    border: 1px solid rgba(25,211,243,18);
+}}
+QPushButton#excluir_permanentemente {{
+    color: #FF9A9A; border-color: rgba(255,122,122,90);
+}}
+QPushButton#excluir_permanentemente:hover {{
+    color: white; background: rgba(90,26,36,200); border-color: {COR_EXCLUSAO};
+}}
+QPushButton#excluir_permanentemente:disabled {{
+    color: rgba(143,181,201,90); background: rgba(10,36,58,50);
+    border-color: rgba(25,211,243,18);
+}}
+
+/* ── molduras ───────────────────────────────────────────────────────── */
 QFrame#PlanosForm {{
-    background: {COR_PAINEL}; border: 1px solid {COR_BORDA};
-    border-radius: 14px;
+    background: rgba(12,34,54,190); border: 1px solid rgba(25,211,243,46);
+    border-radius: 18px;
 }}
 QFrame#PlanosHeader {{
-    background: rgba(16,33,59,170); border: 1px solid {COR_BORDA};
-    border-radius: 14px;
+    background: rgba(12,38,60,150); border: 1px solid rgba(25,211,243,40);
+    border-radius: 18px;
 }}
 QFrame#PlanosFiltros {{
-    background: rgba(13,25,48,170); border: 1px solid {COR_BORDA};
+    background: transparent; border: none;
+}}
+QFrame#PlanosBuscaBox {{
+    background: rgba(12,38,60,150); border: 1px solid rgba(25,211,243,40);
     border-radius: 12px;
 }}
 QWidget#PlanosAcoes {{
-    background: rgba(16,33,59,150); border: 1px solid {COR_BORDA};
-    border-radius: 12px;
+    background: rgba(12,38,60,160); border: 1px solid rgba(25,211,243,40);
+    border-radius: 18px;
 }}
-QLabel#Status {{ color: {COR_TEXTO2}; font-size: 11px; }}
 """
 
 # Ícones por tipo — letras curtas, sem emoji, legíveis sem cor.
@@ -118,70 +197,104 @@ _COR_TIPO = {
     "Conteúdo": COR_SUCESSO, "Estudos": COR_ATENCAO, "Finanças": COR_EXCLUSAO,
 }
 
+QStyleState_Selected = QStyle.StateFlag.State_Selected
+QStyleState_MouseOver = QStyle.StateFlag.State_MouseOver
+
+
+def _fonte(pixels: int, peso: QFont.Weight = QFont.Weight.Normal) -> QFont:
+    """Fonte em pixels: o tamanho não muda com o DPI e o card não estoura."""
+    fonte = QFont("Segoe UI")
+    fonte.setPixelSize(pixels)
+    fonte.setWeight(peso)
+    return fonte
+
 
 class _ItemPlanoDelegate(QStyledItemDelegate):
     """Card do plano desenhado localmente, sem widgets por item."""
 
+    ALTURA = 78
+
     def sizeHint(self, option, index):
-        from PyQt6.QtCore import QSize
-        return QSize(option.rect.width(), 76)
+        return QSize(option.rect.width(), self.ALTURA)
 
     def paint(self, painter, option, index):
-        from PyQt6.QtCore import QRectF
-        painter.save()
-        ret = QRectF(option.rect).adjusted(2, 2, -2, -2)
+        plano = index.data(Qt.ItemDataRole.UserRole + 1)
+        tipo = getattr(plano, "tipo", "Geral")
+        cor_tipo = QColor(_COR_TIPO.get(tipo, COR_AZUL))
         selecionado = bool(option.state & QStyleState_Selected)
+        sobre = bool(option.state & QStyleState_MouseOver)
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # moldura do card: vidro escuro, brilho quando selecionado
+        ret = QRectF(option.rect).adjusted(4, 4, -4, -4)
         if selecionado:
             grad = QLinearGradient(ret.left(), ret.top(), ret.right(), ret.bottom())
-            grad.setColorAt(0, QColor("#173E63"))
-            grad.setColorAt(0.7, QColor("#192A54"))
-            grad.setColorAt(1, QColor("#34236A"))
+            grad.setColorAt(0, QColor(23, 76, 110, 210))
+            grad.setColorAt(1, QColor(40, 36, 104, 140))
             painter.setBrush(grad)
-            painter.setPen(QColor(COR_BORDA_ATIVA))
+            painter.setPen(QPen(QColor(25, 211, 243, 170), 1))
+        elif sobre:
+            painter.setBrush(QColor(16, 40, 66, 200))
+            painter.setPen(QPen(QColor(25, 211, 243, 90), 1))
         else:
-            painter.setBrush(QColor(13, 25, 48, 220))
-            painter.setPen(QColor(COR_BORDA))
-        painter.drawRoundedRect(ret, 12, 12)
-        identificador = index.data(Qt.ItemDataRole.UserRole) or ""
-        plano = index.data(Qt.ItemDataRole.UserRole + 1)
-        simbolo = _ICONE_TIPO.get(getattr(plano, "tipo", "Geral"), "G")
-        quadrado = QRectF(ret.left() + 14, ret.top() + 18, 40, 40)
-        painter.setBrush(QColor(20, 56, 86))
-        painter.setPen(QColor(_COR_TIPO.get(getattr(plano, "tipo", "Geral"), COR_AZUL)))
-        painter.drawRoundedRect(quadrado, 10, 10)
-        painter.setPen(QColor(COR_TEXTO))
-        fonte = QFont("Segoe UI", 14)
-        fonte.setWeight(QFont.Weight.DemiBold)
-        painter.setFont(fonte)
-        painter.drawText(quadrado, Qt.AlignmentFlag.AlignCenter, simbolo)
-        titulo = getattr(plano, "titulo", "") if plano is not None else ""
-        painter.setPen(QColor(COR_TEXTO))
-        fonte.setPointSize(15)
-        painter.setFont(fonte)
-        painter.drawText(QRectF(ret.left() + 66, ret.top() + 12,
-                                ret.width() - 90, 24),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                         titulo[:48])
-        fonte.setPointSize(12)
-        fonte.setWeight(QFont.Weight.Normal)
-        painter.setFont(fonte)
-        painter.setPen(QColor(COR_TEXTO2))
-        meta = f"{getattr(plano, 'tipo', '')}  ·  {getattr(plano, 'status', '')}"
-        painter.drawText(QRectF(ret.left() + 66, ret.top() + 38,
-                                ret.width() - 90, 18),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, meta)
+            painter.setBrush(QColor(8, 26, 44, 115))
+            painter.setPen(QPen(QColor(25, 211, 243, 28), 1))
+        painter.drawRoundedRect(ret, 14, 14)
+
+        # barra de acento à esquerda, mais forte no card selecionado
+        painter.setPen(Qt.PenStyle.NoPen)
+        cor_acento = QColor(cor_tipo)
+        cor_acento.setAlpha(255 if selecionado else 90)
+        painter.setBrush(cor_acento)
+        painter.drawRoundedRect(QRectF(ret.left(), ret.top() + 16,
+                                       3, ret.height() - 32), 2, 2)
+
+        # ícone do tipo
+        lado = 42
+        quadrado = QRectF(ret.left() + 18, ret.center().y() - lado / 2, lado, lado)
+        painter.setBrush(QColor(8, 28, 46, 230))
+        painter.setPen(QPen(cor_tipo, 1))
+        painter.drawRoundedRect(quadrado, 12, 12)
+        painter.setPen(cor_tipo)
+        painter.setFont(_fonte(16, QFont.Weight.DemiBold))
+        painter.drawText(quadrado, Qt.AlignmentFlag.AlignCenter,
+                         _ICONE_TIPO.get(tipo, "G"))
+
+        # área de texto
+        esquerda = quadrado.right() + 16
+        direita = ret.right() - 18
+        largura = direita - esquerda
+        topo = ret.center().y() - 20
+        alinhar = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+
+        # data, alinhada à direita na linha do título
         data = str(getattr(plano, "atualizado_em", ""))[:16].replace("T", " ")
+        fonte_data = _fonte(11)
+        largura_data = QFontMetrics(fonte_data).horizontalAdvance(data)
+        painter.setFont(fonte_data)
         painter.setPen(QColor(COR_TEXTO3))
-        painter.drawText(QRectF(ret.left() + 66, ret.top() + 54,
-                                ret.width() - 90, 18),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, data)
+        painter.drawText(QRectF(direita - largura_data, topo, largura_data, 22),
+                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                         data)
+
+        # título, truncado com reticências em vez de cortado
+        fonte_titulo = _fonte(16, QFont.Weight.DemiBold)
+        titulo = getattr(plano, "titulo", "") if plano is not None else ""
+        titulo = QFontMetrics(fonte_titulo).elidedText(
+            titulo, Qt.TextElideMode.ElideRight, int(largura - largura_data - 12))
+        painter.setFont(fonte_titulo)
+        painter.setPen(QColor(COR_TEXTO))
+        painter.drawText(QRectF(esquerda, topo, largura, 22), alinhar, titulo)
+
+        # tipo · status
+        status = str(getattr(plano, "status", ""))
+        painter.setFont(_fonte(12))
+        painter.setPen(QColor(COR_ATENCAO if status == "arquivado" else COR_TEXTO2))
+        painter.drawText(QRectF(esquerda, topo + 24, largura, 18), alinhar,
+                         f"{getattr(plano, 'tipo', '')}  ·  {status}")
         painter.restore()
-
-
-QStyleState_Selected = QAbstractItemView.SelectionMode.ExtendedSelection  # placeholder substituído abaixo
-from PyQt6.QtWidgets import QStyle  # noqa: E402
-
-QStyleState_Selected = QStyle.StateFlag.State_Selected
 
 
 class LembretesDialog(QDialog):
@@ -193,16 +306,20 @@ class LembretesDialog(QDialog):
         self.setMinimumSize(520, 360)
         self.setStyleSheet(_ESTILO)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
         self.lista = QListWidget(self)
         self.lista.setObjectName("lista_lembretes")
         layout.addWidget(self.lista, 1)
         botoes = QHBoxLayout()
+        botoes.setSpacing(8)
         for nome, rotulo in (("adiar_lembrete", "Adiar"),
                              ("concluir_lembrete", "Concluir"),
                              ("cancelar_lembrete", "Cancelar"),
                              ("fechar_lembretes", "Fechar")):
             botao = QPushButton(rotulo, self)
             botao.setObjectName(nome)
+            botao.setCursor(Qt.CursorShape.PointingHandCursor)
             botoes.addWidget(botao)
             setattr(self, nome, botao)
         layout.addLayout(botoes)
@@ -220,19 +337,21 @@ class LembretesDialog(QDialog):
             rotulo = (f"{item.get('estado')} · {str(item.get('horario'))[:16]} · "
                       f"{item.get('assunto')} · {item.get('plano_id')}")
             lista_item = QListWidgetItem(rotulo)
-            lista_item.setData(0x0100, item.get("id"))
+            lista_item.setData(Qt.ItemDataRole.UserRole, item.get("id"))
             self.lista.addItem(lista_item)
 
     def _selecionado(self):
         atual = self.lista.currentItem()
-        return atual.data(0x0100) if atual else None
+        return atual.data(Qt.ItemDataRole.UserRole) if atual else None
 
     def _adiar(self) -> None:
         ident = self._selecionado()
-        if ident:
-            LEM.adiar(ident, str(LEM.proximo().get("horario"))
-                      if LEM.proximo() else str(LEM.carregar(ident).get("horario")))
-            self.recarregar()
+        if not ident:
+            return
+        proximo = LEM.proximo()
+        horario = (proximo if proximo else LEM.carregar(ident)).get("horario")
+        LEM.adiar(ident, str(horario))
+        self.recarregar()
 
     def _concluir(self) -> None:
         ident = self._selecionado()
@@ -260,11 +379,12 @@ class PlanosWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         self.setObjectName("PlanosRoot")
         self.setWindowTitle("NIA · Planos")
-        self.resize(1280, 720)
-        self.setMinimumSize(960, 540)
+        self.resize(1440, 810)
+        self.setMinimumSize(1100, 640)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet(_ESTILO)
         self._planos: list[BP.Plano] = []
+        self._ids_pendentes_exclusao: list[str] = []
         self.plano_selecionado_id: str | None = None
         self._modo: str | None = None
         self._timer_busca = QTimer(self)
@@ -278,22 +398,27 @@ class PlanosWindow(QWidget):
     # ── construção ──────────────────────────────────────────────────────
     def _construir(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 20)
-        root.setSpacing(16)
+        root.setContentsMargins(20, 20, 20, 16)
+        root.setSpacing(14)
+        coluna = root
 
+        # cabeçalho: marca, título e busca
         cabecalho = QFrame(self)
         cabecalho.setObjectName("PlanosHeader")
-        cabecalho.setFixedHeight(64)
+        cabecalho.setFixedHeight(68)
         cab = QHBoxLayout(cabecalho)
-        cab.setContentsMargins(18, 8, 18, 8)
+        cab.setContentsMargins(20, 10, 20, 10)
+        cab.setSpacing(14)
         simbolo = QLabel("N", cabecalho)
-        simbolo.setFixedSize(36, 36)
+        simbolo.setFixedSize(38, 38)
         simbolo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         simbolo.setStyleSheet(
-            f"background: {COR_AZUL_PROFUNDO}; color: white; border-radius: 10px;"
-            " font-weight: 600; font-size: 16px;")
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+            f" stop:0 #14C8EE, stop:1 {COR_VIOLETA});"
+            " color: white; border-radius: 12px; font-weight: 600; font-size: 17px;")
         cab.addWidget(simbolo)
         titulos = QVBoxLayout()
+        titulos.setSpacing(0)
         lbl = QLabel("NIA — Planos", cabecalho)
         lbl.setObjectName("TituloJanela")
         sub = QLabel("Organize ideias, estudos e objetivos", cabecalho)
@@ -301,37 +426,54 @@ class PlanosWindow(QWidget):
         titulos.addWidget(lbl)
         titulos.addWidget(sub)
         cab.addLayout(titulos, 1)
-        root.addWidget(cabecalho)
-
-        filtros = QFrame(self)
-        filtros.setObjectName("PlanosFiltros")
-        filtros.setFixedHeight(48)
-        fl = QHBoxLayout(filtros)
-        fl.setContentsMargins(10, 3, 10, 3)
-        fl.setSpacing(10)
-        self.campo_busca = QLineEdit(filtros)
+        busca_box = QFrame(cabecalho)
+        busca_box.setObjectName("PlanosBuscaBox")
+        busca_box.setFixedSize(360, 42)
+        bl = QHBoxLayout(busca_box)
+        bl.setContentsMargins(14, 0, 8, 0)
+        bl.setSpacing(8)
+        lupa = QLabel("⌕", busca_box)
+        lupa.setStyleSheet(f"color: {COR_TEXTO3}; font-size: 16px;")
+        bl.addWidget(lupa)
+        self.campo_busca = QLineEdit(busca_box)
         self.campo_busca.setObjectName("campo_busca")
         self.campo_busca.setPlaceholderText("Buscar por título ou objetivo...")
-        self.campo_busca.setFixedHeight(42)
         self.campo_busca.setClearButtonEnabled(True)
-        fl.addWidget(self.campo_busca, 2)
+        bl.addWidget(self.campo_busca, 1)
+        cab.addWidget(busca_box)
+        coluna.addWidget(cabecalho)
+
+        # filtros em pílula, alinhados à direita
+        filtros = QFrame(self)
+        filtros.setObjectName("PlanosFiltros")
+        filtros.setFixedHeight(38)
+        fl = QHBoxLayout(filtros)
+        fl.setContentsMargins(4, 0, 4, 0)
+        fl.setSpacing(10)
+        rotulo_filtro = QLabel("FILTRAR", filtros)
+        rotulo_filtro.setObjectName("TituloSecao")
+        fl.addWidget(rotulo_filtro)
+        fl.addStretch(1)
         self.filtro_tipo = QComboBox(filtros)
         self.filtro_tipo.setObjectName("filtro_tipo")
         self.filtro_tipo.addItems(["Todos", *TIPOS])
-        self.filtro_tipo.setFixedWidth(220)
+        self.filtro_tipo.setFixedSize(200, 36)
         fl.addWidget(self.filtro_tipo)
         self.filtro_status = QComboBox(filtros)
         self.filtro_status.setObjectName("filtro_status")
         self.filtro_status.addItems(["Ativos", "Arquivados", "Todos"])
-        self.filtro_status.setFixedWidth(200)
+        self.filtro_status.setFixedSize(180, 36)
         fl.addWidget(self.filtro_status)
-        root.addWidget(filtros)
+        coluna.addWidget(filtros)
 
+        # corpo: lista + painel de detalhes
         corpo = QSplitter(Qt.Orientation.Horizontal, self)
+        corpo.setHandleWidth(16)
+        corpo.setChildrenCollapsible(False)
         esquerda = QWidget(corpo)
         ev = QVBoxLayout(esquerda)
         ev.setContentsMargins(0, 0, 0, 0)
-        ev.setSpacing(8)
+        ev.setSpacing(10)
         titulo_lista = QLabel("LISTA DE PLANOS", esquerda)
         titulo_lista.setObjectName("TituloSecao")
         ev.addWidget(titulo_lista)
@@ -339,85 +481,107 @@ class PlanosWindow(QWidget):
         self.lista.setObjectName("lista_planos")
         self.lista.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.lista.setItemDelegate(_ItemPlanoDelegate(self.lista))
+        self.lista.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.lista.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.lista.setUniformItemSizes(True)
+        self.lista.setMouseTracking(True)
         ev.addWidget(self.lista, 1)
         corpo.addWidget(esquerda)
+
         formulario = QFrame(corpo)
         formulario.setObjectName("PlanosForm")
+        formulario.setMinimumWidth(360)
         fv = QVBoxLayout(formulario)
-        fv.setContentsMargins(16, 16, 16, 16)
-        fv.setSpacing(10)
+        fv.setContentsMargins(22, 22, 22, 22)
+        fv.setSpacing(12)
         cab_form = QHBoxLayout()
+        cab_form.setSpacing(14)
         self.icone_form = QLabel("G", formulario)
-        self.icone_form.setFixedSize(40, 40)
+        self.icone_form.setFixedSize(42, 42)
         self.icone_form.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.icone_form.setStyleSheet(
-            f"background: {COR_AZUL_PROFUNDO}; color: white; border-radius: 10px;")
+        self._estilizar_icone("Geral")
         cab_form.addWidget(self.icone_form)
         self.titulo_form = QLabel("Dados do plano", formulario)
-        self.titulo_form.setObjectName("TituloSecao")
+        self.titulo_form.setObjectName("TituloForm")
+        self.titulo_form.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         cab_form.addWidget(self.titulo_form, 1)
         fv.addLayout(cab_form)
+
         campos = QFormLayout()
+        campos.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        campos.setContentsMargins(0, 6, 0, 0)
+        campos.setVerticalSpacing(6)
         self.campo_titulo = QLineEdit(formulario)
         self.campo_titulo.setObjectName("campo_titulo")
         self.campo_titulo.setPlaceholderText("Título do plano")
+        self.campo_titulo.setFixedHeight(40)
         self.campo_objetivo = QTextEdit(formulario)
         self.campo_objetivo.setObjectName("campo_objetivo")
         self.campo_objetivo.setPlaceholderText("Objetivo do plano")
-        self.campo_objetivo.setMinimumHeight(100)
+        self.campo_objetivo.setMinimumHeight(120)
         self.campo_tipo = QComboBox(formulario)
         self.campo_tipo.setObjectName("campo_tipo")
         self.campo_tipo.addItems(list(TIPOS))
+        self.campo_tipo.setFixedHeight(40)
         campos.addRow("TÍTULO", self.campo_titulo)
         campos.addRow("OBJETIVO", self.campo_objetivo)
         campos.addRow("TIPO", self.campo_tipo)
+        for campo in (self.campo_titulo, self.campo_objetivo, self.campo_tipo):
+            campos.labelForField(campo).setObjectName("Campo")
         fv.addLayout(campos)
         fv.addStretch(1)
         self.salvar = QPushButton("Salvar plano", formulario)
         self.salvar.setObjectName("salvar_plano")
         self.botao_cancelar = QPushButton("Cancelar", formulario)
         self.botao_cancelar.setObjectName("cancelar")
-        fv.addWidget(self.salvar)
-        fv.addWidget(self.botao_cancelar)
+        for botao in (self.salvar, self.botao_cancelar):
+            botao.setCursor(Qt.CursorShape.PointingHandCursor)
+            fv.addWidget(botao)
         corpo.addWidget(formulario)
         corpo.setStretchFactor(0, 3)
         corpo.setStretchFactor(1, 1)
+        corpo.setSizes([860, 380])
         corpo.setMinimumHeight(240)
-        root.addWidget(corpo, 1)
+        coluna.addWidget(corpo, 1)
 
-        acoes = QWidget(self)
+        # barra de ações: primárias à esquerda, secundárias à direita
+        acoes = QFrame(self)
         acoes.setObjectName("PlanosAcoes")
-        acoes.setFixedHeight(64)
+        acoes.setFixedHeight(66)
         al = QHBoxLayout(acoes)
-        al.setContentsMargins(12, 8, 12, 8)
+        al.setContentsMargins(14, 10, 14, 10)
         al.setSpacing(8)
         self.botoes = {}
         primarios = (
-            ("novo_plano", "Novo plano", 140),
+            ("novo_plano", "+ Novo plano", 140),
             ("visualizar", "Visualizar", 110),
             ("editar", "Editar", 100),
-            ("abrir_canvas", "Editar no Canvas", 160),
-            ("abrir_canvas_ia", "Editar com a NIA", 165),
+            ("abrir_canvas", "Editar no Canvas", 150),
+            ("abrir_canvas_ia", "Editar com a NIA", 155),
         )
         secundarios = (
-            ("lembretes", "Lembretes", 120),
-            ("excluir_permanentemente", "Excluir", 110),
-            ("arquivar", "Arquivar", 110),
-            ("restaurar", "Restaurar", 110),
+            ("lembretes", "Lembretes", 115),
+            ("arquivar", "Arquivar", 105),
+            ("restaurar", "Restaurar", 105),
+            ("excluir_permanentemente", "Excluir", 100),
         )
-        for nome, rotulo, largura in (*primarios, *secundarios):
-            botao = QPushButton(rotulo, acoes)
-            botao.setObjectName(nome)
-            botao.setFixedWidth(largura)
-            self.botoes[nome] = botao
-            al.addWidget(botao)
-        al.addStretch()
-        root.addWidget(acoes)
+        for grupo in (primarios, secundarios):
+            for nome, rotulo, largura in grupo:
+                botao = QPushButton(rotulo, acoes)
+                botao.setObjectName(nome)
+                botao.setMinimumWidth(largura)
+                botao.setCursor(Qt.CursorShape.PointingHandCursor)
+                self.botoes[nome] = botao
+                al.addWidget(botao)
+            if grupo is primarios:
+                al.addStretch(1)
+        coluna.addWidget(acoes)
 
         self.status = QLabel("", self)
         self.status.setObjectName("Status")
-        self.status.setFixedHeight(28)
-        root.addWidget(self.status)
+        self.status.setFixedHeight(22)
+        coluna.addWidget(self.status)
 
     def _conectar(self) -> None:
         self.campo_busca.textChanged.connect(lambda *_: self._timer_busca.start())
@@ -442,6 +606,13 @@ class PlanosWindow(QWidget):
         self.botao_cancelar.clicked.connect(self.cancelar)
         self._set_formulario(editable=False)
         self._atualizar_botoes()
+
+    def _estilizar_icone(self, tipo: str) -> None:
+        """Ícone do formulário no mesmo padrão visual do card da lista."""
+        cor = _COR_TIPO.get(tipo, COR_AZUL)
+        self.icone_form.setStyleSheet(
+            f"background: rgba(8,28,46,230); color: {cor}; border: 1px solid {cor};"
+            " border-radius: 12px; font-weight: 600; font-size: 17px;")
 
     # ── catálogo ────────────────────────────────────────────────────────
     def recarregar(self) -> None:
@@ -503,13 +674,17 @@ class PlanosWindow(QWidget):
             self.campo_objetivo.clear()
             self.campo_tipo.setCurrentText("Geral")
             self.icone_form.setText("G")
+            self._estilizar_icone("Geral")
             self.titulo_form.setText("Dados do plano")
+            self.titulo_form.setToolTip("")
             return
         self.campo_titulo.setText(plano.titulo)
         self.campo_objetivo.setPlainText(plano.objetivo)
         self.campo_tipo.setCurrentText(plano.tipo)
         self.icone_form.setText(_ICONE_TIPO.get(plano.tipo, "G"))
+        self._estilizar_icone(plano.tipo)
         self.titulo_form.setText(f"{plano.titulo} · rev {plano.revisao}")
+        self.titulo_form.setToolTip(plano.titulo)
 
     def _set_formulario(self, editable: bool) -> None:
         self.campo_titulo.setReadOnly(not editable)
@@ -529,15 +704,15 @@ class PlanosWindow(QWidget):
         self.botoes["restaurar"].setEnabled(
             habilitado and selecionado.status == "arquivado")
         selecionados = self.lista.selectedItems()
-        fora = [i for i in selecionados
-                if (BP.carregar(i.data(Qt.ItemDataRole.UserRole)) or None) is None
-                or BP.carregar(i.data(Qt.ItemDataRole.UserRole)).status != "arquivado"]
+        carregados = [BP.carregar(i.data(Qt.ItemDataRole.UserRole))
+                      for i in selecionados]
+        fora = [p for p in carregados if p is None or p.status != "arquivado"]
         self.botoes["excluir_permanentemente"].setEnabled(bool(selecionados))
         self.botoes["lembretes"].setEnabled(habilitado)
         if fora:
             self.status.setText(
-                f"{len(selecionados)} selecionado(s); "
-                f"{len(fora)} fora do filtro de arquivados.")
+                f"{len(selecionados)} selecionado(s) · excluir exige plano "
+                f"arquivado ({len(fora)} ainda ativo(s)).")
 
     # ── ações (backend inalterado) ───────────────────────────────────────
     def novo_plano(self) -> None:
@@ -547,6 +722,7 @@ class PlanosWindow(QWidget):
         self._preencher_formulario(None)
         self.titulo_form.setText("Novo plano")
         self._set_formulario(editable=True)
+        self.campo_titulo.setFocus()
         self.status.setText("Preencha título e objetivo.")
 
     def visualizar(self) -> None:
@@ -564,6 +740,7 @@ class PlanosWindow(QWidget):
         self._modo = "editar"
         self._preencher_formulario(plano)
         self._set_formulario(editable=True)
+        self.campo_titulo.setFocus()
 
     def salvar_plano(self) -> None:
         titulo = self.campo_titulo.text().strip()
@@ -603,6 +780,7 @@ class PlanosWindow(QWidget):
         self._modo = None
         self.recarregar()
         self.selecionar(plano.id)
+        self._set_formulario(editable=False)
         self.status.setText(aviso or "✓ Alterações salvas")
 
     def cancelar(self) -> None:

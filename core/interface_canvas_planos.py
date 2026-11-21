@@ -74,6 +74,8 @@ class CanvasEditor(QWidget):
 
         self.editor_internal = EditorMapa(self)
         self.editor_internal.estado_salvamento.connect(self.status.setText)
+        self.editor_internal.estado_editado.connect(
+            lambda: self.contexto_mudou.emit(self.contexto()))
         root.addWidget(self.editor_internal, 1)
         self._reposicionar()
         # O núcleo muda de tamanho durante a animação de 220 ms da âncora;

@@ -11,15 +11,15 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from PyQt6.QtCore import Qt, QPointF, QRectF, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QPointF, QRectF, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QBrush, QColor, QFont, QKeySequence, QPainter, QPainterPath, QPen,
     QShortcut, QUndoCommand, QUndoStack,
 )
 from PyQt6.QtWidgets import (
-    QComboBox, QFormLayout, QGraphicsItem, QGraphicsPathItem, QGraphicsScene,
-    QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QSplitter, QVBoxLayout, QWidget,
+    QApplication, QComboBox, QFormLayout, QGraphicsItem, QGraphicsPathItem,
+    QGraphicsScene, QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from core import planos as BP
@@ -43,7 +43,9 @@ QLineEdit, QComboBox {{
     color: {_TEXT}; background: {_BG};
     border: 1px solid #0f4060; border-radius: 5px; padding: 4px 7px;
 }}
-QLineEdit:focus, QComboBox:focus {{ border: 2px solid {_PRI}; }}
+QLineEdit:focus, QComboBox:focus, QTextEdit:focus {{ border: 2px solid {_PRI}; }}
+QTextEdit {{ color: {_TEXT}; background: {_BG}; border: 1px solid #0f4060;
+ border-radius: 5px; padding: 6px; }}
 QPushButton {{
     color: {_TEXT}; background: {_BG};
     border: 1px solid #0f4060; border-radius: 5px; padding: 5px 9px;
@@ -326,6 +328,37 @@ class EditarCardCommand(_Comando):
         self._aplicar(self.antes)
 
 
+class EditarTextoCommand(_Comando):
+    """Uma sessão de digitação no campo de descrição = uma operação de undo."""
+
+    def __init__(self, editor, card_id, antes: str):
+        super().__init__(editor, "Editar texto")
+        self.card_id = card_id
+        self.antes = str(antes or "")
+        self.depois = self.antes
+
+    def ao_digitar(self, texto: str) -> None:
+        """Atualiza o card em memória sem criar outro comando nem gravar."""
+        self.depois = str(texto or "")
+        item = self.editor.cena.itens_cards.get(self.card_id)
+        if item is not None:
+            item.atualizar_dados({**item.dados, "descricao": self.depois})
+        self.editor._marcar_texto_vivo()
+
+    def _aplicar(self, texto: str) -> None:
+        item = self.editor.cena.itens_cards.get(self.card_id)
+        if item is not None:
+            item.atualizar_dados({**item.dados, "descricao": str(texto or "")})
+            self.editor._selecionar_dados(item)
+        self._sincronizar()
+
+    def redo(self):
+        self._aplicar(self.depois)
+
+    def undo(self):
+        self._aplicar(self.antes)
+
+
 class MoverCardCommand(_Comando):
     def __init__(self, editor, card_id, antes, depois):
         super().__init__(editor, "Mover card")
@@ -428,6 +461,7 @@ class EditorMapa(QWidget):
     """Editor do mapa: cena, painel de detalhes, undo e autosave."""
 
     estado_salvamento = pyqtSignal(str)
+    estado_editado = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -437,6 +471,9 @@ class EditorMapa(QWidget):
         self._plano: Plano | None = None
         self._camera = {"cx": 0.0, "cy": 0.0, "zoom": 1.0}
         self.mudancas_pendentes = False
+        self._comando_texto = None
+        self._card_texto_id: str | None = None
+        self._carregando_dados = False
         self._selecionado: str | None = None
         self._selecionado_tipo: str = "card"
         self.pilha = QUndoStack(self)
@@ -486,8 +523,13 @@ class EditorMapa(QWidget):
         self.campo_titulo.setObjectName("mapa_titulo")
         self.campo_resumo = QLineEdit(detalhes)
         self.campo_resumo.setObjectName("mapa_resumo")
-        self.campo_descricao = QLineEdit(detalhes)
+        self.campo_descricao = QTextEdit(detalhes)
         self.campo_descricao.setObjectName("mapa_descricao")
+        self.campo_descricao.setMinimumHeight(110)
+        self.campo_descricao.setToolTip(
+            "Escreva várias ideias: Enter cria uma nova linha.")
+        self.campo_descricao.textChanged.connect(self._ao_digitar_texto)
+        self.campo_descricao.installEventFilter(self)
         self.combo_tipo = QComboBox(detalhes)
         self.combo_tipo.addItems(list(TIPOS_CARD))
         self.combo_status = QComboBox(detalhes)
@@ -531,6 +573,7 @@ class EditorMapa(QWidget):
             ("Ctrl+Z", self.desfazer),
             ("Ctrl+Y", self.refazer),
             ("Ctrl+Shift+Z", self.refazer),
+            ("Ctrl+Return", self._confirmar_texto),
         ):
             atalho = QShortcut(QKeySequence(seq), self)
             atalho.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -539,6 +582,7 @@ class EditorMapa(QWidget):
     # ── API pública ─────────────────────────────────────────────────────
     def carregar(self, plano: Plano) -> None:
         self._timer.stop()
+        self._fechar_sessao_texto()
         self._plano = plano
         mapa, avisos = validar_mapa(plano.mapa)
         self.cena.montar(mapa)
@@ -572,8 +616,11 @@ class EditorMapa(QWidget):
         return self._selecionado if self._selecionado_tipo == "card" else None
 
     def selecionar(self, card_id: str | None) -> None:
+        if card_id != self._selecionado:
+            self._fechar_sessao_texto()
         self._selecionado = card_id
         self._selecionado_tipo = "card"
+        self._card_texto_id = card_id
         for ident, item in self.cena.itens_cards.items():
             item.setSelected(ident == card_id)
         for item in self.cena.itens_conexoes.values():
@@ -583,15 +630,60 @@ class EditorMapa(QWidget):
     def _selecionar_dados(self, item: CardItem | None) -> None:
         if item is None:
             return
+        self._carregando_dados = True
+        self.campo_descricao.blockSignals(True)
         dados = item.dados
         self.campo_titulo.setText(str(dados.get("titulo") or ""))
         self.campo_resumo.setText(str(dados.get("resumo") or ""))
-        self.campo_descricao.setText(str(dados.get("descricao") or ""))
+        self.campo_descricao.setPlainText(str(dados.get("descricao") or ""))
+        self.campo_descricao.blockSignals(False)
         tipo = str(dados.get("tipo") or "ideia")
         self.combo_tipo.setCurrentText(tipo if tipo in TIPOS_CARD else "ideia")
         status = str(dados.get("status") or "")
         self.combo_status.setCurrentText(status if status in STATUS_TAREFA else "pendente")
         self.rotulo_detalhes.setText(f"Card: {dados.get('titulo') or 'sem título'}")
+        self._carregando_dados = False
+
+    # ── sessão de edição de texto ────────────────────────────────────────
+    def eventFilter(self, objeto, evento):
+        if (objeto is self.campo_descricao
+                and evento.type() == QEvent.Type.FocusIn
+                and self._comando_texto is None):
+            self._card_texto_id = self.card_selecionado_id
+        elif (objeto is self.campo_descricao
+              and evento.type() == QEvent.Type.FocusOut):
+            self._fechar_sessao_texto()
+        return super().eventFilter(objeto, evento)
+
+    def _ao_digitar_texto(self) -> None:
+        if self._carregando_dados or not self._card_texto_id:
+            return
+        if self._comando_texto is None:
+            item = self.cena.itens_cards.get(self._card_texto_id)
+            if item is None:
+                return
+            comando = EditarTextoCommand(
+                self, self._card_texto_id, item.dados.get("descricao", ""))
+            comando.depois = self.campo_descricao.toPlainText()
+            self._comando_texto = comando
+            self.pilha.push(comando)
+            self.estado_editado.emit()
+            return
+        self._comando_texto.ao_digitar(self.campo_descricao.toPlainText())
+
+    def _fechar_sessao_texto(self) -> None:
+        self._comando_texto = None
+        self._card_texto_id = None
+
+    def _marcar_texto_vivo(self) -> None:
+        """Texto já está no estado do plano; agenda autosave sem reconstruir."""
+        self.mudancas_pendentes = True
+        self._timer.start(600)
+        self.estado_editado.emit()
+
+    def _foco_em_texto(self) -> bool:
+        foco = QApplication.focusWidget()
+        return isinstance(foco, (QLineEdit, QTextEdit))
 
     def criar_card(self, titulo: str, resumo: str = "", descricao: str = "",
                    tipo: str = "ideia", status: str = "",
@@ -676,6 +768,8 @@ class EditorMapa(QWidget):
         self.editar_card(card_id, {"tipo": "tarefa", "status": status})
 
     def excluir_selecionado(self) -> None:
+        if self._foco_em_texto():
+            return
         if self._selecionado_tipo == "conexao" and self._selecionado:
             lig = self.cena.itens_conexoes.get(self._selecionado)
             if lig is not None:
@@ -692,12 +786,23 @@ class EditorMapa(QWidget):
         self.selecionar(None)
 
     def desfazer(self) -> None:
+        if self._foco_em_texto():
+            return
+        self._fechar_sessao_texto()
         if self.pilha.canUndo():
             self.pilha.undo()
 
     def refazer(self) -> None:
+        if self._foco_em_texto():
+            return
+        self._fechar_sessao_texto()
         if self.pilha.canRedo():
             self.pilha.redo()
+
+    def _confirmar_texto(self) -> None:
+        if self._foco_em_texto():
+            self._fechar_sessao_texto()
+            self.campo_descricao.clearFocus()
 
     def definir_camera(self, cx: float, cy: float, zoom: float) -> None:
         self._camera = {"cx": float(cx), "cy": float(cy), "zoom": float(zoom)}
@@ -783,13 +888,22 @@ class EditorMapa(QWidget):
     def _salvar_detalhes(self) -> None:
         ident = self.card_selecionado_id
         if ident:
-            self.editar_card(ident, {
+            if self._comando_texto is not None \
+                    and self._comando_texto.card_id == ident:
+                self._comando_texto.ao_digitar(self.campo_descricao.toPlainText())
+                self._fechar_sessao_texto()
+            mudancas = {
                 "titulo": self.campo_titulo.text(),
                 "resumo": self.campo_resumo.text(),
-                "descricao": self.campo_descricao.text(),
                 "tipo": self.combo_tipo.currentText(),
                 "status": self.combo_status.currentText(),
-            })
+            }
+            item = self.cena.itens_cards.get(ident)
+            if item is not None and self._comando_texto is None:
+                texto = self.campo_descricao.toPlainText()
+                if str(item.dados.get("descricao") or "") != texto:
+                    mudancas["descricao"] = texto
+            self.editar_card(ident, mudancas)
         elif self._selecionado_tipo == "conexao" and self._selecionado:
             lig = self.cena.itens_conexoes.get(self._selecionado)
             if lig is not None:

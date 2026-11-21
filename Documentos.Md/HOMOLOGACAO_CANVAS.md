@@ -109,6 +109,36 @@ duplicar fala. Suíte final: **346 testes passaram**; `compileall` e
 `git diff --check` limpos. TTS validado com `_falar_local` simulado — a síntese
 real depende do motor de voz configurado.
 
+## Revisão Prompt 03 — escrita multilinha (21/11/2026)
+
+Causa confirmada: `campo_descricao` era `QLineEdit`; nenhum `textChanged`/foco commita no
+`Plano`; `plano_atual()` lê só `item.dados` da cena. Ao trocar de card, `_selecionar_dados`
+sobrescrevia o campo com o valor antigo e `mudancas_pendentes` nunca era marcado.
+
+Solução aplicada: `QTextEdit` com rolagem no painel; `EditarTextoCommand` registra **uma**
+opção de desfazer por sessão de digitação; `textChanged` atualiza `item.dados` em memória
+sem gravar por tecla; `focusOut`, troca de seleção, `Ctrl+Enter` e botão Aplicar fecham a
+sessão; sinais bloqueados ao carregar outro card (evita aplicar texto antigo no card novo);
+`Delete`/`Ctrl+Z` com foco no texto ficam no campo e, com foco no mapa, voltam ao Canvas.
+`EditorMapa.estado_editado` atualiza o espelho de contexto da NIA no mesmo instante.
+
+Reaproveitados: `QUndoStack`, `_apos_mudanca`, autosave de 600 ms, `BP.atualizar` atômico,
+`core.planos.card_por_id`, `CanvasEditor.contexto()`. Remoções: nenhuma.
+
+Verificação: `tests/test_edicao_texto.py` (12 testes RED→GREEN), incluindo parágrafos/lista/
+acentos, `Enter`, uma operação de undo/redo, foco, duas edições rápidas em IDs distintos,
+falha/conflito de gravação e leitura pelo espelho da NIA antes do salvamento. Suíte:
+**358 testes passaram**; `compileall` e `git diff --check` limpos.
+
+Medição (41 cards/40 conexões): digitação de 600 caracteres em 0,003 s, **0** reconstruções
+de mapa, **1** comando de texto, autosave pendente. Condições iguais às do diagnóstico.
+
+**Caminho para o próximo prompt ler o texto de um card pelo ID:** com o Canvas aberto,
+`NiaUI.contexto_canvas()["plano"]` devolve o plano vivo; use `core.planos.card_por_id(plano,
+card_id)["descricao"]`. Com o plano fechado, `core.planos.carregar(plano_id)` e o mesmo
+`card_por_id`. Não ler do espelho sem actualizar: o espelho é actualizado por
+`estado_editado`/`contexto_mudou`.
+
 ## Pendências reais
 
 | Pendência | Impacto | Motivo | Etapa de origem |

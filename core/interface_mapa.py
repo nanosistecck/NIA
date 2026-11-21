@@ -100,7 +100,10 @@ class CardItem(QGraphicsItem):
         self._pos_antes: QPointF | None = None
 
     def boundingRect(self) -> QRectF:
-        return QRectF(0.0, 0.0, _CARD_W, _CARD_H)
+        # Inclui a sombra (+4 px abaixo) e o contorno de seleção (-5 px).
+        # Pintar fora do boundingRect deixa rastros no arraste: o Qt só
+        # invalida essa área e um zoom forçava o repaint completo.
+        return QRectF(-6.0, -6.0, _CARD_W + 12.0, _CARD_H + 12.0)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         ret = self.boundingRect()
@@ -347,6 +350,9 @@ class MapaView(QGraphicsView):
     def __init__(self, cena: CenaMapa):
         super().__init__(cena)
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        # Repaint completo evita rastros quando um card é arrastado sobre
+        # conexões/sombra e o Qt invalida só a boundingRect antiga.
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)

@@ -90,6 +90,16 @@ janela curta deve ser repetida com amostragem longa para conclusão.
 | Notificação com NIA fechada | Avisos só na próxima abertura | Integração com SO |
 | Publicação real | Saída permanece desativada | Integração própria |
 
+## Rastros gráficos no arraste (21/11/2026)
+
+Causa confirmada: `CardItem.paint` desenhava sombra (+4 px) e contorno de seleção
+(-5 px) **fora do `boundingRect()`**. O Qt invalidava apenas essa região durante o
+arraste, deixando rastros até um zoom forçar repaint completo. Corrigido com
+`boundingRect` ampliado (-6, -6, +12/+12) e `FullViewportUpdate` no `MapaView`.
+Teste: `tests/test_arraste_sem_rastros.py` (2 RED→GREEN). Suíte: **394 passaram**.
+Medição com 41 cards/40 conexões: 200 pan/zoom em 1,469 s, RSS 77,1→80,8 MB,
+0 reconstruções de cena no pan, timers estáveis em 14.
+
 ## Ajuste visual e botão Salvar (21/11/2026)
 
 - **Botão Salvar:** o botão interno media 35×24 px e era fácil errar o clique. Criado

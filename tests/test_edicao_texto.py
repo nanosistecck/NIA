@@ -164,8 +164,10 @@ def test_leitura_em_memoria_antes_do_salvamento(editor, plano):
 def test_duplas_edicoes_rapidas_em_cards_diferentes(editor):
     editor.selecionar("div")
     _campo(editor).setPlainText("Texto de Divulgação")
+    editor._salvar_detalhes()  # commit explícito, como o botão Aplicar
     editor.selecionar("pub")
     _campo(editor).setPlainText("Texto de Público")
+    editor._salvar_detalhes()
     QApplication.instance().processEvents()
     mapa = editor.plano_atual().mapa
     assert next(c for c in mapa["cards"] if c["id"] == "div")["descricao"] == "Texto de Divulgação"

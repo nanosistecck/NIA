@@ -435,7 +435,9 @@ class CanvasStage(QWidget):
         self._brief_closing = False
         self.brief_host.hide()
         self._brief_effect.setOpacity(1.0)
-        self.arrange(True)
+        # Volta imediata da geometria: `arrange(True)` compete com o
+        # resizeEvent do relógio e podia deixar a esfera no tamanho do card.
+        self.arrange(False)
 
     def _left_occupied(self, w: int) -> int:
         """Até onde os painéis da esquerda vão. O card não pisa neles."""

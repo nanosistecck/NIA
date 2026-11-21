@@ -21,14 +21,33 @@ from core.interface_mapa import EditorMapa
 _PRI = "#00d4ff"
 _TEXT = "#d8f8ff"
 
+# Glass escuro estático: gradientes e bordas de 1 px sem blur em tempo real.
 _ESTILO = f"""
-QWidget#CanvasEditorOverlay {{ background: rgba(1,13,20,238); border-radius: 12px; }}
+QWidget#CanvasEditorOverlay {{
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
+        stop:0 rgba(6,22,34,252), stop:0.5 rgba(3,15,26,250),
+        stop:1 rgba(9,28,42,252));
+    border: none; border-radius: 0px;
+}}
 QLabel {{ color: {_TEXT}; background: transparent; }}
 QPushButton {{
-    color: {_TEXT}; background: #011520;
-    border: 1px solid #0f4060; border-radius: 6px; padding: 6px 11px;
+    color: {_TEXT};
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(38,84,110,180), stop:1 rgba(12,40,58,190));
+    border: 1px solid rgba(150,215,240,70); border-radius: 9px;
+    padding: 7px 13px; min-height: 32px;
 }}
-QPushButton:hover, QPushButton:focus {{ border: 2px solid {_PRI}; }}
+QPushButton:hover {{
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(52,112,142,205), stop:1 rgba(18,54,76,210));
+    border: 1px solid rgba(160,230,255,120);
+}}
+QPushButton:focus {{ border: 2px solid {_PRI}; outline: none; }}
+QPushButton:checked {{
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(24,150,175,220), stop:1 rgba(8,70,92,225));
+    border: 2px solid #80f6fc;
+}}
 """
 
 
@@ -71,6 +90,11 @@ class CanvasEditor(QWidget):
         self.botao_perguntar.setObjectName("perguntar_nia_card")
         self.botao_perguntar.clicked.connect(self._perguntar_nia)
         topo.addWidget(self.botao_perguntar)
+        self.botao_salvar = QPushButton("Salvar", self)
+        self.botao_salvar.setObjectName("salvar_canvas")
+        self.botao_salvar.setMinimumSize(76, 32)
+        self.botao_salvar.clicked.connect(self._salvar)
+        topo.addWidget(self.botao_salvar)
         self.status = QLabel("", self)
         self.status.setObjectName("status_canvas_editor")
         topo.addWidget(self.status, 1)
@@ -163,6 +187,13 @@ class CanvasEditor(QWidget):
         self.status.setText(mensagem)
         return True
 
+    def _salvar(self) -> None:
+        """Salva pelo mesmo fluxo do editor, com retorno visível no Canvas."""
+        ok, mensagem = self.editor_internal.salvar()
+        self.status.setText(mensagem)
+        if not ok:
+            self.status.setText(f"{mensagem}. Tente novamente.")
+
     def _perguntar_nia(self) -> None:
         janela = self.window()
         casca = getattr(janela, "_ui", None)
@@ -203,13 +234,15 @@ class CanvasEditor(QWidget):
         if pai is None:
             return
         w, h = pai.width(), pai.height()
-        # Reservar a largura real do núcleo ancorado, não uma estimativa
-        # fixa: com cards/painéis ocupados ele usa ~48% da largura do
-        # stage e uma reserva de 18% deixava o mapa embaixo dele.
+        # O canvas cobre a JANELA INTEIRA — sem borda interna, sem moldura.
+        # A reserva para o núcleo vai para as margens do conteúdo, não para
+        # o tamanho do overlay: assim o fundo do mapa continua até as bordas
+        # e o núcleo flutua no canto inferior direito sobre o glass.
+        self.setGeometry(QRect(0, 0, max(1, w), max(1, h)))
         nucleo = getattr(pai, "hud_stack", None)
-        largura_nucleo = nucleo.width() if nucleo is not None else 0
-        reserva = max(140, largura_nucleo + 16)
-        self.setGeometry(QRect(0, 0, max(1, w - reserva), max(1, h)))
+        reserva = max(150, nucleo.width() + 18) if nucleo is not None else 150
+        self.layout().setContentsMargins(14, 14, reserva, 14)
+        self.updateGeometry()
 
     def resizeEvent(self, event):  # noqa: N802 (Qt)
         super().resizeEvent(event)

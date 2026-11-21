@@ -90,6 +90,25 @@ janela curta deve ser repetida com amostragem longa para conclusão.
 | Notificação com NIA fechada | Avisos só na próxima abertura | Integração com SO |
 | Publicação real | Saída permanece desativada | Integração própria |
 
+## Ajuste visual e botão Salvar (21/11/2026)
+
+- **Botão Salvar:** o botão interno media 35×24 px e era fácil errar o clique. Criado
+  **Salvar** na barra do Canvas (`salvar_canvas`, 76×32 px) ligado ao mesmo fluxo; botão
+  interno passou a 64×30 px. Teste: `tests/test_botao_salvar.py` — clique real com
+  `QTest.mouseClick` grava revisão e texto.
+- **Visual:** overlay do Canvas passou a cobrir a **janela inteira** (sem borda interna);
+  a reserva para o núcleo foi para as margens do conteúdo. Glass escuro estático com
+  gradiente, bordas 1 px, foco 2 px e sombra desenhada nos cards — sem blur em tempo real.
+  Direção: Windows 11 + macOS + web, mantendo o núcleo no canto inferior direito.
+- **Causa raiz de instabilidade encontrada:** `selecionar()` disparava `selectionChanged`
+  recursivamente e `_on_selection` re-selecionava um item arbitrário do `QSet`, trocando
+  o alvo do texto. Corrigido com bloqueio de sinal durante a seleção programática e
+  guarda de ID no handler. Isso explicava o texto indo para o card errado sob carga.
+- **Card de hora/clima:** ao fechar, a geometria da esfera podia ficar no tamanho do card;
+  `_brief_fade_finished` agora chama `arrange(False)` para volta imediata e estável.
+
+Verificação: **392 testes passaram**, `compileall` e `git diff --check` limpos.
+
 ## Revisão Prompt 07 — exclusão permanente de arquivados (21/11/2026)
 
 **O que já existia:** arquivar/restaurar e o botão de lembretes; **não existia** exclusão

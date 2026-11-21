@@ -36,24 +36,44 @@ _BG = "#011520"
 _CARD_W = 196.0
 _CARD_H = 84.0
 
+# Glass escuro em camadas, sem blur em tempo real: transparência estática,
+# borda fina clara e foco visível. A cena não tem moldura própria.
 _ESTILO = f"""
-QWidget#EditorMapaRoot {{ background: #00060a; }}
-QGraphicsView {{ background: {_BG}; border: 1px solid #0f4060; border-radius: 8px; }}
+QWidget#EditorMapaRoot {{ background: transparent; }}
+QGraphicsView {{
+    background: qradialgradient(cx:0.5,cy:0.45,r:0.85,
+        stop:0 rgba(18,60,84,60), stop:0.55 rgba(8,30,48,35),
+        stop:1 rgba(2,12,22,0));
+    border: none; border-radius: 0px;
+}}
 QLabel {{ color: {_TEXT}; background: transparent; }}
 QLineEdit, QComboBox {{
-    color: {_TEXT}; background: {_BG};
-    border: 1px solid #0f4060; border-radius: 5px; padding: 4px 7px;
+    color: {_TEXT}; background: rgba(4,22,36,210);
+    border: 1px solid rgba(150,215,240,80); border-radius: 7px; padding: 5px 8px;
 }}
-QLineEdit:focus, QComboBox:focus, QTextEdit:focus {{ border: 2px solid {_PRI}; }}
-QTextEdit {{ color: {_TEXT}; background: {_BG}; border: 1px solid #0f4060;
- border-radius: 5px; padding: 6px; }}
+QLineEdit:focus, QComboBox:focus, QTextEdit:focus {{
+    border: 2px solid {_PRI}; background: rgba(8,32,50,235);
+}}
+QTextEdit {{ color: {_TEXT}; background: rgba(4,22,36,210);
+ border: 1px solid rgba(150,215,240,80); border-radius: 7px; padding: 7px; }}
 QPushButton {{
-    color: {_TEXT}; background: {_BG};
-    border: 1px solid #0f4060; border-radius: 5px; padding: 5px 9px;
+    color: {_TEXT};
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(38,84,110,170), stop:1 rgba(10,38,56,185));
+    border: 1px solid rgba(150,215,240,80); border-radius: 8px;
+    padding: 6px 11px; min-height: 30px;
 }}
-QPushButton:hover, QPushButton:focus {{ border: 2px solid {_PRI}; }}
-QPushButton:disabled {{ color: #3a6a7a; }}
-QWidget#Detalhes {{ background: {_BG}; border: 1px solid #0f4060; border-radius: 8px; }}
+QPushButton:hover {{
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(52,112,142,205), stop:1 rgba(16,52,74,210));
+}}
+QPushButton:focus {{ border: 2px solid {_PRI}; }}
+QPushButton:disabled {{ color: #557a8c; background: rgba(8,24,36,150); }}
+QWidget#Detalhes {{
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(16,52,74,215), stop:1 rgba(5,22,36,225));
+    border: 1px solid rgba(160,225,250,90); border-radius: 14px;
+}}
 """
 
 _COR_STATUS = {
@@ -88,10 +108,16 @@ class CardItem(QGraphicsItem):
         origem = getattr(self.scene(), "origem_conexao", None) == self.dados.get("id") \
             if self.scene() is not None else False
         tarefa = self.dados.get("tipo") == "tarefa"
+        # Sombra desenhada (sem QGraphicsDropShadowEffect): profundidade
+        # estática, sem renderização contínua nem blur em tempo real.
+        sombra = ret.translated(0, 4)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(0, 6, 12, 110)))
+        painter.drawRoundedRect(sombra, 12, 12)
         cor_borda = _GREEN if origem else (_PRI if selecionado else "#1a5c7a")
         painter.setPen(QPen(QColor(cor_borda),
                             3.0 if origem else (2.5 if selecionado else 1.4)))
-        painter.setBrush(QBrush(QColor("#082538")))
+        painter.setBrush(QBrush(QColor(10, 40, 60, 226)))
         painter.drawRoundedRect(ret, 10, 10)
         if selecionado:
             painter.setPen(QPen(QColor(_TEXT), 1.2, Qt.PenStyle.DashLine))
@@ -637,6 +663,7 @@ class EditorMapa(QWidget):
         self.botoes["refazer"].clicked.connect(self.refazer)
         self.botoes["enquadrar"].clicked.connect(self.enquadrar)
         self.botoes["central"].clicked.connect(self.voltar_ao_central)
+        self.botoes["salvar"].setMinimumSize(64, 30)
         self.botoes["salvar"].clicked.connect(self.salvar)
         self.salvar_detalhes.clicked.connect(self._salvar_detalhes)
         self.cena.selectionChanged.connect(self._on_selection)
@@ -695,10 +722,17 @@ class EditorMapa(QWidget):
         self._selecionado = card_id
         self._selecionado_tipo = "card"
         self._card_texto_id = card_id
-        for ident, item in self.cena.itens_cards.items():
-            item.setSelected(ident == card_id)
-        for item in self.cena.itens_conexoes.values():
-            item.setSelected(False)
+        # setSelected emite selectionChanged sincronamente; sem bloquear, o
+        # handler reentrante escolhe um item arbitrário do QSet e desfaz a
+        # seleção que acabamos de aplicar (também trocava o alvo do texto).
+        self.cena.blockSignals(True)
+        try:
+            for ident, item in self.cena.itens_cards.items():
+                item.setSelected(ident == card_id)
+            for item in self.cena.itens_conexoes.values():
+                item.setSelected(False)
+        finally:
+            self.cena.blockSignals(False)
         self._selecionar_dados(self.cena.itens_cards.get(card_id) if card_id else None)
 
     def _selecionar_dados(self, item: CardItem | None) -> None:
@@ -982,7 +1016,8 @@ class EditorMapa(QWidget):
             return
         item = itens[0]
         if isinstance(item, CardItem):
-            self.selecionar(item.dados.get("id"))
+            if item.dados.get("id") != self._selecionado:
+                self.selecionar(item.dados.get("id"))
         else:
             self._selecionado = item.dados.get("id")
             self._selecionado_tipo = "conexao"

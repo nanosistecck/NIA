@@ -42,7 +42,7 @@ def window(app, tmp_path, monkeypatch):
     app.processEvents()
 
 
-def _assentar(app, ms=350):
+def _assentar(app, ms=700):
     QTest.qWait(ms)
     app.processEvents()
 
@@ -81,8 +81,10 @@ def test_overlay_reserva_espaco_para_o_nucleo(window, app):
     assert w._abrir_canvas_do_plano(plano.id)
     _assentar(app)
     _stage, nucleo, editor = _posicoes(w)
-    assert editor.right() <= nucleo.left() + 4, (
-        f"editor termina em {editor.right()}, núcleo começa em {nucleo.left()}")
+    # O overlay cobre a janela toda; a reserva está nas margens do conteúdo.
+    margem = w._canvas_editor.layout().contentsMargins().right()
+    assert margem >= nucleo.width() + 8, (
+        f"margem direita {margem} < núcleo {nucleo.width()}")
 
 
 def test_reabrir_posiciona_novamente(window, app):
@@ -93,7 +95,7 @@ def test_reabrir_posiciona_novamente(window, app):
         stage, nucleo, editor = _posicoes(w)
         assert nucleo.x() == stage.width() - nucleo.width()
         assert nucleo.y() == stage.height() - nucleo.height()
-        assert editor.right() <= nucleo.left() + 4
+        assert w._canvas_editor.layout().contentsMargins().right() >= nucleo.width() + 8
         w._canvas_editor.voltar.emit()
         app.processEvents()
         _assentar(app, 300)

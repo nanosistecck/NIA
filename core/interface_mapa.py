@@ -538,6 +538,7 @@ class EditorMapa(QWidget):
 
     # ── API pública ─────────────────────────────────────────────────────
     def carregar(self, plano: Plano) -> None:
+        self._timer.stop()
         self._plano = plano
         mapa, avisos = validar_mapa(plano.mapa)
         self.cena.montar(mapa)

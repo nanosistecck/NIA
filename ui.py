@@ -5071,6 +5071,22 @@ class MainWindow(QMainWindow):
         if not plano.mapa.get("inicializado"):
             plano = _planos.inicializar_mapa(plano.id)
 
+        atual = getattr(self, "_canvas_editor", None)
+        if atual is not None and atual.isVisible():
+            atual_id = atual.editor_internal.plano_atual().id
+            if atual_id != plano.id and atual.mudancas_pendentes:
+                if not atual.fechar_com_seguranca():
+                    escolha = int(_perguntar_salvar_mapa(self))
+                    if escolha == _SB_CANCELAR:
+                        return False
+                    if escolha == _SB_SALVAR \
+                            and not atual.fechar_com_seguranca():
+                        return False
+                    # Descartar explicitamente: impedir que o autosave
+                    # pendente sobrescreva o plano recém-aberto.
+                    atual.editor_internal.mudancas_pendentes = False
+                atual.editor_internal._timer.stop()
+
         self._canvas_estado = {
             "expanded": self._right_panel.expanded,
             "anchor": self._stage.anchor,
@@ -5125,6 +5141,7 @@ class MainWindow(QMainWindow):
                 if escolha == _SB_SALVAR and not editor.fechar_com_seguranca():
                     return
             editor.hide()
+            editor.editor_internal._timer.stop()
         self._contexto_canvas = {"plano_id": None, "card_id": None, "plano": None}
 
         estado = getattr(self, "_canvas_estado", None)

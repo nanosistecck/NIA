@@ -145,3 +145,5 @@ Cobertura acrescentada: persistência após reinício, revisão/conflito/falha d
 **Verificação**: **334 testes passaram**; `compileall` e `git diff --check` limpos. Relógio e destino simulados tornam datas/fusos e bloqueios reproduzíveis. Pela interface Qt offscreen: botões do gerenciador e do Canvas e abertura do card correto pelo lembrete. Por simulação: transcrição de voz, provedor de IA e publicação.
 
 **Limitações finais**: entrega de notificações com a NIA totalmente fechada depende de integração com o sistema operacional (fora desta etapa); avisos vencidos aparecem na próxima abertura. A comparação de CPU/memória/responsividade com núcleo falando e mapas grandes não foi executada neste ambiente — os testes cobrem contratos e persistência, não medição de desempenho. Chamadas reais a API/Ollama, microfone/STT reais e publicação real não foram exercitados.
+
+Relatório completo de homologação (Prompt 07): `Documentos.Md/HOMOLOGACAO_CANVAS.md`.

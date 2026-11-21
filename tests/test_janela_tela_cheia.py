@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Janela principal abre em tela cheia sem bordas, com preferência do usuário."""
+"""Controles da janela maximizada: bordas opcionais, sem F11 por padrão."""
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -19,7 +19,7 @@ def app():
 
 def test_preferencia_tela_cheia_padrao(app, tmp_path, monkeypatch):
     monkeypatch.setattr(ui, "CONFIG_DIR", tmp_path)
-    assert ui.janela_sem_bordas_padrao() is True
+    assert ui.janela_sem_bordas_padrao() is False
     ui.salvar_preferencia_janela(tmp_path / "interface.json", False)
     assert ui.janela_sem_bordas(tmp_path / "interface.json") is False
     ui.salvar_preferencia_janela(tmp_path / "interface.json", True)
@@ -36,7 +36,8 @@ def test_janela_abre_em_tela_cheia(app, tmp_path, monkeypatch):
     app.processEvents()
     assert w.janela_tela_cheia is True
     assert w.windowFlags() & Qt.WindowType.FramelessWindowHint
-    assert w.isFullScreen()
+    assert not w.isFullScreen()
+    assert w.windowState() & Qt.WindowState.WindowMaximized
     w.hide()
     w.deleteLater()
     app.processEvents()

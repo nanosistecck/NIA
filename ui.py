@@ -69,7 +69,7 @@ _TESTE_JANELA = False   # testes isolados instanciam MainWindow diretamente
 
 
 def janela_sem_bordas_padrao() -> bool:
-    return True
+    return False
 
 
 def janela_sem_bordas(caminho=None) -> bool:
@@ -4540,17 +4540,28 @@ class MainWindow(QMainWindow):
 
     # ── JANELA EM TELA CHEIA / SEM BORDAS ────────────────────────────────
     def aplicar_modo_janela(self, sem_bordas: bool | None = None) -> None:
-        """Aplica tela cheia sem bordas ou janela comum, conforme a preferência."""
+        """Maximiza a janela, mantendo a barra de tarefas livre.
+
+        `sem_bordas` controla apenas o FramelessWindowHint; nunca usamos
+        `showFullScreen()` (equivalente ao F11) como estado padrão.
+        """
         if sem_bordas is None:
             sem_bordas = janela_sem_bordas()
         self.janela_tela_cheia = bool(sem_bordas)
         flags = self.windowFlags()
         if sem_bordas:
             self.setWindowFlags(flags | Qt.WindowType.FramelessWindowHint)
-            self.showFullScreen()
         else:
             self.setWindowFlags(flags & ~Qt.WindowType.FramelessWindowHint)
-            self.showMaximized()
+        # Respeita availávelGeometry (barra de tarefas do Windows) também no
+        # modo sem bordas: showMaximized() sozinho pode cobri-la.
+        try:
+            disponivel = QApplication.primaryScreen().availableGeometry()
+            if disponivel.isValid():
+                self.setGeometry(disponivel)
+        except Exception:
+            pass
+        self.showMaximized()
         self.raise_()
         self.activateWindow()
 

@@ -90,22 +90,25 @@ janela curta deve ser repetida com amostragem longa para conclusão.
 | Notificação com NIA fechada | Avisos só na próxima abertura | Integração com SO |
 | Publicação real | Saída permanece desativada | Integração própria |
 
-## Janela principal em tela cheia (22/11/2026)
+## Janela principal maximizada (22/11/2026)
 
-A NIA agora abre por padrão ocupando a tela toda, **sem as bordas do topo do Windows**.
+A NIA abre por padrão **maximizada com as bordas normais do Windows**, preservando o
+acesso à barra de tarefas. Não usamos `showFullScreen()` (F11) como estado inicial.
 A preferência `janela_sem_bordas` fica no nível superior de `config/interface.json`
-(preservada por `DockPreferences` e pelo dashboard), padrão `true`. Desligando-a, a
-janela abre maximizada com bordas normais. O menu de contexto (botão direito em qualquer
-lugar da NIA) oferece **Minimizar**, **Maximizar/Tela cheia**, **Restaurar janela**,
-**Arrastar janela** (via `startSystemMove`) e **Reduzir para bandeja** (fluxo F9 existente).
-Configurações → Aparência ganhou a opção correspondente, aplicada ao vivo.
+(preservada por `DockPreferences` e pelo dashboard), padrão **`false`**. Ativando-a, a
+janela continua maximizada, porém com `FramelessWindowHint` e geometria limitada a
+`availableGeometry()` — ainda com barra de tarefas. O menu de contexto (botão direito
+em qualquer lugar da NIA) oferece **Minimizar**, **Maximizar/Tela cheia**, **Restaurar
+janela**, **Arrastar janela** (`startSystemMove`) e **Reduzir para bandeja** (F9).
+Configurações → Aparência tem a opção "Janela sem bordas do Windows (ainda maximizada,
+com barra de tarefas)", aplicada ao vivo.
 
-Para preservar os testes que redimensionam a janela, a tela cheia é aplicada no
-ponto de entrada real (`NiaUI.__init__`), não no `MainWindow.__init__`.
+Para preservar os testes que redimensionam a janela, o modo é aplicado no ponto de
+entrada real (`NiaUI.__init__`), não no `MainWindow.__init__`.
 
-Verificação: `tests/test_janela_tela_cheia.py` (4 testes RED→GREEN), cobrindo padrão,
-preferência salva, ausência de bordas/tela cheia e ações do menu. Suíte: **398 passaram**;
-`compileall` e `git diff --check` limpos.
+Verificação: `tests/test_janela_tela_cheia.py` e `tests/test_janela_maximizada.py`
+(7 testes RED→GREEN), cobrindo padrão maximizado, preferência, ausência de `fullScreen`
+e ações do menu. Suíte: **401 passaram**; `compileall` e `git diff --check` limpos.
 
 ## Foco e contorno dos cards (21/11/2026)
 

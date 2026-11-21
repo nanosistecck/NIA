@@ -2379,7 +2379,8 @@ class ConfigDashboardWindow(QWidget):
 
         from PyQt6.QtWidgets import QCheckBox
         self.janela_sem_bordas = QCheckBox(
-            "Abrir a NIA em tela cheia sem bordas do Windows", cartao)
+            "Janela sem bordas do Windows (ainda maximizada, com barra de tarefas)",
+            cartao)
         self.janela_sem_bordas.setObjectName("janela_sem_bordas")
         self.janela_sem_bordas.setChecked(
             self._dock_prefs.data.get("janela_sem_bordas", True))

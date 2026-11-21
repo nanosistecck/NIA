@@ -62,6 +62,42 @@ from core import tema as _tema
 _SETSS_ORIGINAL = QWidget.setStyleSheet
 _SEM_TEMA = "/*sem-tema*/"
 
+# Preferência de janela (chave de nível superior em config/interface.json,
+# preservada por DockPreferences e pelo dashboard de Aparência).
+_CHAVE_JANELA_TELA_CHEIA = "janela_sem_bordas"
+_TESTE_JANELA = False   # testes isolados instanciam MainWindow diretamente
+
+
+def janela_sem_bordas_padrao() -> bool:
+    return True
+
+
+def janela_sem_bordas(caminho=None) -> bool:
+    caminho = Path(caminho) if caminho is not None else (CONFIG_DIR / "interface.json")
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return janela_sem_bordas_padrao()
+    if not isinstance(dados, dict) or _CHAVE_JANELA_TELA_CHEIA not in dados:
+        return janela_sem_bordas_padrao()
+    return bool(dados[_CHAVE_JANELA_TELA_CHEIA])
+
+
+def salvar_preferencia_janela(caminho, sem_bordas: bool) -> None:
+    caminho = Path(caminho)
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        dados = {}
+    if not isinstance(dados, dict):
+        dados = {}
+    dados[_CHAVE_JANELA_TELA_CHEIA] = bool(sem_bordas)
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    temporario = caminho.with_suffix(".tmp")
+    temporario.write_text(json.dumps(dados, ensure_ascii=False, indent=2),
+                          encoding="utf-8")
+    temporario.replace(caminho)
+
 
 def _setss_com_tema(self, css):
     css = "" if css is None else str(css)
@@ -4502,6 +4538,57 @@ class MainWindow(QMainWindow):
         else:
             self.showFullScreen()
 
+    # ── JANELA EM TELA CHEIA / SEM BORDAS ────────────────────────────────
+    def aplicar_modo_janela(self, sem_bordas: bool | None = None) -> None:
+        """Aplica tela cheia sem bordas ou janela comum, conforme a preferência."""
+        if sem_bordas is None:
+            sem_bordas = janela_sem_bordas()
+        self.janela_tela_cheia = bool(sem_bordas)
+        flags = self.windowFlags()
+        if sem_bordas:
+            self.setWindowFlags(flags | Qt.WindowType.FramelessWindowHint)
+            self.showFullScreen()
+        else:
+            self.setWindowFlags(flags & ~Qt.WindowType.FramelessWindowHint)
+            self.showMaximized()
+        self.raise_()
+        self.activateWindow()
+
+    def _construir_menu_janela(self) -> QMenu:
+        """Menu de contexto para controlar a janela sem bordas."""
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background: #041622; border: 1px solid rgba(150,215,240,90);"
+            " border-radius: 10px; padding: 6px; }"
+            "QMenu::item { padding: 7px 22px; color: #d8f8ff; border-radius: 6px; }"
+            "QMenu::item:selected { background: rgba(35,150,180,150); }")
+        acoes = (
+            ("Minimizar", self.showMinimized),
+            ("Maximizar / Tela cheia", lambda: self.aplicar_modo_janela(True)),
+            ("Restaurar janela", lambda: self.aplicar_modo_janela(False)),
+            ("Arrastar janela", self._iniciar_arraste_janela),
+            ("Reduzir para bandeja", self._ir_para_segundo_plano),
+        )
+        for rotulo, callback in acoes:
+            menu.addAction(rotulo, callback)
+        return menu
+
+    def _iniciar_arraste_janela(self) -> None:
+        handle = self.windowHandle()
+        if handle is not None and hasattr(handle, "startSystemMove"):
+            handle.startSystemMove()
+
+    def contextMenuEvent(self, event):  # noqa: N802 (Qt)
+        self._construir_menu_janela().exec(event.globalPos())
+
+    def mousePressEvent(self, event):  # noqa: N802 (Qt)
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.windowFlags() & Qt.WindowType.FramelessWindowHint
+                and not self.isFullScreen()):
+            self._iniciar_arraste_janela()
+            return
+        super().mousePressEvent(event)
+
     # ── SEGUNDO PLANO (01/11/2026, v1.0.37) ──────────────────────────────────
     #
     # Pedido do Diego: "um botao, uma tecla para ele minimizar, ficar em segundo
@@ -6526,6 +6613,14 @@ class NiaUI:
         # da engrenagem chamava metodo inexistente e a excecao dentro do slot do
         # Qt **derrubava o programa** (30/08/2026, primeiro clique do Diego).
         self._win._ui = self
+        # Tela cheia sem bordas por padrão; o usuário pode desligar em
+        # Configurações → Aparência. Testes isolados instanciam MainWindow
+        # diretamente e redimensionam a janela, então não entram aqui.
+        if not _TESTE_JANELA:
+            try:
+                self._win.aplicar_modo_janela(janela_sem_bordas())
+            except Exception as exc:
+                print(f"[ui] janela em tela cheia não aplicada: {exc}")
         # SECRETARIA DO WHATSAPP (05/11/2026): o cartao da ligacao nasce aqui, no Qt.
         try:
             from core import secretaria_tela as _sec_tela  # noqa: PLC0415

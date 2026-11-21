@@ -90,6 +90,17 @@ janela curta deve ser repetida com amostragem longa para conclusão.
 | Notificação com NIA fechada | Avisos só na próxima abertura | Integração com SO |
 | Publicação real | Saída permanece desativada | Integração própria |
 
+## Foco e contorno dos cards (21/11/2026)
+
+Ao clicar, o card podia exibir moldura quadrada: o fundo do `QGraphicsView` ficava
+branco e o foco padrão do widget desenhava um retângulo sem raio. Além disso, ao ampliar
+o `boundingRect` para eliminar rastros, o `paint` passou a desenhar o corpo do card no
+retângulo ampliado, deixando só o tracejado visível. Corrigido com: retângulo do corpo
+fixo em `(0,0,CARD_W,CARD_H)` no `paint`, `boundingRect` ampliado apenas para invalidação,
+`drawBackground` com gradiente radial escuro no `QGraphicsScene`, viewport transparente
+e `WA_MacShowFocusRect=False`/`outline:none` no foco. Inspeção por captura confirmou
+card preenchido, contorno tracejado arredondado e fundo escuro. Suíte: **394 passaram**.
+
 ## Rastros gráficos no arraste (21/11/2026)
 
 Causa confirmada: `CardItem.paint` desenhava sombra (+4 px) e contorno de seleção

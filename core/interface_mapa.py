@@ -14,7 +14,8 @@ from typing import Any
 from PyQt6.QtCore import QEvent, Qt, QPointF, QRectF, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QBrush, QColor, QFont, QKeySequence, QPainter, QPainterPath,
-    QPainterPathStroker, QPen, QShortcut, QUndoCommand, QUndoStack,
+    QPainterPathStroker, QPen, QRadialGradient, QShortcut,
+    QUndoCommand, QUndoStack,
 )
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFormLayout, QGraphicsItem, QGraphicsPathItem,
@@ -41,11 +42,10 @@ _CARD_H = 84.0
 _ESTILO = f"""
 QWidget#EditorMapaRoot {{ background: transparent; }}
 QGraphicsView {{
-    background: qradialgradient(cx:0.5,cy:0.45,r:0.85,
-        stop:0 rgba(18,60,84,60), stop:0.55 rgba(8,30,48,35),
-        stop:1 rgba(2,12,22,0));
-    border: none; border-radius: 0px;
+    background: transparent; border: none; border-radius: 0px;
 }}
+QGraphicsView:focus {{ border: none; outline: none; }}
+QGraphicsView viewport {{ background: transparent; border: none; }}
 QLabel {{ color: {_TEXT}; background: transparent; }}
 QLineEdit, QComboBox {{
     color: {_TEXT}; background: rgba(4,22,36,210);
@@ -106,7 +106,9 @@ class CardItem(QGraphicsItem):
         return QRectF(-6.0, -6.0, _CARD_W + 12.0, _CARD_H + 12.0)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
-        ret = self.boundingRect()
+        # Corpo fixo em coordenadas do item; o boundingRect é maior apenas
+        # para invalidação (sombra + contorno), não para desenho.
+        ret = QRectF(0.0, 0.0, _CARD_W, _CARD_H)
         selecionado = self.isSelected()
         origem = getattr(self.scene(), "origem_conexao", None) == self.dados.get("id") \
             if self.scene() is not None else False
@@ -283,6 +285,16 @@ class CenaMapa(QGraphicsScene):
         for item in self.itens_conexoes.values():
             item.setSelected(False)
 
+    def drawBackground(self, painter, rect) -> None:
+        """Fundo escuro com profundidade suave, sem blur nem timer."""
+        centro = QPointF(rect.center().x(), rect.center().y())
+        raio = max(400.0, float(rect.width()) * 0.75)
+        gradiente = QRadialGradient(centro, raio)
+        gradiente.setColorAt(0.0, QColor(18, 60, 84, 255))
+        gradiente.setColorAt(0.55, QColor(8, 30, 48, 255))
+        gradiente.setColorAt(1.0, QColor(3, 14, 25, 255))
+        painter.fillRect(rect, gradiente)
+
     def montar(self, mapa: dict) -> None:
         self.cancelar_previa()
         self.itens_cards.clear()
@@ -354,6 +366,9 @@ class MapaView(QGraphicsView):
         # conexões/sombra e o Qt invalida só a boundingRect antiga.
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+        self.viewport().setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+        self.viewport().setStyleSheet("background: transparent; border: none;")
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
 

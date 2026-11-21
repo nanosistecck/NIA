@@ -6787,7 +6787,15 @@ class NiaUI:
 
     def abrir_plano(self, plano_id: str) -> None:
         """Thread-safe: abre o mapa de um plano pelo mesmo ponto do gerenciador."""
-        QTimer.singleShot(0, lambda: self._win._abrir_canvas_do_plano(str(plano_id)))
+        def abrir():
+            janela = self._win
+            if janela._abrir_canvas_do_plano(str(plano_id)):
+                # A abertura por comando de voz acontece longe do clique do
+                # usuário: trazer a janela para frente para o Canvas aparecer.
+                janela.showNormal()
+                janela.raise_()
+                janela.activateWindow()
+        QTimer.singleShot(0, abrir)
 
     def contexto_canvas(self) -> dict:
         """Cópia do espelho de contexto, segura para leitura fora da thread Qt."""

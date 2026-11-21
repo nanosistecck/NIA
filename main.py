@@ -6974,10 +6974,30 @@ class NiaLive:
         except Exception:
             return {}
 
-    def _aplicar_resultado_planos(self, resultado) -> None:
+    def _falar_resposta_comando(self, texto: str, origem: str) -> None:
+        """Fala a pergunta/confirmação quando o pedido veio da voz.
+
+        No Gemini Live o bloco de `turn_complete` esvazia `out_buf` quando um
+        comando local é tratado, então o modelo não fala. Sem este passo a NIA
+        escrevia a pergunta só no chat e quem estava ouvindo não a via.
+        """
+        if origem != 'voz' or not str(texto or '').strip():
+            return
+        import threading as _threading
+
+        def falar():
+            try:
+                self._falar_local(str(texto))
+            except Exception as exc:
+                _voice_diag('fala_comando_erro', type(exc).__name__)
+
+        _threading.Thread(target=falar, daemon=True).start()
+
+    def _aplicar_resultado_planos(self, resultado, origem: str = 'texto') -> None:
         """Entrega a resposta e executa as ações pedidas pelo comando local."""
         if resultado.resposta:
             self.ui.write_log(f'SIS: {resultado.resposta}')
+            self._falar_resposta_comando(resultado.resposta, origem)
         for acao in resultado.acoes:
             tipo = acao.get('tipo')
             if tipo == 'abrir_canvas':
@@ -7123,7 +7143,7 @@ class NiaLive:
             resultado = self._sessao_planos.processar(
                 texto, origem, self._contexto_planos())
             if resultado.tratado:
-                self._aplicar_resultado_planos(resultado)
+                self._aplicar_resultado_planos(resultado, origem)
                 return True
         except Exception as exc:
             _voice_diag('comando_planos_erro', type(exc).__name__)

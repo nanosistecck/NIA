@@ -81,6 +81,34 @@ Verificação: `tests/test_nucleo_canvas.py` (4 testes RED→GREEN) e diagnósti
 quatro cenários — todos com `OK=True`, âncora `bottom-right` e sobreposição -17 px.
 Suíte final: **342 testes passaram**; `compileall` e `git diff --check` limpos.
 
+## Correção pós-homologação: criação por voz (21/11/2026)
+
+Problema relatado: ao pedir a criação de um plano/produto/projeto por voz, a NIA
+respondia só no chat e o Canvas não era aberto automaticamente.
+
+Investigação: instrumentei `_executar_frase_habilidade`, `NiaUI.abrir_plano` e
+`MainWindow._abrir_canvas_do_plano`. O reconhecimento e a abertura funcionavam no
+caminho isolado — a causa da reclamação era que **`_aplicar_resultado_planos`
+escrevia a resposta no chat, mas nunca a falava**. No Gemini Live, quando um
+comando local é tratado, o bloco `turn_complete` esvazia `out_buf` e impede o
+modelo de falar; o resultado era a pergunta ("Qual é o projeto?") visível apenas
+no chat, sem áudio.
+
+Correção:
+- `main.py`: `_falar_resposta_comando(texto, origem)` aciona `_falar_local` em
+  thread quando a origem é `voz`; `_aplicar_resultado_planos(resultado, origem)`
+  passa a origem. A confirmação final ("Plano criado... Abrindo o Canvas")
+  também é falada.
+- `ui.py`: `NiaUI.abrir_plano` traz a janela para frente (`showNormal/raise/
+  activateWindow`) após abrir o Canvas, para que a abertura por comando de voz
+  fique visível sem clique do usuário.
+
+Verificação: `tests/test_criacao_voz.py` (4 testes RED→GREEN): pergunta falada,
+criação direta falada e abertura, abertura com janela em frente, texto sem
+duplicar fala. Suíte final: **346 testes passaram**; `compileall` e
+`git diff --check` limpos. TTS validado com `_falar_local` simulado — a síntese
+real depende do motor de voz configurado.
+
 ## Pendências reais
 
 | Pendência | Impacto | Motivo | Etapa de origem |

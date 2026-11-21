@@ -567,7 +567,13 @@ class VerticalDock(QFrame):
     def __init__(self,buttons,config,parent=None):
         super().__init__(parent)
         self.setObjectName('Glass')
-        self.setStyleSheet(GLASS + '\nQFrame#Glass {border-radius:18px;}')
+        # Vidro escuro do dock: borda ciano suave e cantos de ~22 px,
+        # isolado dos demais widgets que compartilham `GLASS`.
+        self.setStyleSheet(
+            GLASS + '\nQFrame#Glass {'
+            ' background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
+            ' stop:0 rgba(10,34,50,205), stop:1 rgba(5,18,32,215));'
+            ' border:1px solid rgba(25,211,243,55); border-radius:22px; }')
         self.setFixedWidth(70)
         self.buttons = dict(buttons); self.preferences = DockPreferences(config)
         if 'hidden' not in self.preferences.data:
@@ -664,7 +670,7 @@ class VerticalDock(QFrame):
     def _apply_appearance(self):
         settings = appearance_settings(self.preferences.data)
         size = settings['icon_size']
-        extent = max(54,size+20)
+        extent = max(46, size + 12)
         self.setFixedWidth(extent+16)
         for button in list(self.buttons.values())+self.shortcuts:
             button.setFixedSize(extent,extent)

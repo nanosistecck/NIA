@@ -2072,21 +2072,17 @@ class ControlCard(QPushButton):
         renderer.render(painter, QRectF(center.x()-13*k,center.y()-13*k,26*k,26*k))
 
     def paintEvent(self, _):
-        # BOTAO DO DOCK (visual novo, 05/10/2026). Texto em 3 linhas, animacoes
-        # e sinais iguais aos de antes; so o desenho mudou.
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         w, h = self.width(), self.height()
         hover = self._hover_progress
         press = self._press_progress
-        y_shift = -2.5 * hover + 1.5 * press
+        y_shift = -1.5 * hover + 1.0 * press
         rect = QRectF(3.0, 3.0 + y_shift, w - 6.0, h - 6.0)
         radius = 14.0
         accent = QColor(_tema.cor_botao(self.objectName(), self._display_color.name())
                         or self._display_color.name())
 
-        # vidro da prancha: sempre visível; a borda acende ao passar o mouse
         vidro = QLinearGradient(rect.topLeft(), rect.bottomLeft())
         vidro.setColorAt(0.0, QColor(14, 42, 64, 160))
         vidro.setColorAt(1.0, QColor(7, 22, 38, 170))
@@ -2098,67 +2094,31 @@ class ControlCard(QPushButton):
             p.setBrush(qcol(accent.name(), round(28 * hover + 26 * press)))
             p.drawRoundedRect(rect, radius, radius)
 
+        # ícone centralizado, sem texto embaixo
+        ic = QPointF(w / 2.0, h / 2.0 + y_shift)
+        self._paint_vector_icon(
+            p, ic,
+            self._mix_color(accent, QColor(_tc("#ffffff")), 0.30 + 0.25 * hover),
+            "", 0.82)
+
+        # ponto de status só quando o texto diz ATIVO/ATIVA
         lines = self.text().splitlines()
-        title = lines[1] if len(lines) > 1 else ""
-        if self.objectName() in _BOTOES_COM_NOME:
-            title = _nome_tela("botao_" + self.objectName(), title)
         status = lines[2] if len(lines) > 2 else ""
-
-        dock_icon_size = self.property('dock_icon_size')
-        compact = dock_icon_size is not None or h <= 56
-        ic = QPointF(w / 2.0, (h / 2.0 if compact else 28.0) + y_shift)
-        r_ic = 18.0
-        halo = QRadialGradient(ic, r_ic * 2.1)
-        halo.setColorAt(0.0, qcol(accent.name(), round(55 + 70 * hover)))
-        halo.setColorAt(0.55, qcol(accent.name(), round(12 + 20 * hover)))
-        halo.setColorAt(1.0, qcol(accent.name(), 0))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(halo))
-        p.drawEllipse(ic, r_ic * 2.1, r_ic * 2.1)
-
-        disco = QLinearGradient(QPointF(ic.x(), ic.y() - r_ic), QPointF(ic.x(), ic.y() + r_ic))
-        disco.setColorAt(0.0, self._mix_color(QColor(_tc("#042a3a")), accent, 0.30))
-        disco.setColorAt(1.0, self._mix_color(QColor(_tc("#010d14")), accent, 0.10))
-        p.setBrush(QBrush(disco))
-        p.setPen(QPen(qcol(accent.name(), round(120 + 100 * hover)), 1.2))
-        if compact:
-            half = min(w,h)/2-5
-            p.drawRoundedRect(QRectF(ic.x()-half,ic.y()-half,half*2,half*2),13,13)
-        else:
-            p.drawEllipse(ic, r_ic, r_ic)
-        cor_icone = self._mix_color(accent, QColor(_tc("#ffffff")), 0.30 + 0.25 * hover)
-        self._paint_vector_icon(p, ic, cor_icone, status,
-                                float(dock_icon_size)/26 if dock_icon_size else 0.82)
-
         if status.strip().upper() in {"ATIVO", "ATIVA"}:
-            led = QPointF(ic.x() + r_ic * 0.74, ic.y() - r_ic * 0.74)
-            luz = QRadialGradient(led, 7.0)
-            luz.setColorAt(0.0, qcol(accent.name(), 210))
-            luz.setColorAt(1.0, qcol(accent.name(), 0))
+            led = QPointF(w - 10, 10)
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(luz))
-            p.drawEllipse(led, 7.0, 7.0)
-            p.setBrush(QBrush(self._mix_color(accent, QColor(_tc("#ffffff")), 0.45)))
+            p.setBrush(self._mix_color(accent, QColor(_tc("#ffffff")), 0.45))
             p.drawEllipse(led, 2.4, 2.4)
 
-        if not compact:
-            p.setFont(_ftexto(7.3, QFont.Weight.DemiBold))
-            p.setPen(QPen(qcol(_tc(C.WHITE), 235), 1))
-            p.drawText(QRectF(1, 50 + y_shift, w - 2, 14), Qt.AlignmentFlag.AlignCenter, title)
-            p.setFont(_espacado(_fx(6.0, QFont.Weight.DemiBold), 0.8))
-            p.setPen(QPen(self._mix_color(accent, QColor(_tc("#ffffff")), 0.10), 1))
-            p.drawText(QRectF(1, 64 + y_shift, w - 2, 12), Qt.AlignmentFlag.AlignCenter, status)
-
         if self._ripple_progress < 1.0:
-            ripple_path = QPainterPath()
-            ripple_path.addRoundedRect(rect, radius, radius)
+            clip = QPainterPath()
+            clip.addRoundedRect(rect, radius, radius)
             p.save()
-            p.setClipPath(ripple_path)
+            p.setClipPath(clip)
             reach = math.hypot(w, h) * (0.12 + self._ripple_progress)
-            ripple_alpha = round(80 * (1.0 - self._ripple_progress) ** 1.5)
+            alpha = round(80 * (1.0 - self._ripple_progress) ** 1.5)
             ripple = QRadialGradient(self._ripple_origin, reach)
-            ripple.setColorAt(0.0, qcol(accent.name(), ripple_alpha))
-            ripple.setColorAt(0.65, qcol(accent.name(), round(ripple_alpha * 0.32)))
+            ripple.setColorAt(0.0, qcol(accent.name(), alpha))
             ripple.setColorAt(1.0, qcol(accent.name(), 0))
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(ripple))
@@ -6045,7 +6005,7 @@ class MainWindow(QMainWindow):
     ) -> QPushButton:
         button = ControlCard(text, color, background)
         button.setObjectName(name)
-        button.setFixedSize(54, 54)
+        button.setFixedSize(46, 46)
         button.setToolTip(text.replace("\n", " · "))
         button.setAccessibleName(text.replace("\n", " "))
         return button

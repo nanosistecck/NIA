@@ -139,6 +139,30 @@ card_id)["descricao"]`. Com o plano fechado, `core.planos.carregar(plano_id)` e 
 `card_por_id`. Não ler do espelho sem actualizar: o espelho é actualizado por
 `estado_editado`/`contexto_mudou`.
 
+## Revisão Prompt 04 — conversa enxerga o Canvas (21/11/2026)
+
+Causa confirmada: `assistencia_planos.reconhecer_intencao` não tinha intenções para
+listar cards, ler texto ou consultar vínculos; as perguntas caíam no LLM genérico sem
+contexto do mapa. Além disso, parte do fluxo lia o plano de um snapshot antigo.
+
+Solução aplicada: novas intenções locais `LISTAR_CARDS`, `LER_CARD`, `CONEXOES_CARD` e
+`EXPLICAR_CARD`; `_resolver_alvo_canvas` resolve plano/card por nome ou seleção com IDs
+estáveis (exclui o card raiz quando o nome do plano também aparece); respostas locais
+listam cards, leem `descricao`/`resumo` na íntegra e relacionam conexões com rótulo e
+direção; explicação com IA distingue o que está registrado da interpretação; filtro de
+saída aplicado antes do provedor e na própria resposta quando o card é restrito.
+Voz e texto usam o mesmo `_executar_frase_habilidade`.
+
+Reaproveitados: `_contexto_planos`, `BP.listar`/`carregar`/`card_por_id`,
+`AP.montar_contexto`/`filtrar_contexto`/`parse_resposta`, `_falar_resposta_comando`.
+Remoções: nenhuma.
+
+Verificação: `tests/test_consulta_canvas.py` (8 testes RED→GREEN), incluindo as seis
+frases do prompt, leitura local sem provedor, plano fechado por nome, voz=texto, sem
+seleção e card restrito. Suíte: **366 testes passaram**; `compileall` e
+`git diff --check` limpos. Pela interface: apenas roteamento Qt offscreen; voz com
+transcrição simulada; nenhuma chamada real de IA/síntese.
+
 ## Pendências reais
 
 | Pendência | Impacto | Motivo | Etapa de origem |

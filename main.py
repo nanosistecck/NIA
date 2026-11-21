@@ -7021,8 +7021,50 @@ class NiaLive:
         ]
         return str(_BF.sintetizar("\n".join(partes), destino) or "")
 
+    def _resolver_alvo_canvas(self, texto: str, contexto_canvas: dict) -> dict:
+        """Resolve plano/card pelo nome ou pela seleção, com IDs estáveis."""
+        n = AP.normalizar(texto)
+        plano = contexto_canvas.get("plano")
+        card_id = contexto_canvas.get("card_id")
+        plano_id = contexto_canvas.get("plano_id")
+
+        planos, _avisos = CP.BP.listar()
+        citados = [p for p in planos if AP.normalizar(p.titulo) in n]
+        if plano is None:
+            if len(citados) > 1:
+                return {"opcoes": citados}
+            if not citados:
+                return {}
+            plano = citados[0]
+            plano_id = plano.id
+            card_id = None
+
+        cartoes = plano.mapa.get("cards", [])
+        por_nome = [c for c in cartoes
+                    if str(c.get("titulo") or "")
+                    and AP.normalizar(c.get("titulo")) in n
+                    and c.get("id") != plano.mapa.get("raiz_id")
+                    or (str(c.get("titulo") or "")
+                        and AP.normalizar(c.get("titulo")) in n
+                        and len(por_nome_cache) == 0)] if False else [
+            c for c in cartoes
+            if str(c.get("titulo") or "")
+            and AP.normalizar(c.get("titulo")) in n
+            and c.get("id") != getattr(plano, "mapa", {}).get("raiz_id")]
+        if len(por_nome) > 1 and card_id:
+            exato = [c for c in por_nome if c.get("id") == card_id]
+            if exato:
+                por_nome = exato
+        alvos = por_nome or ([c for c in cartoes if c.get("id") == card_id])
+        return {"plano": plano, "plano_id": plano_id,
+                "card": alvos[0] if len(alvos) == 1 else None,
+                "opcoes": alvos if len(alvos) > 1 else [],
+                "cartoes": cartoes}
+
     def _resposta_assistida_local(self, intencao: str, contexto: dict) -> str:
         """Resposta estrutural sem provedor, usando só dados locais permitidos."""
+        plano = contexto.get("plano") or {}
+        mapa = plano.mapa if hasattr(plano, "mapa") else (plano.get("mapa") or {})
         card = contexto.get("card") or {}
         titulo = str(card.get("titulo") or "o card selecionado")
         if intencao == "SUGERIR":
@@ -7030,7 +7072,40 @@ class NiaLive:
                             f"Validar {titulo} com quem vai executar",
                             f"Reduzir o escopo de {titulo}"]
             return "Alternativas: " + "; ".join(alternativas) + "."
-        resumo = str(card.get("resumo") or card.get("descricao") or "sem descrição")
+        if intencao == "LISTAR_CARDS":
+            cartoes = contexto.get("cartoes") or []
+            if not cartoes:
+                return "Este plano ainda não tem cards."
+            titulos = [str(c.get("titulo") or "sem título") for c in cartoes]
+            return (f"Este plano tem {len(cartoes)} card(s): "
+                    + ", ".join(titulos[:12]) + "."
+                    + (" Há mais cards; posso continuar a lista."
+                       if len(titulos) > 12 else ""))
+        if intencao == "LER_CARD":
+            if not card:
+                return "Selecione um card ou me diga qual card você quer que eu leia."
+            texto = str(card.get("descricao") or card.get("resumo") or "")
+            if not texto.strip():
+                return f"O card {titulo} está sem texto registrado."
+            return f"O que está registrado em {titulo}: {texto}"
+        if intencao == "CONEXOES_CARD":
+            if not card:
+                return "Selecione um card ou me diga qual card você quer consultar."
+            ligacoes = []
+            for lig in mapa.get("conexoes", []):
+                if card.get("id") not in (lig.get("origem"), lig.get("destino")):
+                    continue
+                outro_id = (lig.get("destino") if lig.get("origem") == card.get("id")
+                            else lig.get("origem"))
+                outro = next((c for c in contexto.get("cartoes", [])
+                              if c.get("id") == outro_id), {})
+                rotulo = f' ({lig.get("rotulo")})' if lig.get("rotulo") else ""
+                seta = "→" if lig.get("origem") == card.get("id") else "←"
+                ligacoes.append(f"{seta} {outro.get('titulo', outro_id)}{rotulo}")
+            if not ligacoes:
+                return f"O card {titulo} não tem conexões registradas."
+            return f"{titulo} está conectado a: " + ", ".join(ligacoes) + "."
+        resumo = str(card.get("descricao") or card.get("resumo") or "sem descrição")
         vizinhos = len(contexto.get("vizinhos") or [])
         return (f"Sobre {titulo}: {resumo}. "
                 f"Objetivo do plano: {contexto.get('objetivo', '')}. "
@@ -7042,6 +7117,67 @@ class NiaLive:
         if intencao == "NENHUMA":
             return False
         contexto_canvas = self._contexto_planos()
+        if intencao in ("LISTAR_CARDS", "LER_CARD", "CONEXOES_CARD",
+                        "EXPLICAR_CARD", "EXPLICAR"):
+            alvo = self._resolver_alvo_canvas(texto, contexto_canvas)
+            if alvo.get("opcoes"):
+                self.ui.write_log(
+                    "SIS: Encontrei vários alvos: "
+                    + ", ".join(str(c.get("titulo") or c.get("id"))
+                                for c in alvo["opcoes"]))
+                return True
+            plano = alvo.get("plano")
+            if plano is None:
+                if intencao in ("LER_CARD", "CONEXOES_CARD"):
+                    self.ui.write_log(
+                        "SIS: Selecione um card ou me diga o nome do plano e do card.")
+                return intencao in ("LER_CARD", "CONEXOES_CARD")
+            cartoes = alvo.get("cartoes", [])
+            card = alvo.get("card")
+            if card is None and intencao in ("LER_CARD", "CONEXOES_CARD"):
+                self.ui.write_log(
+                    "SIS: Selecione um card ou me diga qual card você quer consultar.")
+                return True
+            contexto = AP.montar_contexto(plano, (card or {}).get("id"))
+            contexto.update({
+                "plano": plano,
+                "cartoes": plano.mapa.get("cards", []),
+                "card": next((c for c in plano.mapa.get("cards", [])
+                              if c.get("id") == (card or {}).get("id")), None)
+                        or card or contexto.get("card"),
+            })
+            if intencao == "EXPLICAR_CARD":
+                seguro = AP.filtrar_contexto(
+                    contexto, AP.Destino(local=False, provedor="externo"))
+                provedor = getattr(self, "_provedor_assistido", None)
+                interpretacao = ""
+                provedor = getattr(self, "_provedor_assistido", None)
+                if provedor is not None:
+                    bruto = str(provedor(texto, seguro) or "").strip()
+                    if bruto:
+                        ops, erros = AP.parse_resposta(bruto, contexto)
+                        if not erros and ops:
+                            primeiro = ops[0]
+                            interpretacao = str(
+                                primeiro.get("titulo", "") if isinstance(primeiro, dict)
+                                else primeiro)
+                        else:
+                            interpretacao = bruto[:300]
+                base = self._resposta_assistida_local("LER_CARD", seguro)
+                self.ui.write_log(f"SIS: {base}")
+                if interpretacao:
+                    self.ui.write_log(
+                        f"SIS: Interpretação (não registrada no mapa): {interpretacao}")
+                return True
+            self.ui.write_log(
+                f"SIS: {self._resposta_assistida_local(intencao, contexto)}")
+            if getattr(self.ui, "destacar_card", None) and card:
+                try:
+                    self.ui.destacar_card(plano.id, card.get("id"))
+                except Exception:
+                    pass
+            return True
+
         plano = contexto_canvas.get("plano")
         if plano is None:
             if intencao in ("EDITAR", "DESFAZER"):

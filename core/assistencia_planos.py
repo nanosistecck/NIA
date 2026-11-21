@@ -109,6 +109,16 @@ def reconhecer_intencao(texto: str) -> str:
         return "EDITAR"
     if re.search(r"que solucoes|alternativas|sugestoes|opcoes", n):
         return "SUGERIR"
+    if re.search(r"com quais cards|conectad|ligad|vinculad", n):
+        return "CONEXOES_CARD"
+    if re.search(r"quais cards|liste os cards|lista de cards|cards existem", n):
+        return "LISTAR_CARDS"
+    if re.search(r"escrevi|escrito neste card|leia o que|leia este card|"
+                 r"texto deste card|conteudo deste card", n):
+        return "LER_CARD"
+    if re.search(r"como (ele |isso )?se liga|ligad|vinculad", n) \
+            and re.search(r"explique|explica", n):
+        return "EXPLICAR_CARD"
     if re.search(r"me explica|explique|explica este card|o que e este card", n):
         return "EXPLICAR"
     return "NENHUMA"

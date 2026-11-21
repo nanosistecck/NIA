@@ -1779,11 +1779,10 @@ class _MarcaNia(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(52, 52)
+        self.setFixedSize(36, 36)
         self._ang = 0.0
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._girar)
-        # 15 quadros bastam para um desenho de 52 px girando devagar (eram 25).
         self._tmr.start(66)
 
     def _girar(self):
@@ -1795,18 +1794,18 @@ class _MarcaNia(QWidget):
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        c = QPointF(26, 26)
+        c = QPointF(18, 18)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(qcol(_tc(C.PRI), 102), 1.2))
-        p.drawEllipse(c, 21, 21)
-        p.setPen(QPen(qcol(_tc(C.PRI), 255), 2.5,
+        p.setPen(QPen(qcol(_tc(C.PRI), 102), 1.0))
+        p.drawEllipse(c, 14.5, 14.5)
+        p.setPen(QPen(qcol(_tc(C.PRI), 255), 2.0,
                       Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        ret = QRectF(c.x() - 15, c.y() - 15, 30, 30)
+        ret = QRectF(c.x() - 10.5, c.y() - 10.5, 21, 21)
         for rep in range(2):
             p.drawArc(ret, int((self._ang + rep * 180) * 16), 110 * 16)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(qcol(_tc("#7FF0FF"), 255))
-        p.drawEllipse(c, 6, 6)
+        p.drawEllipse(c, 4.2, 4.2)
         p.end()
 
 
@@ -5010,21 +5009,21 @@ class MainWindow(QMainWindow):
 
     def _build_header(self) -> QWidget:
         w = QWidget()
-        w.setFixedHeight(58)
+        w.setFixedHeight(40)
         row = QHBoxLayout(w)
-        row.setContentsMargins(6,0,0,0)
-        row.setSpacing(14)
+        row.setContentsMargins(6, 0, 0, 0)
+        row.setSpacing(9)
         row.addWidget(_MarcaNia())
-        self._lbl_titulo_topo = QLabel(_nome_tela("titulo", "NIA"))
-        self._lbl_titulo_topo.setFont(_espacado(_fx(22, QFont.Weight.DemiBold), 1.3))
+        self._lbl_titulo_topo = QLabel(_nome_tela("titulo", "N.I.A"))
+        self._lbl_titulo_topo.setFont(_espacado(_fx(15, QFont.Weight.DemiBold), 1.0))
         self._lbl_titulo_topo.setStyleSheet("color:#edf8ff;background:transparent;")
         row.addWidget(self._lbl_titulo_topo)
         divider = QFrame()
-        divider.setFixedSize(1, 20)
+        divider.setFixedSize(1, 14)
         divider.setStyleSheet("background: rgba(143,181,201,90);")
         row.addWidget(divider)
         self._rail_state_lbl = QLabel("●  Iniciando")
-        self._rail_state_lbl.setFont(_espacado(_fx(11, QFont.Weight.DemiBold), 2.0))
+        self._rail_state_lbl.setFont(_espacado(_fx(10, QFont.Weight.DemiBold), 1.5))
         self._rail_state_lbl.setStyleSheet(self._estilo_pilula(C.PRI))
         row.addWidget(self._rail_state_lbl)
         row.addStretch()

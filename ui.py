@@ -3809,7 +3809,8 @@ class _FundoComGrade(CanvasBackground):
     def paintEvent(self, event):
         super().paintEvent(event)
         p = QPainter(self)
-        p.setPen(QPen(QColor(25, 211, 243, 38), 1))
+        # Azul escuro integrado ao gradiente do fundo: discreto, sem neon.
+        p.setPen(QPen(QColor(16, 74, 112, 48), 1))
         w, h = self.width(), self.height()
         for x in range(0, w, self._PASSO_H):
             p.drawLine(x, 0, x, h)
@@ -4001,12 +4002,32 @@ class MainWindow(QMainWindow):
         footer.addWidget(self._composer, 1)
         footer.addStretch()
         root.addLayout(footer)
-        self._composer.setFixedWidth(440)
-        self._composer.setFixedHeight(44)
+        self._composer.setFixedWidth(620)
+        self._composer.setFixedHeight(56)
         self._composer.setStyleSheet(
             "QFrame#Glass { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
             " stop:0 rgba(14,42,64,160), stop:1 rgba(7,22,38,170));"
-            " border: 1px solid rgba(25,211,243,51); border-radius: 22px; }")
+            " border: 1px solid rgba(25,211,243,51); border-radius: 24px; }")
+        # Botão abaixo do campo: mostra ou esconde o histórico da conversa.
+        self._btn_historico_abajo = QPushButton("▤  Histórico", self)
+        self._btn_historico_abajo.setObjectName("historico_inferior")
+        self._btn_historico_abajo.setCheckable(True)
+        self._btn_historico_abajo.setToolTip("Mostrar ou recolher histórico")
+        self._btn_historico_abajo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_historico_abajo.setStyleSheet(
+            "QPushButton { color:#8FD9EE; background: rgba(10,34,50,150);"
+            " border:1px solid rgba(25,211,243,55); border-radius:12px;"
+            " padding:3px 12px; font-size:11px; min-height:22px; }"
+            "QPushButton:hover { background: rgba(25,211,243,40); color:#E6F6FF; }"
+            "QPushButton:focus { border:2px solid #19D3F3; }"
+            "QPushButton:checked { background: rgba(25,211,243,70); color:#E6F6FF; }")
+        self._btn_historico_abajo.clicked.connect(self._toggle_history)
+        abaixo = QHBoxLayout()
+        abaixo.setContentsMargins(0, 2, 0, 0)
+        abaixo.addStretch()
+        abaixo.addWidget(self._btn_historico_abajo)
+        abaixo.addStretch()
+        root.addLayout(abaixo)
 
         # Metrik güncelleme timer'ı
         self._metric_tmr = QTimer(self)
@@ -5627,6 +5648,9 @@ class MainWindow(QMainWindow):
     def _toggle_history(self):
         self._drawer.setVisible(not self._drawer.isVisible())
         self._history_btn.setChecked(self._drawer.isVisible())
+        abaixo = getattr(self, "_btn_historico_abajo", None)
+        if abaixo is not None:
+            abaixo.setChecked(self._drawer.isVisible())
         self._stage.chat_open = self._drawer.isVisible()
         self._stage.arrange(True)
         self._position_canvas_panels()

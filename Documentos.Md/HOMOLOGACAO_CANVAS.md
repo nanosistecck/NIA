@@ -59,6 +59,28 @@ foram feitas durante a homologação; a medição abaixo é a versão final homo
 - Não foi possível medir CPU/memória com o núcleo falando nem em desktop com renderização
   real: o ambiente é offscreen e a voz tentou provedores externos sem sucesso (HTTP 404).
 
+## Correção pós-homologação: posicionamento do núcleo (21/11/2026)
+
+Problema relatado: ao abrir o Canvas, o núcleo nem sempre ficava no canto inferior direito.
+
+Investigação (depuração sistemática, com instrumentação de `CanvasStage.arrange`):
+- **Causa 1:** `_abrir_canvas_do_plano` chamava `set_anchor("bottom-right")` **antes** de
+  esconder o card temporário (brief). Com brief visível, `arrange()` usa
+  `_brief_geometries()`, que ignora a âncora e deixa o núcleo no canto direito
+  centralizado (945,230 em vez de 957,461). Esconder o brief depois não disparava
+  um novo `arrange()`.
+- **Causa 2:** `CanvasEditor._reposicionar` reservava só ~18% da largura para o
+  núcleo, mas ele ocupa até ~48% quando há cards/painéis — 324 px do mapa ficavam
+  embaixo do núcleo.
+
+Correção: esconder brief/resultados/HOJE/painéis e limpar `tools_open`/`chat_open`
+**antes** de ancorar; ancorar e levantar o núcleo uma única vez; reservar a largura
+real de `hud_stack` no overlay e acompanhar a animação via `valueChanged`.
+Arquivos: `ui.py`, `core/interface_canvas_planos.py`.
+Verificação: `tests/test_nucleo_canvas.py` (4 testes RED→GREEN) e diagnóstico com
+quatro cenários — todos com `OK=True`, âncora `bottom-right` e sobreposição -17 px.
+Suíte final: **342 testes passaram**; `compileall` e `git diff --check` limpos.
+
 ## Pendências reais
 
 | Pendência | Impacto | Motivo | Etapa de origem |

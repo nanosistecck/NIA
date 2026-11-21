@@ -76,6 +76,11 @@ class CanvasEditor(QWidget):
         self.editor_internal.estado_salvamento.connect(self.status.setText)
         root.addWidget(self.editor_internal, 1)
         self._reposicionar()
+        # O núcleo muda de tamanho durante a animação de 220 ms da âncora;
+        # acompanhar cada quadro evita que o mapa fique sob ele.
+        animacao = getattr(stage, "motion", None)
+        if animacao is not None:
+            animacao.valueChanged.connect(lambda *_: self._reposicionar())
 
     def definir_modo(self, assistido: bool) -> None:
         """Alterna Manual/Com a NIA sem tocar no mapa, seleção ou câmera."""
@@ -184,7 +189,12 @@ class CanvasEditor(QWidget):
         if pai is None:
             return
         w, h = pai.width(), pai.height()
-        reserva = min(210, max(120, int(w * 0.18))) + 16
+        # Reservar a largura real do núcleo ancorado, não uma estimativa
+        # fixa: com cards/painéis ocupados ele usa ~48% da largura do
+        # stage e uma reserva de 18% deixava o mapa embaixo dele.
+        nucleo = getattr(pai, "hud_stack", None)
+        largura_nucleo = nucleo.width() if nucleo is not None else 0
+        reserva = max(140, largura_nucleo + 16)
         self.setGeometry(QRect(0, 0, max(1, w - reserva), max(1, h)))
 
     def resizeEvent(self, event):  # noqa: N802 (Qt)

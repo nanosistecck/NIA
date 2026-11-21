@@ -5103,7 +5103,12 @@ class MainWindow(QMainWindow):
 
         self._right_panel.expanded = False      # sessão: sem persist()
         self._right_panel.apply()
-        self._stage.set_anchor("bottom-right")
+
+        # Esconder os painéis ANTES de ancorar: com brief visível, arrange()
+        # usa _brief_geometries(), que ignora a âncora e deixa o núcleo no
+        # canto direito centralizado. Depois de esconder, nada chamava
+        # arrange() de novo. Fazer nesta ordem garante o canto inferior
+        # direito em toda abertura, inclusive reaberturas.
         self._stage._canvas_editor_ativo = True
         self._stage.results.hide()
         self._stage.hoje_host.hide()
@@ -5111,6 +5116,10 @@ class MainWindow(QMainWindow):
         self._stage.brief_host.hide()
         self._left_panel.hide()
         self._drawer.hide()
+        self._stage.tools_open = False
+        self._stage.chat_open = False
+        self._stage.set_anchor("bottom-right")
+        self._stage.hud_stack.raise_()
 
         editor = getattr(self, "_canvas_editor", None)
         if editor is None:

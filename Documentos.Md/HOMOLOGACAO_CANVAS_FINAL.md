@@ -89,3 +89,21 @@ janela curta deve ser repetida com amostragem longa para conclusão.
 | CPU com núcleo falando | Possível contendimento de thread | Medição com TTS ativo e amostragem longa |
 | Notificação com NIA fechada | Avisos só na próxima abertura | Integração com SO |
 | Publicação real | Saída permanece desativada | Integração própria |
+
+## Revisão Prompt 07 — exclusão permanente de arquivados (21/11/2026)
+
+**O que já existia:** arquivar/restaurar e o botão de lembretes; **não existia** exclusão
+permanente nem seleção múltipla no Gerenciador.
+
+**Implementado:** `BP.excluir_permanentemente(plano_id, revisao)` exige status `arquivado`
+e confere a revisão antes de apagar o JSON; `BP.excluir_lote(...)` processa item a item e
+devolve `excluidos`/`falhas`. A lista agora usa `ExtendedSelection`, mostra **Excluir
+permanentemente**, indica itens fora do filtro, exige confirmação com títulos/IDs e
+**Cancelar como padrão**, e informa sucessos/falhas por plano com retry. Lembretes vivem no
+JSON do plano e desaparecem junto com ele; nenhum arquivo compartilhado é removido.
+
+**Verificação:** `tests/test_exclusao_planos.py` (7 testes RED→GREEN) cobre exclusão
+individual, bloqueio de plano ativo, conflito de revisão, restauração entre seleção e
+exclusão, lote parcial com retry, dois planos com o mesmo título, cancelamento e seleção
+múltipla pela interface. Suíte: **390 testes passaram**; `compileall` e `git diff --check`
+limpos. Interface Qt offscreen; falha parcial e conflito simulados.

@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core import planos as BP
+from core.planos import excluir_permanentemente as _excluir_permanentemente
 from core import modelos_planos as MP
 from core import lembretes as LEM
 from core.planos import (
@@ -175,6 +176,7 @@ class PlanosWindow(QWidget):
         ev.setContentsMargins(0, 0, 0, 0)
         self.lista = QListWidget(esquerda)
         self.lista.setObjectName("lista_planos")
+        self.lista.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         ev.addWidget(self.lista, 1)
         acoes = QHBoxLayout()
         self.botoes = {}
@@ -185,6 +187,7 @@ class PlanosWindow(QWidget):
             ("abrir_canvas", "Editar no Canvas"),
             ("abrir_canvas_ia", "Editar com a NIA"),
             ("lembretes", "Lembretes"),
+            ("excluir_permanentemente", "Excluir permanentemente"),
             ("arquivar", "Arquivar"),
             ("restaurar", "Restaurar"),
         ):
@@ -245,6 +248,8 @@ class PlanosWindow(QWidget):
         self.botoes["abrir_canvas"].clicked.connect(self._abrir_canvas)
         self.botoes["abrir_canvas_ia"].clicked.connect(self._abrir_canvas_assistido)
         self.botoes["lembretes"].clicked.connect(self._abrir_lembretes)
+        self.botoes["excluir_permanentemente"].clicked.connect(
+            self._excluir_permanentemente)
         self.botoes["arquivar"].clicked.connect(self._arquivar)
         self.botoes["restaurar"].clicked.connect(self._restaurar)
         self.salvar.clicked.connect(self.salvar_plano)
@@ -336,6 +341,15 @@ class PlanosWindow(QWidget):
             selecionado is not None and selecionado.status == "ativo")
         self.botoes["restaurar"].setEnabled(
             selecionado is not None and selecionado.status == "arquivado")
+        selecionados = self.lista.selectedItems()
+        fora = [i for i in selecionados
+                if (BP.carregar(i.data(0x0100)) or None) is None
+                or BP.carregar(i.data(0x0100)).status != "arquivado"]
+        self.botoes["excluir_permanentemente"].setEnabled(bool(selecionados))
+        if fora:
+            self.status.setText(
+                f"{len(selecionados)} selecionado(s); "
+                f"{len(fora)} fora do filtro de arquivados.")
 
     # ── ações ───────────────────────────────────────────────────────────
     def novo_plano(self) -> None:
@@ -445,6 +459,48 @@ class PlanosWindow(QWidget):
     def _abrir_canvas(self) -> None:
         if self.plano_selecionado_id:
             self.abrir_canvas.emit(self.plano_selecionado_id)
+
+    def _confirmar_exclusao(self, ids: list[str]) -> bool:
+        planos = [BP.carregar(i) for i in ids]
+        planos = [p for p in planos if p is not None]
+        titulos = "\n".join(f"• {p.titulo} ({p.id[:8]})" for p in planos)
+        texto = (f"Excluir permanentemente {len(planos)} plano(s)?\n\n{titulos}\n\n"
+                 "Esta ação é definitiva.")
+        caixa = QMessageBox(self)
+        caixa.setWindowTitle("Excluir permanentemente")
+        caixa.setText(texto)
+        caixa.setIcon(QMessageBox.Icon.Warning)
+        cancelar = caixa.addButton(QMessageBox.StandardButton.Cancel)
+        caixa.addButton("Excluir", QMessageBox.StandardButton.DestructiveRole)
+        caixa.setDefaultButton(cancelar)
+        return caixa.exec() == 1
+
+    def _excluir_permanentemente(self) -> None:
+        ids = [item.data(0x0100) for item in self.lista.selectedItems()]
+        if not ids or not self._confirmar_exclusao(ids):
+            return
+        excluidos = []
+        falhas = []
+        for ident in ids:
+            plano = BP.carregar(ident)
+            if plano is None:
+                continue
+            if plano.status != "arquivado":
+                falhas.append(ident)
+                continue
+            try:
+                _excluir_permanentemente(ident, plano.revisao)
+                excluidos.append(ident)
+            except (BP.ErroPlano, OSError):
+                falhas.append(ident)
+        self.recarregar()
+        if falhas:
+            self.status.setText(
+                f"Excluídos {len(excluidos)}; falharam {len(falhas)}: "
+                + ", ".join(f[:8] for f in falhas) + ".")
+            self._ids_pendentes_exclusao = falhas
+        else:
+            self.status.setText(f"{len(excluidos)} plano(s) excluído(s).")
 
     def _abrir_lembretes(self) -> None:
         dialogo = LembretesDialog(self)

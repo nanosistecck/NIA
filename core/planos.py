@@ -322,6 +322,47 @@ def arquivar(plano_id: str, revisao_esperada: int) -> Plano:
     return _carregar_ou_erro(plano_id)
 
 
+def excluir_permanentemente(plano_id: str, revisao_esperada: int | None = None) -> None:
+    """Remove um plano arquivado e todos os dados que pertencem só a ele.
+
+    Confere o status e a revisão imediatamente antes de apagar. Nunca remove
+    planos ativos, arquivos compartilhados ou exportações do usuário.
+    """
+    atual = _carregar_ou_erro(plano_id)
+    if atual.status != "arquivado":
+        raise PlanoInvalido("somente planos arquivados podem ser excluídos")
+    if revisao_esperada is not None and atual.revisao != revisao_esperada:
+        raise ConflitoDeRevisao(revisao_esperada, atual.revisao)
+    caminho = _caminho(plano_id)
+    try:
+        caminho.unlink()
+    except OSError as exc:
+        raise ErroPlano(f"falha ao excluir plano: {type(exc).__name__}") from exc
+    for sufixo in (".tmp",):
+        try:
+            caminho.with_suffix(sufixo).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def excluir_lote(itens: list[tuple[str, int | None]],
+                 falhas: set[str] | None = None) -> dict:
+    """Exclui plano a plano, devolvendo sucessos e falhas sem interromper o lote."""
+    excluidos: list[str] = []
+    erros: list[str] = []
+    falhas = falhas or set()
+    for plano_id, revisao in itens:
+        if plano_id in falhas:
+            erros.append(plano_id)
+            continue
+        try:
+            excluir_permanentemente(plano_id, revisao)
+            excluidos.append(plano_id)
+        except (ErroPlano, OSError):
+            erros.append(plano_id)
+    return {"excluidos": excluidos, "falhas": erros}
+
+
 def restaurar(plano_id: str, revisao_esperada: int) -> Plano:
     plano = atualizar(plano_id, {"status": "ativo"}, revisao_esperada)
     try:

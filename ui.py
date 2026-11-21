@@ -4544,10 +4544,27 @@ class MainWindow(QMainWindow):
         """Barra do Windows na cor da NIA, sem texto nem ícone (só os botões)."""
         self.setWindowTitle("")
         self.setWindowIcon(QIcon())
+        # Se o applicationName continuar "python", o Windows mostra essa
+        # palavra na barra mesmo com o título vazio.
+        try:
+            if QApplication.applicationName() in ("python", "", "pythonw"):
+                QApplication.setApplicationName("NIA")
+        except Exception:
+            pass
         try:
             import ctypes
             from ctypes import wintypes
             hwnd = int(self.winId())
+            # Remove o ícone do sistema e o texto da barra de título nativa.
+            try:
+                user32 = ctypes.windll.user32
+                user32.SetWindowTextW(wintypes.HWND(hwnd), "")
+                icon = wintypes.HICON()
+                user32.SendMessageTimeoutW(
+                    wintypes.HWND(hwnd), 0x007F, 0, ctypes.byref(icon),
+                    0x0002, 100, None)  # WM_SETICON, ICON_SMALL = 0
+            except Exception:
+                pass
             dwmapi = ctypes.windll.dwmapi
             # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
             escuro = wintypes.BOOL(1)

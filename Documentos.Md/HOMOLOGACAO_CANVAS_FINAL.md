@@ -90,6 +90,14 @@ janela curta deve ser repetida com amostragem longa para conclusão.
 | Notificação com NIA fechada | Avisos só na próxima abertura | Integração com SO |
 | Publicação real | Saída permanece desativada | Integração própria |
 
+## Barra sem "python" (22/11/2026)
+
+Mesmo com `setWindowTitle("")`, o Windows exibia **python** porque o
+`QApplication.applicationName()` padrão do interpreter é `python`. Corrigido em
+`_aplicar_barra_nativa()`: applicationName passa a `NIA`, `SetWindowTextW` limpa o texto
+nativo e `WM_SETICON`/`ICON_SMALL` remove o ícone da barra. Teste:
+`tests/test_sem_titulo_python.py` (2 RED→GREEN). Suíte: **409 passaram**.
+
 ## Barra nativa colorida (22/11/2026) — estado final
 
 Os botões próprios foram **removidos** (não ficaram bonitos). A janela volta a usar os

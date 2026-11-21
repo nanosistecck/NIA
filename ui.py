@@ -1796,33 +1796,17 @@ class _MarcaNia(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         c = QPointF(26, 26)
-        halo = QRadialGradient(c, 26)
-        halo.setColorAt(0.0, qcol(_tc(C.PRI), 70))
-        halo.setColorAt(1.0, qcol(_tc(C.PRI), 0))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(halo))
-        p.drawEllipse(c, 26, 26)
-        anel = QConicalGradient(c, -self._ang)
-        anel.setColorAt(0.0, qcol(_tc(C.PRI), 255))
-        anel.setColorAt(0.35, qcol(_tc(C.INDIGO), 190))
-        anel.setColorAt(0.70, qcol(_tc(C.PRI), 20))
-        anel.setColorAt(1.0, qcol(_tc(C.PRI), 255))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QBrush(anel), 2.2))
-        p.drawEllipse(c, 16.5, 16.5)
-        p.setPen(QPen(qcol(_tc(C.PRI), 70), 1.0))
-        p.drawEllipse(c, 11.0, 11.0)
-        p.setPen(QPen(qcol(_tc(C.PRI), 170), 1.3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        ret = QRectF(c.x() - 21, c.y() - 21, 42, 42)
+        p.setPen(QPen(qcol(_tc(C.PRI), 102), 1.2))
+        p.drawEllipse(c, 21, 21)
+        p.setPen(QPen(qcol(_tc(C.PRI), 255), 2.5,
+                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        ret = QRectF(c.x() - 15, c.y() - 15, 30, 30)
         for rep in range(2):
-            p.drawArc(ret, int(((self._ang * 1.6) + rep * 180) * 16), 38 * 16)
-        nucleo = QRadialGradient(c, 7.0)
-        nucleo.setColorAt(0.0, qcol(_tc("#ffffff"), 255))
-        nucleo.setColorAt(0.35, qcol(_tc(C.PRI), 230))
-        nucleo.setColorAt(1.0, qcol(_tc(C.PRI), 0))
+            p.drawArc(ret, int((self._ang + rep * 180) * 16), 110 * 16)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(nucleo))
-        p.drawEllipse(c, 7.0, 7.0)
+        p.setBrush(qcol(_tc("#7FF0FF"), 255))
+        p.drawEllipse(c, 6, 6)
         p.end()
 
 
@@ -2098,16 +2082,20 @@ class ControlCard(QPushButton):
         press = self._press_progress
         y_shift = -2.5 * hover + 1.5 * press
         rect = QRectF(3.0, 3.0 + y_shift, w - 6.0, h - 6.0)
-        radius = 16.0
+        radius = 14.0
         accent = QColor(_tema.cor_botao(self.objectName(), self._display_color.name())
                         or self._display_color.name())
 
+        # vidro da prancha: sempre visível; a borda acende ao passar o mouse
+        vidro = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        vidro.setColorAt(0.0, QColor(14, 42, 64, 160))
+        vidro.setColorAt(1.0, QColor(7, 22, 38, 170))
+        p.setBrush(QBrush(vidro))
+        p.setPen(QPen(qcol(accent.name(), round(51 + 100 * hover)), 1.0))
+        p.drawRoundedRect(rect, radius, radius)
         if hover > 0.01 or press > 0.01:
-            fundo = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-            fundo.setColorAt(0.0, qcol(accent.name(), round(34 * hover + 30 * press)))
-            fundo.setColorAt(1.0, qcol(accent.name(), round(8 * hover)))
-            p.setBrush(QBrush(fundo))
-            p.setPen(QPen(qcol(accent.name(), round(90 * hover)), 1.0))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(qcol(accent.name(), round(28 * hover + 26 * press)))
             p.drawRoundedRect(rect, radius, radius)
 
         lines = self.text().splitlines()
@@ -3812,6 +3800,24 @@ def _perguntar_salvar_mapa(janela):
         QMessageBox.StandardButton.Cancel)
 
 
+class _FundoComGrade(CanvasBackground):
+    """Fundo da NIA com a grade da prancha, mais visível que antes."""
+
+    _PASSO_V = 80     # linhas horizontais
+    _PASSO_H = 160    # linhas verticais
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setPen(QPen(QColor(25, 211, 243, 38), 1))
+        w, h = self.width(), self.height()
+        for x in range(0, w, self._PASSO_H):
+            p.drawLine(x, 0, x, h)
+        for y in range(0, h, self._PASSO_V):
+            p.drawLine(0, y, w, y)
+        p.end()
+
+
 class MainWindow(QMainWindow):
     _log_sig     = pyqtSignal(str)
     _state_sig   = pyqtSignal(str)
@@ -3883,7 +3889,7 @@ class MainWindow(QMainWindow):
         self._whatsapp_overlay: WhatsAppQrOverlay | None = None
         self._whatsapp_connecting = False
 
-        central = CanvasBackground(preferences=DockPreferences(CONFIG_DIR / 'interface.json').data)
+        central = _FundoComGrade(preferences=DockPreferences(CONFIG_DIR / 'interface.json').data)
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(28, 16, 28, 24)
@@ -3983,7 +3989,7 @@ class MainWindow(QMainWindow):
         self._composer.setObjectName("Glass")
         self._composer.setStyleSheet(GLASS)
         composer_layout = QVBoxLayout(self._composer)
-        composer_layout.setContentsMargins(14, 6, 14, 6)
+        composer_layout.setContentsMargins(8, 0, 8, 0)
         self._file_hint = QLabel(_dica_arquivo())
         self._file_hint.setWordWrap(True)
         self._file_hint.hide()
@@ -3995,9 +4001,12 @@ class MainWindow(QMainWindow):
         footer.addWidget(self._composer, 1)
         footer.addStretch()
         root.addLayout(footer)
-        self._composer.setMinimumWidth(460)
-        self._composer.setMaximumWidth(600)
-        self._composer.setMinimumHeight(58)
+        self._composer.setFixedWidth(440)
+        self._composer.setFixedHeight(44)
+        self._composer.setStyleSheet(
+            "QFrame#Glass { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            " stop:0 rgba(14,42,64,160), stop:1 rgba(7,22,38,170));"
+            " border: 1px solid rgba(25,211,243,51); border-radius: 22px; }")
 
         # Metrik güncelleme timer'ı
         self._metric_tmr = QTimer(self)
@@ -5020,15 +5029,15 @@ class MainWindow(QMainWindow):
         row.setSpacing(14)
         row.addWidget(_MarcaNia())
         self._lbl_titulo_topo = QLabel(_nome_tela("titulo", "NIA"))
-        self._lbl_titulo_topo.setFont(_ftexto(19))
+        self._lbl_titulo_topo.setFont(_espacado(_fx(22, QFont.Weight.DemiBold), 1.3))
         self._lbl_titulo_topo.setStyleSheet("color:#edf8ff;background:transparent;")
         row.addWidget(self._lbl_titulo_topo)
         divider = QFrame()
-        divider.setFixedSize(1,22)
-        divider.setStyleSheet("background:#678195;")
+        divider.setFixedSize(1, 20)
+        divider.setStyleSheet("background: rgba(143,181,201,90);")
         row.addWidget(divider)
         self._rail_state_lbl = QLabel("●  Iniciando")
-        self._rail_state_lbl.setFont(_ftexto(11))
+        self._rail_state_lbl.setFont(_espacado(_fx(11, QFont.Weight.DemiBold), 2.0))
         self._rail_state_lbl.setStyleSheet(self._estilo_pilula(C.PRI))
         row.addWidget(self._rail_state_lbl)
         row.addStretch()
@@ -6006,21 +6015,28 @@ class MainWindow(QMainWindow):
         return button
 
     def _build_input_row(self) -> QHBoxLayout:
-        row = QHBoxLayout(); row.setSpacing(6)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        _ROUND = ("QPushButton { color: #8FD9EE; background: transparent; border: none;"
+                  " border-radius: 15px; min-width: 30px; max-width: 30px;"
+                  " min-height: 30px; max-height: 30px; }"
+                  "QPushButton:hover { background: rgba(25,211,243,30); color: #E6F6FF; }")
+
         attach = QPushButton()
         attach.setIcon(icon("attach"))
         attach.setToolTip("Anexar arquivos")
+        attach.setStyleSheet(_ROUND)
         attach.clicked.connect(self._drop_zone._browse)
         row.addWidget(attach)
 
         self._input = QLineEdit()
         self._input.setPlaceholderText("Converse com a NIA…")
-        self._input.setFont(_ftexto(11.5))
-        self._input.setFixedHeight(34)
+        self._input.setFont(_ftexto(13))
+        self._input.setFixedHeight(32)
         self._input.setStyleSheet(f"""
             QLineEdit {{
                 background: transparent; color: {C.WHITE};
-                border: none; border-radius: 11px; padding: 3px 12px;
+                border: none; padding: 2px 4px;
                 selection-background-color: {C.PRI_GHO};
             }}
             QLineEdit:focus {{ border: none; background: transparent; }}
@@ -6028,41 +6044,46 @@ class MainWindow(QMainWindow):
         self._input.returnPressed.connect(self._send)
         row.addWidget(self._input)
 
-        _fam_icone = _system_icon_font_family()
-        _fluent = _fam_icone != "Segoe UI Symbol"
         send = QPushButton()
         send.setIcon(icon("send", "#002332"))
-        send.setFixedSize(34, 34)
-        send.setFont(QFont(_fam_icone, 11) if _fluent else _fx(12, QFont.Weight.Bold))
+        send.setFixedSize(32, 32)
         send.setCursor(Qt.CursorShape.PointingHandCursor)
         send.setToolTip("Enviar")
         send.setStyleSheet("""
             QPushButton {
-                color: #00121a; border: none; border-radius: 17px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #00d4ff, stop:1 #008fbf);
+                color: #00121a; border: none; border-radius: 16px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #19D3F3, stop:1 #1673FF);
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5fe8ff, stop:1 #00a8dd);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5fe8ff, stop:1 #3585ff);
             }
             QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #00a8cc, stop:1 #006f99);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #00a8cc, stop:1 #0d56cc);
             }
         """)
         send.clicked.connect(self._send)
         row.addWidget(send)
+
         mic = QPushButton()
         self._composer_mic = mic
         mic.setCheckable(True)
         mic.setIcon(icon("mute"))
         mic.setToolTip("Microfone [F4]")
+        mic.setStyleSheet(_ROUND + """
+            QPushButton:checked { color: #7FF0FF; border: 1px solid rgba(25,211,243,180);
+                background: rgba(25,211,243,40); }""")
         mic.clicked.connect(self._toggle_mute)
         row.addWidget(mic)
+
         self._history_btn = QPushButton()
         self._history_btn.setIcon(icon("history"))
         self._history_btn.setCheckable(True)
         self._history_btn.setToolTip("Mostrar ou recolher histórico")
+        self._history_btn.setStyleSheet(_ROUND + """
+            QPushButton:checked { color: #7FF0FF; border: 1px solid rgba(25,211,243,180); }""")
         self._history_btn.clicked.connect(self._toggle_history)
         row.addWidget(self._history_btn)
+
         self._style_mute_btn()
         for i in range(row.count()):
             button = row.itemAt(i).widget()

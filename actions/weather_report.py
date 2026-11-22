@@ -151,6 +151,43 @@ def _qual_dia(quando: str, hoje: date) -> int | None:
     return 0
 
 
+def _qual_turno(texto: str) -> str:
+    """Turno ou hora pedida, para filtrar a previsão horária localmente."""
+    import re
+    q = _sem_acento(str(texto or ""))
+    if any(p in q for p in ("manha", "manhã", "de manha", "pela manha")):
+        return "manha"
+    if any(p in q for p in ("tarde", "da tarde", "meio dia", "meiodia")):
+        return "tarde"
+    if any(p in q for p in ("noite", "da noite", "madrugada")):
+        return "noite"
+    hora = re.search(r"(\d{1,2})\s*(?:h|:(\d{2}))", q)
+    if hora:
+        return str(int(hora.group(1)))
+    return ""
+
+
+def _filtrar_horas(horas: list[dict], turno: str) -> list[dict]:
+    """Filtra a lista de horários pelo turno ou hora; vazia devolve tudo."""
+    if not turno:
+        return list(horas or [])
+    resultado = []
+    for item in horas or []:
+        try:
+            hora = int(str(item.get("hora", ""))[:2])
+        except (TypeError, ValueError):
+            continue
+        if turno == "manha" and 5 <= hora < 12:
+            resultado.append(item)
+        elif turno == "tarde" and 12 <= hora < 18:
+            resultado.append(item)
+        elif turno == "noite" and (hora >= 18 or hora < 5):
+            resultado.append(item)
+        elif turno.isdigit() and hora == int(turno):
+            resultado.append(item)
+    return resultado
+
+
 def _numero_ou_none(valor):
     if valor is None:
         return None
@@ -213,6 +250,55 @@ def _card_do_tempo(dados: dict, nome: str, quando: str, en: bool) -> dict | None
             "umidade": _numero_ou_none(atual.get("relative_humidity_2m")),
             "vento": _numero_ou_none(atual.get("wind_speed_10m")),
         })
+
+    # Campos ricos da prancha (todos locais, derivados da mesma resposta).
+    atual = dados.get("current") or {}
+    diario = dados.get("daily") or {}
+    horario = dados.get("hourly") or {}
+    i_dia = 0 if solicitada.isoformat() == tempos[0] else next(
+        (k for k, iso in enumerate(tempos) if iso[:10] == solicitada.isoformat()), 0)
+
+    def _diario(chave, indice=i_dia):
+        lista = diario.get(chave) or []
+        return lista[indice] if indice < len(lista) else None
+
+    visibilidade = atual.get("visibility")
+    try:
+        visibilidade = round(float(visibilidade) / 1000.0, 1)  # m -> km
+    except (TypeError, ValueError):
+        visibilidade = None
+    destaque.update({
+        "pressao": _numero_ou_none(atual.get("pressure_msl")),
+        "visibilidade": visibilidade,
+        "uv": _numero_ou_none(atual.get("uv_index") or _diario("uv_index_max")),
+        "nascer": _diario("sunrise"),
+        "poente": _diario("sunset"),
+    })
+
+    horas = []
+    tempos_h = list(horario.get("time") or [])
+    for k, iso in enumerate(tempos_h[:24]):
+        if str(iso)[:10] != solicitada.isoformat():
+            continue
+        horas.append({
+            "hora": str(iso)[11:16],
+            "temp": _numero_ou_none((horario.get("temperature_2m") or [None] * (k + 1))[k]),
+            "chuva": _numero_ou_none((horario.get("precipitation_probability") or [None] * (k + 1))[k]),
+            "codigo": (horario.get("weather_code") or [None] * (k + 1))[k],
+        })
+    try:
+        chuva_max = max((h["chuva"] for h in horas if h["chuva"] is not None), default=None)
+    except (TypeError, ValueError):
+        chuva_max = None
+    chance = destaque.get("chuva")
+    if chuva_max is not None and (chance is None or chuva_max > chance):
+        chance = chuva_max
+    destaque["alerta"] = (
+        "Alerta: chuva forte e trovoadas hoje ({}%). Evite áreas abertas.".format(
+            round(chance)) if (chance is not None and chance >= 70
+                               and int(destaque.get("codigo") or 0) in (95, 96, 99))
+        else "")
+
     return {
         "tipo": "clima",
         "cidade": nome,
@@ -220,6 +306,7 @@ def _card_do_tempo(dados: dict, nome: str, quando: str, en: bool) -> dict | None
         "semana": semana,
         "destaque": destaque,
         "dias": dias,
+        "horas": horas,
     }
 
 
@@ -277,9 +364,10 @@ def weather_action(
             "https://api.open-meteo.com/v1/forecast?timezone=auto&forecast_days=7"
             f"&latitude={lat}&longitude={lon}"
             "&current=temperature_2m,weather_code,apparent_temperature,"
-            "relative_humidity_2m,wind_speed_10m"
+            "relative_humidity_2m,wind_speed_10m,pressure_msl,visibility,uv_index"
+            "&hourly=temperature_2m,precipitation_probability,weather_code"
             "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
-            "precipitation_probability_max")
+            "precipitation_probability_max,sunrise,sunset,uv_index_max")
         d = dados["daily"]
         hoje = date.fromisoformat(d["time"][0])
         i = _qual_dia(quando, hoje)
@@ -314,6 +402,22 @@ def weather_action(
             if i == 0 and agora is not None:
                 msg += (f" Right now it's {round(agora)} degrees." if en
                         else f" Agora faz {round(agora)} graus.")
+            turno = _qual_turno(quando)
+            if turno:
+                card_previo = _card_do_tempo(dados, nome, quando, en)
+                horas = _filtrar_horas((card_previo or {}).get("horas") or [], turno)
+                if horas:
+                    if turno in ("manha", "tarde", "noite"):
+                        partes = [f"{h['hora']}: {round(h['temp'])}° / {h['chuva']}%" for h in horas
+                                  if h.get("temp") is not None]
+                        rotulo_t = {"manha": "manhã", "tarde": "tarde",
+                                    "noite": "noite"}[turno]
+                        msg += f" No período da {rotulo_t}: " + ", ".join(partes) + "."
+                    else:
+                        h = horas[0]
+                        msg += (f" Às {h['hora']}, {round(h['temp'])} graus e "
+                                f"{h['chuva']}% de chuva." if h.get("temp") is not None
+                                else f" Às {h['hora']}: previsão indisponível.")
         # O MESMO resultado alimenta a fala e o card. Só há card depois de
         # uma consulta bem-sucedida: erro não reaproveita dado velho.
         card = _card_do_tempo(dados, nome, quando, en)

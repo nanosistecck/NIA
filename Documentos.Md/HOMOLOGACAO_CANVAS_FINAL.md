@@ -187,6 +187,22 @@ Medição com 41 cards/40 conexões: 200 pan/zoom em 1,469 s, RSS 77,1→80,8 MB
 
 Verificação: **392 testes passaram**, `compileall` e `git diff --check` limpos.
 
+## Painel de previsão rico (22/11/2026)
+
+Baseado na prancha HTML de referência, traduzido para PyQt6 em `core/canvas_brief.py`
+(sem WebEngine, sem blur em tempo real):
+- `actions/weather_report.py` ampliou a consulta ao Open-Meteo com `hourly`,
+  `pressure_msl`, `visibility`, `uv_index`, `sunrise`, `sunset`, `uv_index_max`.
+- `_card_do_tempo` passa a incluir `horas[]`, `pressao`, `visibilidade` (km), `uv`,
+  `nascer`, `poente` e `alerta` (gerado localmente em trovoadas com chuva ≥70%).
+- `WeatherBrief` mostra alerta, métricas e barras de chance de chuva por hora;
+  `WeatherWeek` mantém os 7 dias. Chaves antigas preservadas.
+- `_qual_turno` / `_filtrar_horas` resolvem “de manhã”, “da tarde”, “da noite” ou
+  uma hora específica (“às 20h”) na resposta falada, sem IA.
+
+Verificação: `tests/test_previsao_richa.py` (4 testes RED→GREEN) + 23 testes de
+`test_canvas_brief.py` passaram; captura com dados fictícios conferida.
+
 ## Revisão Prompt 07 — exclusão permanente de arquivados (21/11/2026)
 
 **O que já existia:** arquivar/restaurar e o botão de lembretes; **não existia** exclusão

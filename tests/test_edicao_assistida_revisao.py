@@ -40,7 +40,7 @@ def nia(plano):
     obj._provedor_assistido = None
     obj.ui = SimpleNamespace(
         contexto_canvas=lambda: {"plano_id": plano.id, "card_id": "div",
-                                 "plano": BP.carregar(plano.id)},
+                                 "plano": BP.carregar(plano.id), "modo_assistido": True},
         write_log=lambda t: registros.append(t),
         abrir_plano=lambda _: None,
         abrir_planos=lambda: None,
@@ -107,7 +107,7 @@ def test_conflito_com_edicao_manual_preservada(nia, plano):
     }}, plano.revisao)
     # Pedido capturado com o plano original; edição manual aplicada depois.
     obj.ui.contexto_canvas = lambda: {"plano_id": plano.id, "card_id": "div",
-                                      "plano": plano}
+                                      "plano": plano, "modo_assistido": True}
     obj.ui.estado_canvas_vivo = lambda: vivo
     obj._provedor_assistido = lambda pedido, ctx: (
         '{"operacoes":[{"tipo":"editar_campos","card_id":"div",'
@@ -118,11 +118,11 @@ def test_conflito_com_edicao_manual_preservada(nia, plano):
     assert registros
 
 
-def test_troca_de_plano_descarta_resposta_atrasada(nia, tmp_path):
+def test_troca_de_plano_descarta_resposta_atrasada(nia, tmp_path, plano):
     obj, aplicados, registros = nia
     outro = BP.inicializar_mapa(BP.criar("Outro plano", "Obj", "Geral").id)
     obj.ui.contexto_canvas = lambda: {"plano_id": outro.id, "card_id": None,
-                                      "plano": outro}
+                                      "plano": outro, "modo_assistido": True}
     obj.ui.estado_canvas_vivo = lambda: plano
     obj._executar_frase_habilidade(
         "Crie três cards de divulgação gratuita ligados a este.", "texto")
@@ -150,7 +150,7 @@ def test_destino_duplicado_pede_escolha(nia, plano):
                    "id": "pub2", "titulo": "Público-alvo"}],
     }}, plano.revisao)
     obj.ui.contexto_canvas = lambda: {"plano_id": vivo.id, "card_id": "div",
-                                      "plano": vivo}
+                                      "plano": vivo, "modo_assistido": True}
     obj._executar_frase_habilidade("Conecte este card a Público-alvo.", "texto")
     assert not aplicados
     assert any("varios" in r.lower() or "destinos" in r.lower()

@@ -101,7 +101,7 @@ def test_pedido_assistido_por_texto_e_voz_usam_mesmo_caminho(window, app):
     nia._modo_local = True
     nia._provedor_assistido = None
     nia.ui = SimpleNamespace(
-        contexto_canvas=lambda: {**contexto, "plano": plano},
+        contexto_canvas=lambda: {**contexto, "plano": plano, "modo_assistido": True},
         write_log=lambda texto: registros.append(texto),
         aplicar_lote_assistido=lambda ops, rotulo: registros.append((ops, rotulo)),
     )
@@ -124,7 +124,7 @@ def test_provedor_recebe_apenas_contexto_permitido_mesmo_em_fallback(window):
     nia = object.__new__(main.NiaLive)
     nia._modo_local = True  # modo local, mas o fallback externo nao pode vazar
     nia.ui = SimpleNamespace(
-        contexto_canvas=lambda: {**contexto, "plano": plano},
+        contexto_canvas=lambda: {**contexto, "plano": plano, "modo_assistido": True},
         write_log=lambda *_: None,
         aplicar_lote_assistido=lambda *_: None,
     )

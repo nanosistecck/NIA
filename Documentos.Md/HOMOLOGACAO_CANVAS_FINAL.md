@@ -3,6 +3,42 @@
 Data: 21/11/2026 · Branch `CANVAS-INFINITO` · Perfil isolado (`NIA_PLANOS_DIR`) ·
 Planos fictícios **Projeto dos lojistas** com **Público-alvo** e **Divulgação**.
 
+## Correção 22/11/2026 — “apaga os outros cards” caía no shell
+
+**Sintoma:** o dono pediu *“agora apaga os outros cards, e modifique para como seu
+sistema funciona e um plano de evolução”*. A NIA emitiu `[comando] Get-ChildItem …`,
+não tocou no Canvas e ainda respondeu “Status: Arquivos limpos e novo plano criado
+com sucesso”.
+
+**Causa raiz:** `reconhecer_intencao` conhecia `apague/apagar`, mas não a conjugação
+`apaga`; e `pede_limpar_mapa` exigia “todos os cards”, não “os outros cards”. A frase
+voltava `NENHUMA`, a rota local desistia e o modelo tratava “cards” como arquivos,
+escolhendo `executar_tarefa`.
+
+**Correção:** `core/assistencia_planos.py` reconhece `apaga/exclui/remove/limpa` e
+`modifique`; `core/controle_canvas.py` aceita “os outros/ os demais cards” como
+limpeza do mapa (preservando o card central) e trata `modifique/transforme/reformule`
+como substituição planejada. O provedor já documentava esse caso em
+`instrucoes_operacoes` (linhas 176-181); agora ele é alcançado.
+
+**Verificação:** `tests/test_controle_canvas.py` ganhou 3 testes RED→GREEN com a frase
+real (reconhecimento, pedido de autorização e recriação do plano em um único lote);
+44 testes do arquivo passaram, além de 68 testes vizinhos de Planos/Canvas.
+
+### Simulações de controle do Canvas (22/11/2026)
+
+`tests/test_simulacao_controle_canvas.py` (9 testes) percorre o fluxo real de chat/voz:
+ativar modo, criar três cards, criar card já conectado, renomear, alterar descrição,
+marcar status, mover e desfazer, conectar/desconectar, excluir card nomeado, consultar
+cards/conexões, substituir o mapa pelo pedido real e repetir criação/movimentação por voz.
+
+A simulação encontrou e corrigiu um segundo defeito: em *“Crie um card chamado X e
+conecte…”*, o título virava `chamado X`; `pedido_estruturado` agora remove o prefixo
+“chamado/com título”, e `resolver_card` aceita o mesmo prefixo no destino.
+
+**Verificação:** 9 simulações + 112 testes de Canvas/Planos passaram; captura offscreen
+gerada com quatro cards, duas conexões e o card **Protótipo** marcado como concluído.
+
 ## Ambiente e linha de base
 
 - Windows 11 (10.0.26200), Python 3.12.14, PyQt6 6.12.1, pytest 9.2.0, `offscreen`.

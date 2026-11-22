@@ -149,3 +149,24 @@ def test_resposta_estruturada_do_provedor_e_validada(plano, editor):
     assert not erros
     AP.aplicar_lote(editor, validas, "Da NIA")
     assert any(c["titulo"] == "Da NIA" for c in editor.plano_atual().mapa["cards"])
+
+
+@pytest.mark.parametrize('envoltorio', [
+    '{json}', '```json\n{json}\n```', 'Segue o lote completo:\n```json\n{json}\n```\nPronto.',
+    '\ufeff{json}', 'Resultado:\n{json}\nFim.'])
+def test_parse_aceita_um_json_completo_com_markdown_ou_explicacao(plano, envoltorio):
+    import json
+    bruto = json.dumps({'operacoes':[{'tipo':'criar_card','titulo':'Novo',
+                                     'descricao':'Texto com {chaves} e aspas "aqui".'}]})
+    ops, erros = AP.parse_resposta(envoltorio.replace('{json}', bruto), AP.montar_contexto(plano, None))
+    assert not erros and ops[0]['titulo'] == 'Novo'
+
+
+@pytest.mark.parametrize('bruto', [
+    'Claro, posso fazer isso!', '{"operacoes":[{"tipo":"excluir_card","card_id":"sol0"},',
+    '{"operacoes":[]}\n{"operacoes":[{"tipo":"salvar"}]}',
+    '{"resposta":{"operacoes":[{"tipo":"limpar_mapa"}]}',
+])
+def test_parse_nao_aproveita_respostas_parciais_ou_ambiguas(plano, bruto):
+    ops, erros = AP.parse_resposta(bruto, AP.montar_contexto(plano, None))
+    assert erros and not ops

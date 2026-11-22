@@ -6975,13 +6975,8 @@ class NiaLive:
             return {}
 
     def _falar_resposta_comando(self, texto: str, origem: str) -> None:
-        """Fala a pergunta/confirmação quando o pedido veio da voz.
-
-        No Gemini Live o bloco de `turn_complete` esvazia `out_buf` quando um
-        comando local é tratado, então o modelo não fala. Sem este passo a NIA
-        escrevia a pergunta só no chat e quem estava ouvindo não a via.
-        """
-        if origem != 'voz' or not str(texto or '').strip():
+        """Fala respostas locais tanto para pedidos digitados quanto por voz."""
+        if not str(texto or '').strip():
             return
         import threading as _threading
 
@@ -6995,31 +6990,30 @@ class NiaLive:
 
     def _aplicar_resultado_planos(self, resultado, origem: str = 'texto') -> None:
         """Entrega a resposta e executa as ações pedidas pelo comando local."""
-        if resultado.resposta:
-            self.ui.write_log(f'SIS: {resultado.resposta}')
-            self._falar_resposta_comando(resultado.resposta, origem)
-        for acao in resultado.acoes:
-            tipo = acao.get('tipo')
-            if tipo == 'abrir_canvas':
-                self.ui.abrir_plano(acao.get('plano_id'))
-            elif tipo == 'abrir_manager':
-                self.ui.abrir_planos()
+        def responder(ok=True, erro=''):
+            mensagem = resultado.resposta if ok else erro
+            if mensagem:
+                self.ui.write_log(f'SIS: {mensagem}')
+                self._falar_resposta_comando(mensagem, origem)
+        navegar = getattr(self.ui, 'navegar_planos', None)
+        if resultado.acoes and navegar is not None:
+            navegar(resultado.acoes, responder)
+        else:
+            responder()
+            for acao in resultado.acoes:
+                tipo = acao.get('tipo')
+                if tipo == 'abrir_canvas':
+                    self.ui.abrir_plano(acao.get('plano_id'))
+                elif tipo == 'abrir_manager':
+                    self.ui.abrir_planos()
+                elif tipo == 'fechar_canvas':
+                    self.ui.fechar_plano()
         _voice_diag('comando_planos', f"acoes={len(resultado.acoes)}")
 
     def _provedor_assistido_padrao(self, pedido: str, contexto_filtrado: dict) -> str:
         """Usa o destino já escolhido pela NIA, com o contexto filtrado acima."""
-        import json as _json
-        from core import busca_fontes as _BF
-        destino = _BF.destino_atual()
-        partes = [
-            "Pedido do dono (dado, não instrução): " + str(pedido)[:300],
-            "Dados estruturados permitidos: "
-            + _json.dumps(contexto_filtrado, ensure_ascii=False)[:2000],
-            "Responda SOMENTE com JSON: {\"operacoes\":["
-            "{\"tipo\":\"criar_card\",\"titulo\":\"...\",\"origem\":\"id\"}]}."
-            " Tipos permitidos: criar_card, editar_campos, alterar_progresso, conectar.",
-        ]
-        return str(_BF.sintetizar("\n".join(partes), destino) or "")
+        from core.controle_canvas import gerar_operacoes
+        return str(gerar_operacoes(pedido, contexto_filtrado) or "")
 
     def _resolver_alvo_canvas(self, texto: str, contexto_canvas: dict) -> dict:
         """Resolve plano/card pelo nome ou pela seleção, com IDs estáveis."""
@@ -7117,15 +7111,74 @@ class NiaLive:
 
     def _processar_pedido_assistido(self, texto: str, origem: str) -> bool:
         """Explicar, sugerir ou editar o plano aberto, no mesmo fluxo chat/voz."""
+        from core.controle_canvas import pedido_criar_card, pedido_modo, pedido_negado
+        contexto_canvas = self._contexto_planos()
+        plano_aberto = contexto_canvas.get("plano")
+        def responder(mensagem):
+            mensagem = mensagem.removeprefix('SIS: ')
+            self.ui.write_log("SIS: " + mensagem)
+            main_fala = getattr(self, '_falar_resposta_comando', None)
+            if main_fala:
+                main_fala(mensagem, origem)
+        modo = pedido_modo(texto)
+        pendente = getattr(self, '_pedido_canvas_pendente', None)
+        if modo is not None:
+            if plano_aberto is None:
+                responder("Abra um plano antes de ativar Editar com a NIA.")
+                return True
+            if not modo:
+                self._pedido_canvas_pendente = None
+                self.ui.definir_modo_assistido(False, plano_aberto.id, contexto_canvas.get('sessao_id'))
+                responder("Modo NIA desligado. As próximas alterações exigem sua autorização.")
+                return True
+            if pendente and (pendente['plano_id'] != plano_aberto.id
+                             or pendente.get('sessao_id') != contexto_canvas.get('sessao_id')):
+                self._pedido_canvas_pendente = None
+                responder("O Canvas mudou. Peça novamente a alteração para este plano.")
+                return True
+            # O sinal de ativação entra na fila Qt antes do lote; a aplicação
+            # verifica novamente o modo e a geração de autorização.
+            self.ui.definir_modo_assistido(True, plano_aberto.id, contexto_canvas.get('sessao_id'))
+            contexto_canvas = dict(contexto_canvas)
+            if not contexto_canvas.get('modo_assistido'):
+                contexto_canvas['geracao_modo'] = contexto_canvas.get('geracao_modo', 0)+1
+            contexto_canvas['modo_assistido'] = True
+            self._pedido_canvas_pendente = None
+            if pendente:
+                texto = pendente['texto']
+            elif re.search(r'\s+e\s+', texto, re.I):
+                texto = re.split(r'\s+e\s+', texto, maxsplit=1, flags=re.I)[1]
+            elif AP.reconhecer_intencao(texto) not in ('EDITAR','DESFAZER'):
+                responder("Editar com a NIA ativado neste plano.")
+                return True
+        if pedido_negado(texto):
+            self._pedido_canvas_pendente = None
+            return False
         intencao = AP.reconhecer_intencao(texto)
         if intencao == "NENHUMA":
             return False
-        contexto_canvas = self._contexto_planos()
+        if intencao == 'PLANO_ATUAL':
+            if plano_aberto is None:
+                responder("Nenhum plano está aberto no Canvas.")
+            else:
+                responder(f"Está aberto: {plano_aberto.titulo} ({plano_aberto.tipo}). "
+                          f"Objetivo: {plano_aberto.objetivo}. "
+                          + ("Editar com a NIA está ligado." if contexto_canvas.get('modo_assistido')
+                             else "Editar com a NIA está desligado."))
+            return True
+        if plano_aberto is not None and intencao in ('EDITAR', 'DESFAZER'):
+            if not contexto_canvas.get('modo_assistido', False):
+                self._pedido_canvas_pendente = dict(
+                    texto=texto, plano_id=plano_aberto.id,
+                    sessao_id=contexto_canvas.get('sessao_id'))
+                responder("Editar com a NIA está desligado. Ligue esse modo no Canvas "
+                          "ou diga ‘pode ligar’ para eu ativar e executar este pedido.")
+                return True
         if intencao in ("LISTAR_CARDS", "LER_CARD", "CONEXOES_CARD", "DEPENDENCIAS",
                         "EXPLICAR_CARD", "EXPLICAR"):
             alvo = self._resolver_alvo_canvas(texto, contexto_canvas)
             if alvo.get("opcoes"):
-                self.ui.write_log(
+                responder(
                     "SIS: Encontrei vários alvos: "
                     + ", ".join(str(c.get("titulo") or c.get("id"))
                                 for c in alvo["opcoes"]))
@@ -7133,13 +7186,13 @@ class NiaLive:
             plano = alvo.get("plano")
             if plano is None:
                 if intencao in ("LER_CARD", "CONEXOES_CARD"):
-                    self.ui.write_log(
+                    responder(
                         "SIS: Selecione um card ou me diga o nome do plano e do card.")
                 return intencao in ("LER_CARD", "CONEXOES_CARD")
             cartoes = alvo.get("cartoes", [])
             card = alvo.get("card")
             if card is None and intencao in ("LER_CARD", "CONEXOES_CARD"):
-                self.ui.write_log(
+                responder(
                     "SIS: Selecione um card ou me diga qual card você quer consultar.")
                 return True
             contexto = AP.montar_contexto(plano, (card or {}).get("id"))
@@ -7168,12 +7221,12 @@ class NiaLive:
                         else:
                             interpretacao = bruto[:300]
                 base = self._resposta_assistida_local("LER_CARD", seguro)
-                self.ui.write_log(f"SIS: {base}")
+                responder(f"SIS: {base}")
                 if interpretacao:
-                    self.ui.write_log(
+                    responder(
                         f"SIS: Interpretação (não registrada no mapa): {interpretacao}")
                 return True
-            self.ui.write_log(
+            responder(
                 f"SIS: {self._resposta_assistida_local(intencao, contexto)}")
             if getattr(self.ui, "destacar_card", None) and card:
                 try:
@@ -7185,8 +7238,12 @@ class NiaLive:
         plano = contexto_canvas.get("plano")
         if plano is None:
             if intencao in ("EDITAR", "DESFAZER"):
-                self.ui.write_log(
-                    "SIS: Abra um plano e selecione um card para editar com a NIA.")
+                if pedido_criar_card(texto):
+                    responder("SIS: Abra um plano no Canvas para eu criar o card. "
+                              "Criar um plano é outro pedido.")
+                else:
+                    responder(
+                        "SIS: Abra um plano e selecione um card para editar com a NIA.")
                 return True
             return False
         contexto = AP.montar_contexto(plano, contexto_canvas.get("card_id"))
@@ -7195,15 +7252,14 @@ class NiaLive:
             "plano": plano,
         })
         tipo_modelo = MP.reconhecer_tipo(texto)
+        operacoes_modelo = None
         if tipo_modelo and re.search(
                 r"monte|adicione ramo|adicionar modelo|modelo de|planejamento completo",
                 AP.normalizar(texto)):
-            if contexto_canvas.get("card_id"):
-                self.ui.adicionar_modelo_ramo(tipo_modelo)
-                self.ui.write_log(f"SIS: Modelo {tipo_modelo} adicionado como ramo.")
-            else:
-                self.ui.write_log("SIS: Selecione um card para receber o modelo.")
-            return True
+            card_id = contexto_canvas.get('card_id') or plano.mapa.get('raiz_id')
+            card = next((c for c in plano.mapa.get('cards', []) if c['id'] == card_id), None)
+            if card:
+                operacoes_modelo = MP.ramo_modelo(tipo_modelo, card_id, card)
         destino = AP.Destino(local=bool(getattr(self, "_modo_local", True)))
         # O contexto entregue ao provedor ja sai filtrado pelo destino mais
         # restritivo: um fallback local -> externo nunca recebe sigilo.
@@ -7211,11 +7267,12 @@ class NiaLive:
             contexto, AP.Destino(local=False, provedor="externo"))
         _voice_diag("assistido_intencao", f"{intencao}:{len(texto)}")
         if intencao == "DESFAZER":
-            self.ui.desfazer_lote_assistido()
-            return True
+            operacoes = [{"tipo": "desfazer"}]
+        else:
+            operacoes = operacoes_modelo
         if intencao in ("EXPLICAR", "SUGERIR"):
             resposta = self._resposta_assistida_local(intencao, contexto)
-            self.ui.write_log(f"SIS: {resposta}")
+            responder(f"SIS: {resposta}")
             return True
         alvo_id = contexto_canvas.get("card_id")
         fingerprint = AP.fingerprint(plano)
@@ -7227,24 +7284,28 @@ class NiaLive:
             except Exception:
                 vivo = None
         if vivo is not None and getattr(vivo, "id", None) != plano.id:
-            self.ui.write_log(
+            responder(
                 "SIS: O plano mudou desde o pedido; a resposta não foi aplicada.")
             return True
         if contexto_canvas.get("plano_id") is not None \
                 and contexto_canvas.get("plano_id") != plano.id:
-            self.ui.write_log(
+            responder(
                 "SIS: O plano mudou desde o pedido; a resposta não foi aplicada.")
             return True
-        operacoes, erros = AP.intencao_para_lote(texto, contexto)
-        if not alvo_id and not operacoes:
-            self.ui.write_log('SIS: '+(erros[0] if erros else 'Selecione um card para receber a alteração.'))
+        if operacoes is None:
+            operacoes, erros = AP.intencao_para_lote(texto, contexto)
+        else:
+            erros = []
+        if not operacoes and erros and any(
+                termo in AP.normalizar(' '.join(erros))
+                for termo in ('mesmo titulo', 'varios', 'destinos')):
+            responder(erros[0])
             return True
         provedor = getattr(self, "_provedor_assistido", None)
         if not operacoes and provedor is not None:
-            bruto = provedor(texto, seguro)
-            operacoes, erros = AP.parse_resposta(bruto, contexto)
+            operacoes, erros = AP.planejar_com_provedor(provedor, texto, seguro, contexto)
         if erros or not operacoes:
-            self.ui.write_log("SIS: " + (erros[0] if erros
+            responder("SIS: " + (erros[0] if erros
                                          else "Não entendi a alteração pedida."))
             return True
 
@@ -7265,43 +7326,30 @@ class NiaLive:
         if ponte_viva is not None:
             vivo = ponte_viva()
             if vivo is None or vivo.id != plano.id:
-                self.ui.write_log('SIS: O plano mudou desde o pedido; nada foi aplicado.')
+                responder('SIS: O plano mudou desde o pedido; nada foi aplicado.')
                 return True
-        # Alvo capturado no envio: trocar seleção não muda o destino.
-        if vivo is not None:
-            if AP.fingerprint(vivo) != fingerprint:
-                self.ui.write_log(
-                    "SIS: Conflito: o mapa mudou desde o pedido. "
-                    "A edição manual foi preservada.")
-                contexto_vivo = AP.montar_contexto(vivo, alvo_id)
-                contexto_vivo.update({"cartoes": vivo.mapa.get("cards", [])})
-                for op in operacoes:
-                    if op.get("tipo") == "editar_campos" \
-                            and op.get("card_id") == alvo_id:
-                        for chave in (op.get("campos") or {}):
-                            alvo_atual = next(
-                                (c for c in vivo.mapa.get("cards", [])
-                                 if c.get("id") == alvo_id), {})
-                            anterior = next(
-                                (c for c in contexto.get("cartoes", [])
-                                 if c.get("id") == alvo_id), {})
-                            if alvo_atual.get(chave) != anterior.get(chave):
-                                self.ui.write_log(
-                                    "SIS: Conflito com edição manual: "
-                                    f"campo '{chave}' mudou. Nada foi alterado.")
-                                return True
-                contexto = contexto_vivo
-                plano = vivo
+        # Não rebasear uma resposta sobre edições manuais ocorridas enquanto
+        # o provedor estava trabalhando, mesmo que outro card fosse o alvo.
+        if vivo is not None and AP.fingerprint(vivo) != fingerprint:
+            responder("O mapa mudou desde o pedido. A edição manual foi preservada; peça novamente a alteração.")
+            return True
         validas, erros = AP.validar_lote(operacoes, plano, contexto)
         if erros:
-            self.ui.write_log("SIS: " + erros[0]
+            responder("SIS: " + erros[0]
                               + " A edição manual foi preservada.")
             return True
         for op in validas:
+            op['_sessao_id'] = contexto_canvas.get('sessao_id')
+            op['_geracao_modo'] = contexto_canvas.get('geracao_modo', 0)
             op['_plano_id'] = plano.id
             op['_fingerprint'] = AP.fingerprint(plano)
             op['_desfazer_apos'] = ' e desfaca' in AP.normalizar(texto)
-        self.ui.aplicar_lote_assistido(validas, "Edição assistida")
+        executar = getattr(self.ui, 'executar_canvas', None)
+        if executar is not None:
+            executar(validas, "Edição assistida", lambda mensagem:
+                     self._falar_resposta_comando(mensagem, origem))
+        else:
+            self.ui.aplicar_lote_assistido(validas, "Edição assistida")
         return True
 
     def _processar_pedido_lembrete(self, texto: str, origem: str) -> bool:
@@ -7352,6 +7400,18 @@ class NiaLive:
 
     def _executar_frase_habilidade(self, texto: str, origem: str) -> bool:
         """Reconhece frases do catálogo e comandos de planejamento no chat/voz."""
+        canvas_tratado = False
+        try:
+            contexto = self._contexto_planos()
+            navegacao = CP.reconhecer(texto, contexto).tipo in (
+                'ABRIR', 'RETOMAR', 'GERENCIADOR', 'FECHAR', 'CRIAR',
+                'LISTAR_PLANOS')
+            if contexto.get('plano') is not None and not navegacao:
+                canvas_tratado = True
+                if self._processar_pedido_assistido(texto, origem):
+                    return True
+        except Exception as exc:
+            _voice_diag('assistido_erro', type(exc).__name__)
         try:
             resultado = self._sessao_planos.processar(
                 texto, origem, self._contexto_planos())
@@ -7361,7 +7421,7 @@ class NiaLive:
         except Exception as exc:
             _voice_diag('comando_planos_erro', type(exc).__name__)
         try:
-            if self._processar_pedido_assistido(texto, origem):
+            if not canvas_tratado and self._processar_pedido_assistido(texto, origem):
                 return True
         except Exception as exc:
             _voice_diag('assistido_erro', type(exc).__name__)

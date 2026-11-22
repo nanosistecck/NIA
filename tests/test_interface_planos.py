@@ -56,8 +56,11 @@ def test_criar_buscar_visualizar_editar_arquivar_restaurar(janela):
     janela.aplicar_filtros()
     assert [janela.lista.item(i).data(0x0100) for i in range(janela.lista.count())] == [plano_id]
 
+    janela.selecionar(plano_id)
     _botao(janela, "visualizar").click()
     assert _texto(janela, "campo_titulo").isReadOnly()
+    from PyQt6.QtWidgets import QDialog
+    janela.findChild(QDialog, "visualizacao_plano").close()
     _botao(janela, "editar").click()
     assert not _texto(janela, "campo_titulo").isReadOnly()
     _texto(janela, "campo_titulo").setText("Fotografia II")
@@ -113,3 +116,84 @@ def test_conflito_de_revisao_e_sinalizado_no_gerenciador(janela, monkeypatch):
     _botao(janela, "salvar_plano").click()
     assert "conflito" in janela.status.text().lower()
     assert _texto(janela, "campo_titulo").text() == "Titulo local"
+
+
+def test_visualizar_abre_detalhes_somente_leitura(janela):
+    from PyQt6.QtWidgets import QDialog
+    from core.planos import criar
+    plano = criar("Detalhes", "Objetivo completo", "Projeto")
+    janela.recarregar()
+    janela.selecionar(plano.id)
+    _botao(janela, "visualizar").click()
+    dialogo = janela.findChild(QDialog, "visualizacao_plano")
+    assert dialogo is not None and dialogo.isVisible()
+    objetivo = dialogo.findChild(QTextEdit)
+    assert objetivo.isReadOnly()
+    assert objetivo.toPlainText() == plano.objetivo
+    dialogo.close()
+
+
+def test_filtrar_limpa_selecao_e_detalhes(janela):
+    from core.planos import criar
+    plano = criar("Selecionado", "Objetivo")
+    janela.recarregar()
+    janela.selecionar(plano.id)
+    janela.campo_busca.setText("sem resultados")
+    janela.aplicar_filtros()
+    assert janela.plano_selecionado_id is None
+    assert not _botao(janela, "visualizar").isEnabled()
+    assert not _botao(janela, "excluir_permanentemente").isEnabled()
+    assert janela.campo_titulo.text() == ""
+
+
+def test_primeiro_selecionado_e_acoes_em_lote(janela):
+    from core.planos import criar
+    planos = [criar(f"Plano {i}", "Objetivo") for i in range(3)]
+    janela.recarregar()
+    assert janela.lista.currentRow() == 0
+    assert len(janela.lista.selectedItems()) == 1
+    for i in range(janela.lista.count()):
+        janela.lista.item(i).setSelected(True)
+    _botao(janela, "arquivar").click()
+    assert all(carregar(p.id).status == "arquivado" for p in planos)
+    janela.filtro_status.setCurrentText("Arquivados")
+    for i in range(janela.lista.count()):
+        janela.lista.item(i).setSelected(True)
+    _botao(janela, "restaurar").click()
+    assert all(carregar(p.id).status == "ativo" for p in planos)
+
+
+def test_delete_exclui_lote_e_seleciona_proximo(janela, monkeypatch, app):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    from core.planos import criar
+    for i in range(3):
+        criar(f"Plano {i}", "Objetivo")
+    janela.recarregar()
+    janela.lista.item(1).setSelected(True)
+    ids = [i.data(Qt.ItemDataRole.UserRole) for i in janela.lista.selectedItems()]
+    monkeypatch.setattr(janela, "_confirmar_exclusao", lambda ids: True)
+    janela.activateWindow()
+    janela.lista.setFocus()
+    app.processEvents()
+    QTest.keyClick(janela.lista, Qt.Key.Key_Delete)
+    assert all(carregar(ident) is None for ident in ids)
+    assert janela.lista.count() == 1
+    assert janela.lista.currentRow() == 0
+    assert len(janela.lista.selectedItems()) == 1
+
+
+def test_delete_no_formulario_nao_exclui_plano(janela, monkeypatch, app):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    from core.planos import criar
+    plano = criar("Plano", "Objetivo")
+    janela.recarregar()
+    chamadas = []
+    monkeypatch.setattr(janela, "_confirmar_exclusao", lambda ids: chamadas.append(ids))
+    janela.editar()
+    janela.campo_titulo.setFocus()
+    app.processEvents()
+    QTest.keyClick(janela.campo_titulo, Qt.Key.Key_Delete)
+    assert not chamadas
+    assert carregar(plano.id) is not None

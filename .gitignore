@@ -10,6 +10,9 @@ env/
 logs/
 cache/
 memory/diario.jsonl
+.opencode/
+# Ignorar completamente a pasta de testes
+/tests/
 
 # Segredos / credenciais (nao vao para o GitHub).
 # Quase tudo em config/ e gerado na maquina do cliente: banco de chaves,

@@ -321,6 +321,7 @@ def call_llm(
     messages: list,
     tools:    list | None = None,
     timeout:  int = 120,
+    max_tokens: int = 150,
 ) -> dict:
     """
     Non-streaming chat request.  Routes to Ollama or OpenAI-compatible backend.
@@ -337,7 +338,7 @@ def call_llm(
             "model":      model,
             "messages":   messages,
             "stream":     False,
-            "max_tokens": 150,
+            "max_tokens": int(max_tokens),
         }
         if tools:
             payload["tools"]       = tools
@@ -378,7 +379,7 @@ def call_llm(
         "messages":   messages,
         "stream":     False,
         "keep_alive": -1,
-        "options":    {"num_predict": 150, "num_gpu": 99},
+        "options":    {"num_predict": int(max_tokens), "num_gpu": 99},
     }
     if tools:
         payload["tools"] = tools

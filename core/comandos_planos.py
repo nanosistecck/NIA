@@ -26,10 +26,31 @@ _PALAVRA_TIPO = (
 _TEMA = re.compile(
     r"(?:para|sobre|de|do|da|no|na)\s+(.+?)\s*(?:[?.!]|$)")
 
+# O objeto direto precisa ser card; "criar um projeto com cards" continua sendo
+# criacao de plano. Esta distincao evita que "criar um novo card" pergunte
+# "qual plano?" (defeito real de 22/11/2026).
+_CRIACAO_DE_CARD = re.compile(
+    r"\b(?:criar|crie|cria|criem|adicionar|adicione|adiciona|adicionem|"
+    r"acrescentar|acrescente|acrescenta|incluir|inclua|inclui|gerar|gere)\b"
+    r"(?:\s+(?:um|uma|o|a|os|as|novo|nova|novos|novas|mais|dois|duas|tres|"
+    r"quatro|cinco|seis|[2-9]))*\s+"
+    r"(?:card|cartao|cartoes|cards)\b")
+_QUERO_CARD = re.compile(
+    r"\b(?:quero|preciso de|me (?:de|da)|faca)\s+(?:um|uma|o|a)?\s*"
+    r"(?:card|cartao)\b")
+
 
 def normalizar(texto: str) -> str:
     bruto = unicodedata.normalize("NFKD", str(texto or "")).casefold()
     return "".join(c for c in bruto if not unicodedata.combining(c)).strip()
+
+
+def consulta_plano_atual(texto: str) -> bool:
+    n = normalizar(texto)
+    return bool(re.search(
+        r"\b(?:qual|que)\b.*\b(?:plano|projeto|produto|canvas)\b.*"
+        r"\b(?:abri|abrir|abriu|aberto|aberta|atual|estamos|estou|trabalhando)\b|"
+        r"\b(?:em qual|onde) estamos\b|\bqual.*nome.*(?:plano|projeto|produto)\b", n))
 
 
 @dataclass
@@ -60,6 +81,11 @@ def _extrair(texto: str) -> dict:
         tema = encontrado.group(1).strip(" .!?;:")
         tema = re.sub(r"^(plano|projeto|produto|estudo)\s+", "", tema).strip()
     titulo = f"{tipo} para {tema}" if tema and tipo != "Geral" else ""
+    explicito = re.search(
+        r"\b(?:chamado|chamada|denominad[oa]|com\s+(?:o\s+)?t[ií]tulo)\s+(.+)$",
+        str(texto or ''), re.I)
+    if explicito:
+        titulo = explicito.group(1).strip(' .!?;:"“”')
     return {"tipo": tipo, "tema": tema, "titulo": titulo,
             "original": str(texto or "").strip()}
 
@@ -71,6 +97,29 @@ def reconhecer(texto: str, contexto: dict | None = None) -> Intencao:
     if re.match(r"^(ainda\s+)?nao quero|^(nao|não)\s|desistir|deixa para depois",
                 n):
         return Intencao("NEGAR", dados)
+    if consulta_plano_atual(texto):
+        return Intencao('PLANO_ATUAL', dados)
+    if re.match(r'^(?:nia[, ]+)?(?:como|me explique|me explica|explique)\b', n):
+        return Intencao('EXPLICAR', dados)
+    if re.search(r"\b(?:abra|abre|abrir|mostre|mostrar|exiba|exibir|gerenciar)\b.*"
+                 r"\b(?:(?:gerenciador|janela|janelas|lista|tela|painel)(?: d[aeo]s?)?(?: nia)?(?: d[eo]s?)? planos|(?:meus |os )?planos)\b", n):
+        return Intencao('GERENCIADOR', dados)
+    if re.search(r"\b(?:quais|que|quantos)\b.*\bplanos\b|"
+                 r"\b(?:liste|listar|listagem)\b.*\bplanos\b|"
+                 r"\bmeus planos\b", n) and not re.search(
+                     r"\b(?:abra|abre|abrir|mostre|mostrar|exiba|exibir|gerenciar)\b", n):
+        return Intencao('LISTAR_PLANOS', dados)
+    # Trocar de plano usa a própria abertura, que só sai do atual após salvar.
+    abertura = re.search(r"\b(?:abra|abre|abrir|troque para|mude para)\s+"
+                        r"(?:(?:o|um|outro|esse|este)\s+)?(?:plano|projeto|produto)\b(.*)$", n)
+    if abertura:
+        alvo = abertura[1].strip(' .!?;:')
+        alvo = re.sub(r'^(?:chamado|de nome)\s+', '', alvo)
+        dados['tema'] = alvo.strip('"“”')
+        return Intencao('ABRIR', dados)
+    if re.search(r"\b(?:feche|fecha|fechar|encerre|encerrar|saia|sair)\b.*"
+                 r"\b(?:plano|projeto|produto|canvas)\b", n):
+        return Intencao('FECHAR', dados)
     if re.search(r"me explica|explique|como (planejar|criar)|o que e", n):
         return Intencao("EXPLICAR", dados)
     if re.search(r"titulo (desse|do|deste) card|titulo do card", n):
@@ -82,9 +131,10 @@ def reconhecer(texto: str, contexto: dict | None = None) -> Intencao:
     if re.search(r"continuar meus estudos|continua meu estudo|retomar", n):
         dados["tipo"] = "Estudos"
         return Intencao("RETOMAR", dados)
-    if re.search(r"vamos planejar|quero criar|criar (um|uma|o|a|estudo)|comecar|iniciar", n):
+    if re.search(r"vamos planejar|quero criar|criar (um|uma|o|a|estudo)|comecar|iniciar", n) \
+            and not _CRIACAO_DE_CARD.search(n) and not _QUERO_CARD.search(n):
         return Intencao("CRIAR", dados)
-    if re.search(r"^(abra|abre)|abrir|continua|retoma", n):
+    if re.search(r"^(?:nia[, ]+)?(?:abra|abre|abrir|continua|continue|retoma|retome)\b", n):
         return Intencao("ABRIR", dados)
     return Intencao("NENHUMA", dados)
 
@@ -105,7 +155,7 @@ class SessaoComandosPlanos:
         contexto = contexto or {}
         storage = armazenamento or self.armazenamento
         agora = time.time()
-        chave = f"{origem}:{normalizar(texto)}"
+        chave = f"{origem}:{contexto.get('sessao_id') or contexto.get('plano_id', '')}:{normalizar(texto)}"
         if agora - self._vistos.get(chave, 0.0) < 4.0:
             return ResultadoComando(True, "")
         self._vistos[chave] = agora
@@ -116,6 +166,15 @@ class SessaoComandosPlanos:
         if self.pendente and agora - self.pendente.get("em", 0.0) > 180.0:
             self.pendente = None
             self.opcoes = []
+        intencao = reconhecer(texto, contexto)
+        if intencao.tipo in ('PLANO_ATUAL', 'GERENCIADOR', 'FECHAR', 'ABRIR',
+                             'LISTAR_PLANOS'):
+            # Navegação/consulta explícita substitui uma escolha antiga, sem
+            # consumir a consulta como nome de um plano em criação.
+            if intencao.tipo != 'PLANO_ATUAL':
+                self.pendente = None
+                self.opcoes = []
+            return self._executar(intencao, contexto, storage)
         if self.pendente:
             return self._responder_pendente(texto, contexto, storage)
 
@@ -187,6 +246,19 @@ class SessaoComandosPlanos:
     def _executar(self, intencao: Intencao, contexto: dict, storage) -> ResultadoComando:
         tipo = intencao.tipo
         dados = intencao.dados
+        if tipo == 'PLANO_ATUAL':
+            plano = contexto.get('plano')
+            return ResultadoComando(True, (
+                f'O plano aberto é {plano.titulo} ({plano.tipo}). Objetivo: {plano.objetivo}.'
+                if plano is not None else 'Nenhum plano está aberto no Canvas agora.'))
+        if tipo == 'GERENCIADOR':
+            return ResultadoComando(True, 'Mostrando a janela NIA Planos.', [{'tipo':'abrir_manager'}])
+        if tipo == 'LISTAR_PLANOS':
+            return self._listar_planos(storage)
+        if tipo == 'FECHAR':
+            if contexto.get('plano') is None:
+                return ResultadoComando(True, 'Nenhum plano está aberto no Canvas agora.')
+            return ResultadoComando(True, 'Plano fechado. Mostrando NIA Planos.', [{'tipo':'fechar_canvas'}])
         if tipo == "CRIAR":
             return self._criar(None, dados, storage)
         if tipo in ("RETOMAR", "ABRIR"):
@@ -198,6 +270,25 @@ class SessaoComandosPlanos:
         if tipo == "CARD_TITULO":
             return self._titulo_card(contexto)
         return ResultadoComando(False)
+
+    def _listar_planos(self, storage) -> ResultadoComando:
+        """Consulta local de planos, sem abrir o gerenciador nem criar nada."""
+        planos, _avisos = storage.listar()
+        if not planos:
+            return ResultadoComando(True, 'Nenhum plano cadastrado ainda.')
+        ativos = [p for p in planos if p.status == 'ativo']
+        arquivados = [p for p in planos if p.status != 'ativo']
+        if ativos:
+            titulos = [p.titulo for p in ativos]
+            visiveis = ', '.join(titulos[:10])
+            if len(titulos) > 10:
+                visiveis += f' (e mais {len(titulos) - 10})'
+            mensagem = f'Planos ativos ({len(ativos)}): {visiveis}.'
+        else:
+            mensagem = 'Nenhum plano ativo.'
+        if arquivados:
+            mensagem += f' Há {len(arquivados)} plano(s) arquivado(s).'
+        return ResultadoComando(True, mensagem)
 
     def _criar(self, resposta: str | None, dados: dict, storage) -> ResultadoComando:
         self.pendente = None
@@ -242,8 +333,13 @@ class SessaoComandosPlanos:
         termo = str(dados.get("tema") or "")
         tipo = dados.get("tipo", "Geral")
         planos, _ = storage.listar()
+        # Prefira o título completo; não remova preposições que fazem parte
+        # dele. A forma “abra o projeto do ...” é um fallback de linguagem.
+        exatos = [p for p in planos if normalizar(p.titulo) == normalizar(termo)] if termo else []
+        if termo and not exatos:
+            termo = re.sub(r'^(?:do|da|de)\s+', '', termo)
         ativos = [p for p in planos if p.status == "ativo"]
-        candidatos = storage.buscar(ativos, termo) if termo else ativos
+        candidatos = [p for p in exatos if p.status == 'ativo'] or (storage.buscar(ativos, termo) if termo else ativos)
         if tipo != "Geral":
             filtrados = [p for p in candidatos if p.tipo == tipo]
             if filtrados:

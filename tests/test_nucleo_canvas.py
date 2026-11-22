@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Núcleo deve ir para o canto inferior direito em toda abertura do Canvas."""
+"""Canvas reserva o rodapé e enquadra os cards sem sobrepor controles."""
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -54,48 +54,74 @@ def _posicoes(w):
     return stage, nucleo, editor
 
 
-def test_nucleo_no_canto_inferior_direito_ao_abrir(window, app):
+@pytest.mark.parametrize("largura", [960, 1280, 1600])
+def test_rodape_sem_sobreposicoes(window, app, largura):
     w, plano = window
+    w.resize(largura, 820)
+    limites = (w._composer.minimumSize(), w._composer.maximumSize())
     assert w._abrir_canvas_do_plano(plano.id)
-    _assentar(app)
-    stage, nucleo, _editor = _posicoes(w)
-    assert stage.anchor == "bottom-right"
-    assert nucleo.x() == stage.width() - nucleo.width()
-    assert nucleo.y() == stage.height() - nucleo.height()
-
-
-def test_nucleo_no_canto_mesmo_com_brief_visivel(window, app):
-    w, plano = window
-    w._brief_sig.emit({"tipo": "hora", "token": 901})
     _assentar(app, 80)
-    assert w._stage.brief_host.isVisible()
-    assert w._abrir_canvas_do_plano(plano.id)
-    _assentar(app)
-    stage, nucleo, _editor = _posicoes(w)
-    assert nucleo.x() == stage.width() - nucleo.width()
-    assert nucleo.y() == stage.height() - nucleo.height()
+    editor = w._canvas_editor
+    assert not w._composer.isVisible()
+    assert not w._btn_chat_abajo.isVisible()
+    controles = [editor.editor_internal, editor.editor_internal.zoom_bar,
+                 editor.navegar, editor.estado_nia, editor.chat_toggle,
+                 w._stage.hud_stack, w._composer]
+    geometrias = [widget.geometry() for widget in controles]
+    editor.chat_toggle.click()
+    app.processEvents()
+    assert w._composer.isVisible()
+    assert editor.chat_toggle.y() - (w._composer.y() + w._composer.height()) == 10
+    widgets = [w._stage.hud_stack, w._composer, editor.estado_nia,
+               editor.navegar, editor.editor_internal.zoom_bar]
+    if editor.chat_toggle.isVisible():
+        widgets.append(editor.chat_toggle)
+    for i, widget in enumerate(widgets):
+        assert editor.rect().contains(widget.geometry())
+        assert not editor.editor_internal.geometry().intersects(widget.geometry())
+        for outro in widgets[i+1:]:
+            assert not widget.geometry().intersects(outro.geometry())
+    assert w._composer.width() == min(620, max(240, editor.width()-2*max(200, editor.editor_internal.zoom_bar.width()+30)))
+    assert w._composer.height() == 56
+    antes = w._stage.hud_stack.geometry()
+    w._stage.arrange(False)
+    assert w._stage.hud_stack.geometry() == antes
+    assert [widget.geometry() for widget in controles] == geometrias
+    editor.chat_toggle.click()
+    app.processEvents()
+    assert not w._composer.isVisible()
+    assert [widget.geometry() for widget in controles] == geometrias
+    w._canvas_editor.voltar.emit()
+    app.processEvents()
+    assert (w._composer.minimumSize(), w._composer.maximumSize()) == limites
 
 
-def test_overlay_reserva_espaco_para_o_nucleo(window, app):
+def test_cards_abrem_enquadrados_no_viewport(window, app):
     w, plano = window
     assert w._abrir_canvas_do_plano(plano.id)
-    _assentar(app)
-    _stage, nucleo, editor = _posicoes(w)
-    # O overlay cobre a janela toda; a reserva está nas margens do conteúdo.
-    margem = w._canvas_editor.layout().contentsMargins().right()
-    assert margem >= nucleo.width() + 8, (
-        f"margem direita {margem} < núcleo {nucleo.width()}")
+    _assentar(app, 80)
+    view = w._canvas_editor.editor_internal._view
+    cena = view.scene().itemsBoundingRect()
+    centro = view.mapToScene(view.viewport().rect().center())
+    assert abs(centro.x() - cena.center().x()) < 8
+    assert abs(centro.y() - cena.center().y()) < 8
+    visivel = view.mapToScene(view.viewport().rect()).boundingRect()
+    assert visivel.contains(cena)
 
 
-def test_reabrir_posiciona_novamente(window, app):
+def test_reabrir_mantem_layout(window, app):
     w, plano = window
     for _ in range(3):
         assert w._abrir_canvas_do_plano(plano.id)
-        _assentar(app, 300)
-        stage, nucleo, editor = _posicoes(w)
-        assert nucleo.x() == stage.width() - nucleo.width()
-        assert nucleo.y() == stage.height() - nucleo.height()
-        assert w._canvas_editor.layout().contentsMargins().right() >= nucleo.width() + 8
-        w._canvas_editor.voltar.emit()
+        _assentar(app, 80)
+        editor = w._canvas_editor
+        assert not editor.editor_internal.geometry().intersects(w._stage.hud_stack.geometry())
+        assert w._composer.width() == 620
+        assert not w._composer.isVisible()
+        editor.chat_toggle.click()
         app.processEvents()
-        _assentar(app, 300)
+        assert w._composer.isVisible()
+        editor.chat_toggle.click()
+        assert not w._composer.isVisible()
+        editor.voltar.emit()
+        app.processEvents()

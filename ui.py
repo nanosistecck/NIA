@@ -5221,6 +5221,14 @@ class MainWindow(QMainWindow):
         atual = getattr(self, "_canvas_editor", None)
         if atual is not None and atual.isVisible():
             atual_id = atual.editor_internal.plano_atual().id
+            if atual_id == plano.id:
+                if assistido:
+                    atual.definir_modo(True)
+                gerenciador = getattr(self, '_planos_window', None)
+                if gerenciador is not None:
+                    gerenciador.hide()
+                atual.raise_()
+                return True
             if atual_id != plano.id and atual.mudancas_pendentes:
                 if not atual.fechar_com_seguranca():
                     escolha = int(_perguntar_salvar_mapa(self))
@@ -5295,16 +5303,16 @@ class MainWindow(QMainWindow):
         """Espelho do contexto do editor, seguro para leitura pela casca Qt."""
         self._contexto_canvas = dict(contexto or {})
 
-    def _voltar_dos_planos(self) -> None:
+    def _voltar_dos_planos(self) -> bool:
         """Encerra a sessão do Canvas e restaura dock, núcleo e lista."""
         editor = getattr(self, "_canvas_editor", None)
         if editor is not None and editor.isVisible():
             if editor.mudancas_pendentes and not editor.fechar_com_seguranca():
                 escolha = int(_perguntar_salvar_mapa(self))
                 if escolha == _SB_CANCELAR:
-                    return
+                    return False
                 if escolha == _SB_SALVAR and not editor.fechar_com_seguranca():
-                    return
+                    return False
             editor.desmontar_janela()
             editor.hide()
             editor.editor_internal._timer.stop()
@@ -5342,6 +5350,7 @@ class MainWindow(QMainWindow):
             gerenciador.showNormal()
             gerenciador.raise_()
             gerenciador.activateWindow()
+        return True
 
     def _reagendar_lembretes(self) -> None:
         """Mostra vencidos pendentes earma o próximo; nunca varre arquivos."""
@@ -6977,7 +6986,7 @@ class NiaUI:
 
     def abrir_planos(self) -> None:
         """Thread-safe: abre o Gerenciador de Planos pelo mesmo caminho do dock."""
-        QTimer.singleShot(0, self._win._abrir_planos)
+        self._win._canvas_action_sig.emit(self._win._abrir_planos)
 
     def abrir_plano(self, plano_id: str) -> None:
         """Thread-safe: abre o mapa de um plano pelo mesmo ponto do gerenciador."""
@@ -6989,7 +6998,40 @@ class NiaUI:
                 janela.showNormal()
                 janela.raise_()
                 janela.activateWindow()
-        QTimer.singleShot(0, abrir)
+        self._win._canvas_action_sig.emit(abrir)
+
+    def fechar_plano(self) -> None:
+        self._win._canvas_action_sig.emit(self._win._voltar_dos_planos)
+
+    def navegar_planos(self, acoes, ao_concluir):
+        """Navega na thread Qt e confirma só depois de concluir a ação."""
+        from core.planos import ErroPlano
+        def aplicar():
+            try:
+                for acao in acoes:
+                    tipo = acao.get('tipo')
+                    if tipo == 'abrir_canvas':
+                        if not self._win._abrir_canvas_do_plano(str(acao.get('plano_id'))):
+                            ao_concluir(False, 'Não foi possível abrir o plano. O plano atual foi preservado.')
+                            return
+                    elif tipo == 'fechar_canvas':
+                        if not self._win._voltar_dos_planos():
+                            ao_concluir(False, 'O fechamento foi cancelado. O plano continua aberto.')
+                            return
+                    elif tipo == 'abrir_manager':
+                        if self._win._abrir_planos() is None:
+                            ao_concluir(False, 'Não foi possível abrir a janela NIA Planos.')
+                            return
+                    else:
+                        ao_concluir(False, 'Ação de navegação desconhecida.')
+                        return
+                self._win.showNormal()
+                self._win.raise_()
+                self._win.activateWindow()
+                ao_concluir(True, '')
+            except (OSError, ValueError, ErroPlano) as exc:
+                ao_concluir(False, 'Não foi possível concluir a navegação: '+str(exc))
+        self._win._canvas_action_sig.emit(aplicar)
 
     def contexto_canvas(self) -> dict:
         """Cópia do espelho de contexto, segura para leitura fora da thread Qt."""
@@ -7019,49 +7061,70 @@ class NiaUI:
         self._win._canvas_action_sig.emit(
             lambda: self._win._abrir_canvas_do_plano(str(plano_id), assistido=True))
 
-    def definir_modo_assistido(self, assistido: bool) -> None:
+    def definir_modo_assistido(self, assistido: bool, plano_id=None, sessao_id=None) -> None:
         """Thread-safe: alterna Manual/Com a NIA sem recriar o editor."""
-        self._win._canvas_action_sig.emit(lambda: self._win._canvas_editor.definir_modo(
-            bool(assistido)) if getattr(self._win, "_canvas_editor", None) else None)
+        def aplicar():
+            editor = getattr(self._win, '_canvas_editor', None)
+            if (editor is None or not editor.isVisible()
+                    or (plano_id is not None and editor.editor_internal._plano.id != plano_id)
+                    or (sessao_id is not None and editor._sessao_id != sessao_id)):
+                return
+            editor.definir_modo(bool(assistido))
+        self._win._canvas_action_sig.emit(aplicar)
 
-    def aplicar_lote_assistido(self, operacoes: list, rotulo: str) -> None:
+    def executar_canvas(self, operacoes, rotulo, ao_concluir=None):
+        self.aplicar_lote_assistido(operacoes, rotulo, ao_concluir)
+
+    def aplicar_lote_assistido(self, operacoes: list, rotulo: str, ao_concluir=None) -> None:
         """Thread-safe: aplica operações validadas em uma só ação de desfazer."""
+        def informar(mensagem):
+            self.write_log(mensagem)
+            if ao_concluir is not None:
+                ao_concluir(mensagem.removeprefix('SIS: '))
         def aplicar():
             editor = getattr(self._win, "_canvas_editor", None)
             if editor is None or not editor.isVisible():
+                informar('SIS: O Canvas foi fechado; nada foi aplicado.')
                 return
             plano = editor.editor_internal.plano_atual()
             expected = operacoes[0] if operacoes else {}
+            if (not editor.modo_assistido
+                    or expected.get('_sessao_id', editor._sessao_id) != editor._sessao_id
+                    or expected.get('_geracao_modo', editor._geracao_modo) != editor._geracao_modo):
+                informar('SIS: Ative Editar com a NIA neste Canvas antes de pedir alterações. Nada foi aplicado.')
+                return
             if (expected.get('_plano_id', plano.id) != plano.id
                     or expected.get('_fingerprint', _assistencia.fingerprint(plano)) != _assistencia.fingerprint(plano)):
-                self.write_log('SIS: O plano mudou desde o pedido; nada foi aplicado.')
+                informar('SIS: O plano mudou desde o pedido; nada foi aplicado.')
                 return
             try:
                 mudou = _assistencia.aplicar_lote(editor.editor_internal, operacoes, rotulo)
                 if not mudou:
-                    self.write_log("SIS: O mapa já estava nesse estado; nenhuma alteração necessária.")
+                    informar("SIS: O mapa já estava nesse estado; nenhuma alteração necessária.")
                     return
                 if expected.get('_desfazer_apos'):
                     editor.editor_internal.pilha.undo()
-                    self.write_log('SIS: Alteração aplicada e desfeita no plano '+plano.titulo+'.')
+                    informar('SIS: Alteração aplicada e desfeita no plano '+plano.titulo+'.')
                 else:
                     ids = [op.get('card_id') or op.get('titulo') or op.get('origem') for op in operacoes]
-                    self.write_log('SIS: Alteração concluída em '+plano.titulo+': '+', '.join(str(i) for i in ids if i)+'.')
+                    informar('SIS: Alteração concluída em '+plano.titulo+': '+', '.join(str(i) for i in ids if i)+'.')
                 editor.contexto_mudou.emit(editor.contexto())
-            except ValueError as exc:
-                self.write_log('SIS: Não foi possível aplicar a alteração: '+str(exc))
+            except (ValueError, OSError) as exc:
+                informar('SIS: Não foi possível aplicar a alteração: '+str(exc))
         self._win._canvas_action_sig.emit(aplicar)
 
     def adicionar_modelo_ramo(self, tipo: str) -> None:
         """Thread-safe: adiciona um modelo como ramo do card selecionado."""
         self._win._canvas_action_sig.emit(lambda: self._win._canvas_editor.adicionar_modelo(
-            str(tipo)) if getattr(self._win, "_canvas_editor", None) else None)
+            str(tipo)) if (getattr(self._win, "_canvas_editor", None)
+                           and self._win._canvas_editor.isVisible()
+                           and self._win._canvas_editor.modo_assistido) else None)
 
     def desfazer_lote_assistido(self) -> None:
         """Thread-safe: desfaz o lote assistido se for a última operação."""
         def desfazer():
             editor = getattr(self._win, "_canvas_editor", None)
-            if editor is not None and editor.isVisible():
+            if editor is not None and editor.isVisible() and editor.modo_assistido:
                 _assistencia.desfazer_lote(editor.editor_internal)
         self._win._canvas_action_sig.emit(desfazer)
 

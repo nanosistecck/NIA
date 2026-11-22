@@ -33,6 +33,7 @@ QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical {background:transpar
 
 # Traços vetoriais independem das fontes de ícones instaladas no computador.
 _ICONS = {
+    'save':'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2z"/><path d="M7 3v6h10V3M7 21v-8h10v8M14 5v2"/>',
     'mute':'<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v3M9 21h6"/>',
     'interrupt':'<rect x="5" y="5" width="14" height="14" rx="2"/>',
     'so_nome':'<rect x="6" y="10" width="12" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>',
@@ -497,6 +498,10 @@ class CanvasStage(QWidget):
 
     def arrange(self,animate=False):
         if not hasattr(self,'motion'): return
+        if self._canvas_editor_ativo and self.hud_stack.parentWidget() is not self:
+            self.motion.stop()
+            self.hud_stack.parentWidget()._reposicionar()
+            return
         w,h = self.width(),self.height()
         bottom = max(160,h - (min(260,h//2) if self.chat_open else 0))
         if self.brief_host.isVisible():

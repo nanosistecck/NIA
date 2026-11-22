@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from PyQt6.QtCore import QEvent, Qt, QPointF, QRectF, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QSize, QPointF, QRectF, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QBrush, QColor, QFont, QKeySequence, QPainter, QPainterPath,
     QPainterPathStroker, QPen, QRadialGradient, QShortcut,
@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
 )
 
+from core.interface_canvas import icon
 from core import planos as BP
 from core.planos import (
     FORMATO, TIPOS_CARD, STATUS_TAREFA, ConflitoDeRevisao, Plano,
@@ -679,6 +680,10 @@ class EditorMapa(QWidget):
                 barra.addWidget(botao)
             else:
                 botao.hide()
+        self.botoes['salvar'].setIcon(icon('save'))
+        self.botoes['salvar'].setIconSize(QSize(20, 20))
+        self.botoes['salvar'].setToolTip('Salvar · Ctrl+S')
+        self.botoes['salvar'].setAccessibleName('Salvar canvas')
         self.botoes['novo_card'].setStyleSheet('background:#007f94; border:1px solid #00dfee; font-weight:600;')
         self.botoes['desfazer'].setToolTip('Desfazer · Ctrl+Z')
         self.botoes['refazer'].setToolTip('Refazer · Ctrl+Y / Ctrl+Shift+Z')
@@ -817,7 +822,7 @@ class EditorMapa(QWidget):
         menu = QMenu(self)
         for nome in ('adicionar_conectado', 'central', 'enquadrar', 'excluir', 'salvar'):
             button = self.botoes[nome]
-            menu.addAction(button.text(), button.click)
+            menu.addAction(button.icon(), button.text() or "Salvar", button.click)
         menu.addAction('Detalhes do item', lambda: self.detalhes())
         extra = getattr(self, 'acoes_extras', None)
         if extra:
@@ -832,7 +837,7 @@ class EditorMapa(QWidget):
         menu = QMenu(self)
         for nome in ('novo_card', 'adicionar_conectado', 'conectar', 'excluir'):
             button = self.botoes[nome]
-            menu.addAction(button.text(), button.click)
+            menu.addAction(button.icon(), button.text() or "Salvar", button.click)
         menu.addAction('Detalhes', lambda: self.detalhes(True))
         extra = getattr(self, 'acoes_extras', None)
         if extra:
@@ -848,7 +853,7 @@ class EditorMapa(QWidget):
         self.botoes["refazer"].clicked.connect(self.refazer)
         self.botoes["enquadrar"].clicked.connect(self.enquadrar)
         self.botoes["central"].clicked.connect(self.voltar_ao_central)
-        self.botoes["salvar"].setMinimumSize(64, 30)
+        self.botoes["salvar"].setMinimumSize(38, 34)
         self.botoes["salvar"].clicked.connect(self.salvar)
         self.pilha.canUndoChanged.connect(self.botoes["desfazer"].setEnabled)
         self.pilha.canRedoChanged.connect(self.botoes["refazer"].setEnabled)
@@ -1184,13 +1189,15 @@ class EditorMapa(QWidget):
         try:
             atualizado = atualizar(
                 self._plano.id,
-                {"mapa": self.plano_atual().mapa, "formato": FORMATO},
+                {"mapa": self.plano_atual().mapa, "formato": FORMATO,
+                 "titulo": self._plano.titulo, "objetivo": self._plano.objetivo,
+                 "tipo": self._plano.tipo},
                 self._plano.revisao)
         except ConflitoDeRevisao:
             self.status.setText("Conflito de revisão.")
             self.estado_salvamento.emit("Conflito de revisão")
             return False, "Conflito de revisão"
-        except (OSError, ValueError):
+        except (OSError, ValueError, BP.ErroPlano):
             self.status.setText("Falha ao salvar. Tente novamente.")
             self.estado_salvamento.emit("Falha ao salvar")
             return False, "Falha ao salvar"
@@ -1198,6 +1205,7 @@ class EditorMapa(QWidget):
         self.mudancas_pendentes = False
         self.status.setText("Salvo.")
         self.estado_salvamento.emit("Salvo")
+        self.estado_editado.emit()
         return True, "Salvo"
 
     def fechar_com_seguranca(self) -> bool:
@@ -1284,12 +1292,19 @@ class EditorMapa(QWidget):
         self._fechar_sessao_texto()
         self.pilha.push(SubstituirMapaCommand(self, self.cena.mapa_atual(), mapa, rotulo))
 
+    def aplicar_estado(self, mapa, campos, rotulo):
+        self._fechar_sessao_texto()
+        self.pilha.push(SubstituirMapaCommand(
+            self, self.cena.mapa_atual(), mapa, rotulo, campos))
+
 
 class SubstituirMapaCommand(_Comando):
     """A prevalidated snapshot is installed atomically as one reversible edit."""
-    def __init__(self, editor, antes, depois, rotulo):
+    def __init__(self, editor, antes, depois, rotulo, campos=None):
         super().__init__(editor, rotulo)
         self.antes, self.depois = copy.deepcopy(antes), copy.deepcopy(depois)
+        self.campos_depois = copy.deepcopy(campos or {})
+        self.campos_antes = {k: getattr(editor._plano, k) for k in self.campos_depois}
 
     def _aplicar(self, mapa):
         selected = self.editor.card_selecionado_id
@@ -1302,10 +1317,14 @@ class SubstituirMapaCommand(_Comando):
             ExcluirCardCommand(self.editor, ident)._lembretes(False)
         if selected in self.editor.cena.itens_cards:
             self.editor.selecionar(selected)
+        else:
+            self.editor.selecionar(None)
         self._sincronizar()
 
     def redo(self):
+        self.editor._plano = BP.replace(self.editor._plano, **self.campos_depois)
         self._aplicar(self.depois)
 
     def undo(self):
+        self.editor._plano = BP.replace(self.editor._plano, **self.campos_antes)
         self._aplicar(self.antes)

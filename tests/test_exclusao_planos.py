@@ -122,3 +122,30 @@ def test_cancelar_preserva(janela, app, monkeypatch):
     janela._excluir_permanentemente()
     app.processEvents()
     assert carregar(p.id) is not None
+
+
+@pytest.mark.parametrize("confirmar", [True, False])
+def test_confirmacao_real_e_exclusao_de_ativo(janela, app, confirmar):
+    from PyQt6.QtCore import QTimer
+    p = _plano("Plano ativo", arquivar_plano=False)
+    janela.recarregar()
+    janela.selecionar(p.id)
+
+    def responder():
+        caixa = janela.findChild(QMessageBox)
+        assert caixa is not None
+        if confirmar:
+            botao = next(b for b in caixa.buttons()
+                         if caixa.buttonRole(b) == QMessageBox.ButtonRole.DestructiveRole)
+        else:
+            botao = caixa.button(QMessageBox.StandardButton.Cancel)
+        botao.click()
+
+    QTimer.singleShot(0, responder)
+    janela.botoes["excluir_permanentemente"].click()
+    if confirmar:
+        assert carregar(p.id) is None
+        assert janela.plano_selecionado_id is None
+        assert janela.campo_titulo.text() == ""
+    else:
+        assert carregar(p.id).status == "ativo"

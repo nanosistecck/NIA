@@ -7,9 +7,9 @@ pelo fluxo do Canvas são preservados.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QRectF, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QItemSelectionModel, QRectF, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
-    QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPen,
+    QColor, QFont, QFontMetrics, QKeySequence, QLinearGradient, QPainter, QPen, QShortcut,
 )
 from PyQt6.QtWidgets import (
     QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
@@ -563,7 +563,7 @@ class PlanosWindow(QWidget):
         secundarios = (
             ("lembretes", "Lembretes", 115),
             ("arquivar", "Arquivar", 105),
-            ("restaurar", "Restaurar", 105),
+            ("restaurar", "Desarquivar", 105),
             ("excluir_permanentemente", "Excluir", 100),
         )
         for grupo in (primarios, secundarios):
@@ -602,6 +602,11 @@ class PlanosWindow(QWidget):
             ("restaurar", self._restaurar),
         ):
             self.botoes[nome].clicked.connect(funcao)
+        self._atalho_excluir = QShortcut(QKeySequence(Qt.Key.Key_Delete), self.lista)
+        self._atalho_excluir.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self._atalho_excluir.setAutoRepeat(False)
+        self._atalho_excluir.activated.connect(self._excluir_permanentemente)
+        self.lista.setToolTip("Ctrl+clique ou Shift+clique para selecionar vários; Delete para excluir.")
         self.salvar.clicked.connect(self.salvar_plano)
         self.botao_cancelar.clicked.connect(self.cancelar)
         self._set_formulario(editable=False)
@@ -629,12 +634,27 @@ class PlanosWindow(QWidget):
         resultados = buscar(
             self._planos, self.campo_busca.text(),
             "" if tipo == "Todos" else tipo, status)
+        ids_selecionados = {i.data(Qt.ItemDataRole.UserRole)
+                            for i in self.lista.selectedItems()}
+        atual_id = self.plano_selecionado_id
         self.lista.clear()
         for plano in resultados:
             item = QListWidgetItem(plano.titulo)
             item.setData(Qt.ItemDataRole.UserRole, plano.id)
             item.setData(Qt.ItemDataRole.UserRole + 1, plano)
             self.lista.addItem(item)
+        atual = None
+        for i in range(self.lista.count()):
+            item = self.lista.item(i)
+            ident = item.data(Qt.ItemDataRole.UserRole)
+            if ident in ids_selecionados:
+                item.setSelected(True)
+                if atual is None or ident == atual_id:
+                    atual = item
+        if atual is not None:
+            self.lista.setCurrentItem(atual, QItemSelectionModel.SelectionFlag.NoUpdate)
+        elif self.lista.count():
+            self.lista.setCurrentRow(0)
         filtro_ativo = (bool(self.campo_busca.text())
                         or self.filtro_tipo.currentIndex() > 0
                         or self.filtro_status.currentIndex() > 0)
@@ -663,7 +683,14 @@ class PlanosWindow(QWidget):
 
     def _item_selecionado(self, item: QListWidgetItem | None) -> None:
         if item is None:
+            self.plano_selecionado_id = None
+            self._modo = None
+            self._preencher_formulario(None)
+            self._set_formulario(editable=False)
+            self._atualizar_botoes()
             return
+        self._modo = None
+        self._set_formulario(editable=False)
         self.plano_selecionado_id = item.data(Qt.ItemDataRole.UserRole)
         self._preencher_formulario(self._por_id(self.plano_selecionado_id))
         self._atualizar_botoes()
@@ -698,21 +725,18 @@ class PlanosWindow(QWidget):
         habilitado = selecionado is not None
         for nome in ("visualizar", "editar"):
             self.botoes[nome].setEnabled(habilitado)
-        for nome in ("abrir_canvas", "abrir_canvas_ia", "arquivar"):
+        for nome in ("abrir_canvas", "abrir_canvas_ia"):
             self.botoes[nome].setEnabled(
                 habilitado and selecionado.status == "ativo")
-        self.botoes["restaurar"].setEnabled(
-            habilitado and selecionado.status == "arquivado")
         selecionados = self.lista.selectedItems()
-        carregados = [BP.carregar(i.data(Qt.ItemDataRole.UserRole))
-                      for i in selecionados]
-        fora = [p for p in carregados if p is None or p.status != "arquivado"]
+        planos = [self._por_id(i.data(Qt.ItemDataRole.UserRole)) for i in selecionados]
+        self.botoes["arquivar"].setEnabled(any(p and p.status == "ativo" for p in planos))
+        self.botoes["restaurar"].setEnabled(any(p and p.status == "arquivado" for p in planos))
         self.botoes["excluir_permanentemente"].setEnabled(bool(selecionados))
         self.botoes["lembretes"].setEnabled(habilitado)
-        if fora:
+        if selecionados:
             self.status.setText(
-                f"{len(selecionados)} selecionado(s) · excluir exige plano "
-                f"arquivado ({len(fora)} ainda ativo(s)).")
+                f"{self.lista.count()} plano(s) · {len(selecionados)} selecionado(s)")
 
     # ── ações (backend inalterado) ───────────────────────────────────────
     def novo_plano(self) -> None:
@@ -732,6 +756,26 @@ class PlanosWindow(QWidget):
         self._modo = "visualizar"
         self._preencher_formulario(plano)
         self._set_formulario(editable=False)
+        dialogo = QDialog(self)
+        dialogo.setObjectName("visualizacao_plano")
+        dialogo.setWindowTitle(f"NIA Planos · {plano.titulo}")
+        dialogo.resize(640, 440)
+        layout = QVBoxLayout(dialogo)
+        titulo = QLineEdit(plano.titulo, dialogo)
+        titulo.setReadOnly(True)
+        layout.addWidget(titulo)
+        layout.addWidget(QLabel(
+            f"{plano.tipo} · {plano.status} · revisão {plano.revisao}", dialogo))
+        objetivo = QTextEdit(dialogo)
+        objetivo.setPlainText(plano.objetivo)
+        objetivo.setReadOnly(True)
+        layout.addWidget(objetivo)
+        fechar = QPushButton("Fechar", dialogo)
+        fechar.clicked.connect(dialogo.accept)
+        layout.addWidget(fechar)
+        dialogo.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialogo.setWindowModality(Qt.WindowModality.WindowModal)
+        dialogo.show()
 
     def editar(self) -> None:
         plano = self._por_id(self.plano_selecionado_id)
@@ -790,36 +834,30 @@ class PlanosWindow(QWidget):
         self.status.setText("Alterações descartadas.")
 
     def _arquivar(self) -> None:
-        plano = self._por_id(self.plano_selecionado_id)
-        if plano is None:
-            return
-        try:
-            atualizar(plano.id, {"status": "arquivado"}, plano.revisao)
-        except ConflitoDeRevisao:
-            self.status.setText("Conflito de revisão. Recarregue os planos.")
-            self.recarregar()
-            return
-        except (OSError, ValueError):
-            self.status.setText("Falha ao salvar. Tente novamente.")
-            return
-        self.recarregar()
-        self.selecionar(plano.id)
+        self._alterar_status_selecionados("arquivado")
 
     def _restaurar(self) -> None:
-        plano = self._por_id(self.plano_selecionado_id)
-        if plano is None:
-            return
-        try:
-            restaurar(plano.id, plano.revisao)
-        except ConflitoDeRevisao:
-            self.status.setText("Conflito de revisão. Recarregue os planos.")
-            self.recarregar()
-            return
-        except (OSError, ValueError):
-            self.status.setText("Falha ao salvar. Tente novamente.")
-            return
+        self._alterar_status_selecionados("ativo")
+
+    def _alterar_status_selecionados(self, destino: str) -> None:
+        planos = [self._por_id(item.data(Qt.ItemDataRole.UserRole))
+                  for item in self.lista.selectedItems()]
+        alterados, falhas = 0, []
+        for plano in planos:
+            if plano is None or plano.status == destino:
+                continue
+            try:
+                acao = BP.arquivar if destino == "arquivado" else restaurar
+                acao(plano.id, plano.revisao)
+                alterados += 1
+            except (BP.ErroPlano, OSError, ValueError):
+                falhas.append(plano.titulo)
         self.recarregar()
-        self.selecionar(plano.id)
+        verbo = "arquivado(s)" if destino == "arquivado" else "desarquivado(s)"
+        mensagem = f"{alterados} plano(s) {verbo}."
+        if falhas:
+            mensagem += f" Falha em {len(falhas)}: " + ", ".join(falhas) + "."
+        self.status.setText(mensagem)
 
     def _abrir_canvas(self) -> None:
         if self.plano_selecionado_id:
@@ -834,16 +872,18 @@ class PlanosWindow(QWidget):
         planos = [p for p in planos if p is not None]
         titulos = "\n".join(f"• {p.titulo} ({p.id[:8]})" for p in planos)
         texto = (f"Excluir permanentemente {len(planos)} plano(s)?\n\n{titulos}\n\n"
+                 "Planos ativos serão arquivados antes da exclusão.\n"
                  "Esta ação é definitiva.")
         caixa = QMessageBox(self)
         caixa.setWindowTitle("Excluir planos permanentemente?")
         caixa.setText(texto)
         caixa.setIcon(QMessageBox.Icon.Warning)
         cancelar = caixa.addButton(QMessageBox.StandardButton.Cancel)
-        caixa.addButton("Excluir permanentemente",
-                        QMessageBox.StandardButton.DestructiveRole)
+        excluir = caixa.addButton("Excluir permanentemente",
+                                  QMessageBox.ButtonRole.DestructiveRole)
         caixa.setDefaultButton(cancelar)
-        return caixa.exec() == 1
+        caixa.exec()
+        return caixa.clickedButton() is excluir
 
     def _excluir_permanentemente(self) -> None:
         ids = [item.data(Qt.ItemDataRole.UserRole)
@@ -855,10 +895,9 @@ class PlanosWindow(QWidget):
             plano = BP.carregar(ident)
             if plano is None:
                 continue
-            if plano.status != "arquivado":
-                falhas.append(ident)
-                continue
             try:
+                if plano.status != "arquivado":
+                    plano = BP.arquivar(ident, plano.revisao)
                 _excluir_permanentemente(ident, plano.revisao)
                 excluidos.append(ident)
             except (BP.ErroPlano, OSError):

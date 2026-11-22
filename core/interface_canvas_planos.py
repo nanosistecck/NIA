@@ -6,7 +6,9 @@ layout (dock e núcleo) é de sessão: nada é gravado em preferências.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QRect, QEvent, pyqtSignal
+from uuid import uuid4
+
+from PyQt6.QtCore import Qt, QRect, QEvent, QTimer, QSize, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout, QInputDialog, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget, QCheckBox, QFrame, QComboBox, QApplication,
 )
@@ -15,6 +17,7 @@ from core import assistencia_planos as AP
 from core import lembretes as LEM
 from core.comandos_lembretes import assunto_de
 from core import modelos_planos as MP
+from core.interface_canvas import icon
 from core.interface_mapa import EditorMapa
 
 _PRI = "#00d4ff"
@@ -26,20 +29,20 @@ QWidget#CanvasEditorOverlay {{
     background: transparent; border: none;
 }}
 QLabel {{ color: {_TEXT}; background: transparent; }}
-QPushButton {{
+QPushButton[canvasControl="true"] {{
     color: {_TEXT};
     background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
         stop:0 rgba(38,84,110,180), stop:1 rgba(12,40,58,190));
     border: 1px solid rgba(150,215,240,70); border-radius: 9px;
     padding: 7px 13px; min-height: 32px; font-size:14px;
 }}
-QPushButton:hover {{
+QPushButton[canvasControl="true"]:hover {{
     background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
         stop:0 rgba(52,112,142,205), stop:1 rgba(18,54,76,210));
     border: 1px solid rgba(160,230,255,120);
 }}
-QPushButton:focus {{ border: 2px solid {_PRI}; outline: none; }}
-QPushButton:checked {{
+QPushButton[canvasControl="true"]:focus {{ border: 2px solid {_PRI}; outline: none; }}
+QPushButton[canvasControl="true"]:checked {{
     background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
         stop:0 rgba(24,150,175,220), stop:1 rgba(8,70,92,225));
     border: 2px solid #80f6fc;
@@ -58,11 +61,13 @@ class CanvasEditor(QWidget):
         super().__init__(stage if parent is None else parent)
         self._stage = stage
         self._mounted = False
-        self._chat_aberto = True
+        self._chat_aberto = False
         self.setObjectName('CanvasEditorOverlay')
         self.setStyleSheet(_ESTILO)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.modo_assistido = False
+        self._geracao_modo = 0
+        self._sessao_id = uuid4().hex
         self.header = QWidget(self)
         topo = QHBoxLayout(self.header)
         topo.setContentsMargins(8, 0, 8, 0)
@@ -102,16 +107,29 @@ class CanvasEditor(QWidget):
             button.clicked.connect(slot)
             button.hide()
             setattr(self, attr, button)
+        self.botao_salvar.setIcon(icon('save'))
+        self.botao_salvar.setIconSize(QSize(20, 20))
+        self.botao_salvar.setToolTip('Salvar · Ctrl+S')
         self.botao_modo.setCheckable(True)
         self.estado_nia = QLabel('NIA  |  ● Iniciando', self)
         self.estado_nia.setStyleSheet('font-size:14px;color:#bcebf5;')
-        self.chat_toggle = QPushButton('Chat', self)
+        self.chat_toggle = QPushButton('Conversa', self)
+        self.chat_toggle.setCheckable(True)
+        self.chat_toggle.setStyleSheet(
+            'QPushButton { min-height: 22px; padding: 3px 12px; font-size: 11px; }')
+        self.chat_toggle.setFixedHeight(32)
         self.chat_toggle.setToolTip('Recolher/abrir chat sem perder o texto')
         self.chat_toggle.clicked.connect(self._alternar_chat)
         self.navegar = QPushButton('☰', self)
         self.navegar.setToolTip('Ferramentas e navegação da NIA')
+        self.navegar.setStyleSheet('QPushButton { min-height: 20px; padding: 4px; }')
+        self.navegar.setFixedSize(40, 36)
         self.navegar.clicked.connect(lambda: self.window()._right_panel.show_tools())
         self.editor_internal.zoom_bar.setParent(self)
+        for button in self.findChildren(QPushButton):
+            button.setProperty('canvasControl', True)
+            button.style().unpolish(button)
+            button.style().polish(button)
         self._config_panel = None
         self.parentWidget().installEventFilter(self)
         QApplication.instance().installEventFilter(self)
@@ -134,9 +152,16 @@ class CanvasEditor(QWidget):
             return
         window = self.window()
         self._mounted = True
+        self._chat_aberto = False
+        self.chat_toggle.setChecked(False)
+        self._botao_conversa_visivel = window._btn_chat_abajo.isVisible()
+        window._btn_chat_abajo.hide()
         self._composer = window._composer
+        self._composer_limits = (self._composer.minimumSize(), self._composer.maximumSize())
+        self._composer_visivel = self._composer.isVisible()
         self._composer.setParent(self)
-        self._composer.setMinimumWidth(240)
+        self._composer.setMinimumWidth(0)
+        self._composer.setMaximumWidth(16777215)
         self._composer.show()
         self._stage.motion.stop()
         self._stage.hud_stack.setParent(self)
@@ -150,9 +175,11 @@ class CanvasEditor(QWidget):
         self._mounted = False
         window = self.window()
         self._composer.setParent(window.centralWidget())
-        self._composer.setMinimumWidth(460)
+        self._composer.setMinimumSize(self._composer_limits[0])
+        self._composer.setMaximumSize(self._composer_limits[1])
         window._composer_layout.insertWidget(1, self._composer, 1)
-        self._composer.show()
+        self._composer.setVisible(self._composer_visivel)
+        window._btn_chat_abajo.setVisible(self._botao_conversa_visivel)
         self._stage.hud_stack.setParent(self._stage)
         self._stage.hud_stack.show()
         self._stage.arrange(False)
@@ -164,8 +191,9 @@ class CanvasEditor(QWidget):
 
     def _alternar_chat(self):
         self._chat_aberto = not self._chat_aberto
+        self.chat_toggle.setChecked(self._chat_aberto)
         self._reposicionar()
-        (self._composer if self._chat_aberto else self.chat_toggle).setFocus()
+        (self.window()._input if self._chat_aberto else self.chat_toggle).setFocus()
 
     def _configuracoes(self):
         if self._config_panel is None:
@@ -224,11 +252,15 @@ class CanvasEditor(QWidget):
 
     def definir_modo(self, assistido: bool) -> None:
         """Alterna Manual/Com a NIA sem tocar no mapa, seleção ou câmera."""
+        if self.modo_assistido != bool(assistido):
+            self._geracao_modo += 1
         self.modo_assistido = bool(assistido)
         self.botao_modo.setChecked(self.modo_assistido)
         self.botao_modo.setText(
             "Modo: Com a NIA" if self.modo_assistido else "Modo: Manual")
         self.modo_mudou.emit(self.modo_assistido)
+        if self.editor_internal._plano is not None:
+            self.contexto_mudou.emit(self.contexto())
 
     @property
     def card_selecionado_id(self) -> str | None:
@@ -239,6 +271,7 @@ class CanvasEditor(QWidget):
         return self.editor_internal.mudancas_pendentes
 
     def abrir(self, plano) -> None:
+        self._sessao_id = uuid4().hex
         self.editor_internal.carregar(plano)
         self.titulo.setText(f'{plano.tipo} / {plano.titulo}')
         self.status.setText('✓ Salvo')
@@ -248,14 +281,26 @@ class CanvasEditor(QWidget):
         self.editor_internal.cena.grade = prefs.get('grade', True)
         self.editor_internal._view.roda_navega = prefs.get('roda_navega', False)
         self.editor_internal.detalhes(self.width() >= 1400)
+        # Enquadrar só depois de o overlay e seu viewport terem o tamanho final.
+        QTimer.singleShot(0, self._centralizar_abertura)
         self.contexto_mudou.emit(self.contexto())
+
+    def _centralizar_abertura(self):
+        if self.isVisible() and not self.editor_internal.mudancas_pendentes:
+            self._reposicionar()
+            self.editor_internal.enquadrar()
 
     def contexto(self) -> dict:
         plano = self.editor_internal.plano_atual()
+        self.titulo.setText(f'{plano.tipo} / {plano.titulo}')
         return {
             "plano_id": plano.id,
             "card_id": self.editor_internal.card_selecionado_id,
             "plano": plano,
+            "modo_assistido": self.modo_assistido,
+            "geracao_modo": self._geracao_modo,
+            "sessao_id": self._sessao_id,
+            "camera": dict(self.editor_internal._camera),
         }
 
     def selecionar_card(self, card_id: str | None) -> None:
@@ -361,28 +406,34 @@ class CanvasEditor(QWidget):
         w, h = self.width(), self.height()
         frame = getattr(self.window(), '_dwm_frame', None)
         top = int(frame.caption_height / self.devicePixelRatioF()) if frame and frame.active else 0
-        compacto = w < 1100 or h < 650
+        compacto = w < 1450
         self.layout_compacto = compacto
-        footer = 154 if compacto and self._chat_aberto else 86
+        # Reserve o espaço do chat mesmo recolhido para manter o rodapé e o
+        # viewport estáveis ao alternar a conversa.
+        footer = 148
         self.header.setGeometry(14, top+8, max(100,w-28), 48)
-        self.editor_internal.setGeometry(0, top+62, w, max(160,h-top-62-footer))
+        self.editor_internal.setGeometry(0, top+62, w, max(100,h-top-62-footer))
         self.editor_internal._dispor()
-        self.editor_internal.zoom_bar.adjustSize()
         zoom = self.editor_internal.zoom_bar
+        zoom.adjustSize()
         zoom.move(max(4,w-zoom.width()-18), h-zoom.height()-16)
-        self.navegar.setGeometry(16, h-48, 40, 36)
-        self.estado_nia.setGeometry(142, h-57, 210 if w>=800 else 130, 36)
-        self.chat_toggle.setGeometry(max(320,w-zoom.width()-86), h-52, 58, 36)
-        self.chat_toggle.setVisible(compacto)
+        self.navegar.setGeometry(150, h-46, 40, 36)
+        self.estado_nia.setGeometry(156, h-144, min(200, max(80, w-500)), 28)
+        self.chat_toggle.setGeometry((w-110)//2, h-42, 110, 32)
+        self.chat_toggle.show()
         if self._mounted:
-            size = 72 if compacto else 86
-            self._stage.hud_stack.setGeometry(62, h-size-9, size, size)
+            # O núcleo tem tamanho mínimo de 120 px: reserve-o integralmente.
+            size = max(120, self._stage.hud_stack.minimumWidth(),
+                       self._stage.hud_stack.minimumHeight())
+            self._stage.hud_stack.setGeometry(16, h-size-12, size, size)
             self._stage.hud_stack.raise_()
-            width = min(600, w-32 if compacto else max(280, w-740))
+            # O chat ocupa só o vão central entre núcleo/navegação e zoom.
+            lateral = max(200, zoom.width()+30)
+            width = min(620, max(240, w-2*lateral))
             x = (w-width)//2
-            y = h-145 if compacto else h-78
-            self._composer.setGeometry(x, y, width, 60)
-            self._composer.setVisible(self._chat_aberto or not compacto)
+            y = self.chat_toggle.y()-56-10
+            self._composer.setGeometry(x, y, width, 56)
+            self._composer.setVisible(self._chat_aberto)
             self._composer.raise_()
         self.editor_internal.zoom_bar.show()
         self.header.raise_()

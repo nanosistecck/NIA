@@ -101,7 +101,12 @@ def test_abrir_plano_por_comando_traz_janela_para_frente(tmp_path, monkeypatch):
     app.processEvents()
 
 
-def test_texto_nao_duplica_fala(nia):
+def test_texto_tambem_responde_com_fala_uma_vez(nia):
+    import time
     obj, falas, _aberturas, _mensagens = nia
     obj._executar_frase_habilidade("NIA, quero criar um projeto.", "texto")
-    assert falas == []
+    for _ in range(100):
+        if falas:
+            break
+        time.sleep(.01)
+    assert len(falas) == 1 and 'Qual' in falas[0]

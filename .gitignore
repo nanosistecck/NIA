@@ -31,6 +31,8 @@ whatsapp_bridge/*.log
 whatsapp_bridge/status.json
 whatsapp_bridge/wa_qr.png
 whatsapp_bridge/mark_xlviii_whatsapp_db.json
+# Backups de banco/estado do WhatsApp: nunca versionar.
+*.bak
 
 # IDE / editor
 .idea/

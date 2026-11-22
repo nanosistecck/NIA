@@ -1359,6 +1359,19 @@ class CerebroOpenRouter:
             return " ".join(dict.fromkeys(a.strip() for a in achadas)).strip()
         return limpo
 
+    @staticmethod
+    def _pedido_quer_texto_completo(pergunta: str) -> bool:
+        """Pedido de conteúdo não pode ser limitado por teto de palavras."""
+        import re as _re  # noqa: PLC0415
+        import unicodedata as _u  # noqa: PLC0415
+        bruto = _u.normalize("NFKD", str(pergunta or "")).casefold()
+        n = "".join(ch for ch in bruto if not _u.combining(ch))
+        return bool(_re.search(
+            r"\b(?:explique|explica|como funciona|detalhe|detalhes|raciocinio|"
+            r"por que|porque|quais|lista|liste|etapas|passo a passo|dica|ideias|"
+            r"opiniao|analise|compare|diferenca|conte|descreva|resumo|relatorio|"
+            r"historia|completo|tudo|inteiro|sem corte)\b", n))
+
     def _fechar_resposta(self, pergunta: str, saida: str) -> str:
         """Teto de palavras + gravacao no historico. Um lugar so.
 
@@ -1370,13 +1383,14 @@ class CerebroOpenRouter:
         # o dono ouve chaves e aspas no meio da frase (05/09/2026).
         saida = self._sem_json(saida)
         saida = self._limpar_para_voz(saida)
-        if saida and len(saida.split()) > 45:
+        if (saida and len(saida.split()) > 90
+                and not self._pedido_quer_texto_completo(pergunta)):
             import re as _re  # noqa: PLC0415
             frases = _re.split(r"(?<=[.!?])\s+", saida)
             cortada, total = [], 0
             for f in frases:
                 n = len(f.split())
-                if cortada and total + n > 45:
+                if cortada and total + n > 90:
                     break
                 cortada.append(f)
                 total += n
@@ -1721,13 +1735,14 @@ class CerebroOpenRouter:
         # enquanto o resto e gerado. 90 continua barrando discurso de verdade
         # sem mutilar uma resposta que o dono PEDIU longa.
         saida = self._limpar_para_voz(saida)
-        if saida and len(saida.split()) > 45:
+        if (saida and len(saida.split()) > 90
+                and not self._pedido_quer_texto_completo(pergunta)):
             import re as _re  # noqa: PLC0415
             frases = _re.split(r"(?<=[.!?])\s+", saida)
             cortada, total = [], 0
             for f in frases:
                 n = len(f.split())
-                if cortada and total + n > 45:
+                if cortada and total + n > 90:
                     break
                 cortada.append(f)
                 total += n

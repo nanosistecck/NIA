@@ -92,3 +92,104 @@ Para cada etapa registre: data, tarefa, arquivos, motivo, testes executados, res
 - Riscos: a retomada repete o pedido (pode duplicar cards se o primeiro ja
   tiver sido aplicado); comportamento intencional de "faz de novo".
 - Decisao: sem commit, sem branch, sem tocar nas mudancas locais preexistentes.
+
+## 22/11/2026 — Commit e rodada 4: interrupcao conversacional
+- Commit solicitado pelo usuario: `e170e6b` (11 arquivos, 749 insercoes).
+- Tarefa: nova mensagem (chat ou voz) interrompe fala/tarefa corrente; "faz ate
+  o final" impede a interrupcao.
+- Diagnostico: `ui._send` nao chamava `on_interrupt`; `interrupt` nao cancelava
+  ferramenta em voo nem descartava TTS em geracao; nao havia excecao "ate o final".
+- Arquivos: `main.py`, `ui.py`, `tests/test_interrupcao_conversa.py` (novo).
+- Implementado: `pedido_ate_o_final`, `atividade_em_andamento`,
+  `_tratar_interrupcao`, `interrupt(silencioso=False)` com `_fala_seq` e
+  cancelamento de `_ferramenta_futuro`; `on_atividade` no `MainWindow` e
+  chamada em `_send`.
+- Testes: 17 RED → 18 GREEN; 214 testes da area; suite completa 593 passed,
+  4 failed (mesmas preexistentes).
+- Correcoes no caminho: esqueletos de teste sem `_interrupted`/`_speaking_lock`
+  exigiram `getattr` nas verificacoes.
+- `compileall` e `git diff --check`: limpos.
+- Evidencia: `logs/captura_interrupcao.png` e probe com turno/fala_seq avancados.
+- Decisao: esta rodada NAO foi commitada; aguardando aprovacao explicita.
+
+## 22/11/2026 — Rodada 5: troca rapida de assunto
+- Tarefa: clima seguido de horas nao deve esperar a fala anterior terminar.
+- Diagnostico: `_trava_boca` presa pela geracao TTS do clima; `interrupt()` avancava
+  `_fala_seq` mas nao sinalizava que a proxima fala podia ignorar a espera.
+- Arquivos: `main.py`, `tests/test_troca_assunto_rapida.py` (novo).
+- Implementado: `_boca_bypass`, `_timeout_boca`, `_adquirir_boca`; `interrupt()`
+  marca o bypass; os tres pontos de `acquire(timeout=10/25)` passaram a usar
+  `_adquirir_boca`, que consome o bypass na primeira tentativa.
+- Testes: 6 RED → 6 GREEN; 312 testes da area; suite completa 599 passed,
+  4 failed (mesmas preexistentes).
+- `compileall` e `git diff --check`: limpos.
+- Evidencia: acquire apos interrupcao em 0,0001 s (contra 10 s sem bypass).
+- Decisao: sem commit nesta rodada; aguardando aprovacao.
+
+## 22/11/2026 — Rodada 6: fala completa
+- Tarefa: parar de cortar frases no meio; falar tudo que for necessario sem
+  perder respostas curtas quando a conversa pede.
+- Diagnostico: teto de 45 palavras em `_fechar_resposta` (dois pontos), prompts
+  "doze palavras"/"ate quarenta e cinco" e `max_tokens=150` no cliente LLM.
+- Arquivos: `core/cerebro_openrouter.py`, `core/personas.py`, `core/llm_client.py`,
+  `main.py`, `tests/test_fala_completa.py` (novo),
+  `tests/test_planejamento_provedor_canvas.py` (default dinamico de tokens).
+- Implementado: `_pedido_quer_texto_completo` isenta explicacoes/dicas/listas do
+  teto; teto de seguranca subiu de 45 para 90 apenas para conversa de rotina;
+  `max_tokens`/`num_predict` padrao 1024; prompts orientam tamanho conforme a
+  pergunta e "fale ate o fim".
+- Testes: 8 RED → 10 GREEN; 322 testes da area; suite completa 625 passed,
+  4 failed (mesmas preexistentes).
+- Correcoes no caminho: `unicodedata` importado dentro do helper; teste de prompt
+  passou a ler `REGRAS_FIXAS` (as regras globais), nao `PERSONALIDADES`.
+- `compileall` e `git diff --check`: limpos.
+- Evidencia: explicacao com 120 palavras preservada; "oi" com 90; tokens 1024.
+- Decisao: sem commit nesta rodada; aguardando aprovacao.
+
+## 22/11/2026 — Rodada 7: fala cortada no meio da frase
+- Tarefa: frase do clima parava em "92%" sem dizer "de chance de chuva. Agora faz 31 graus".
+- Diagnostico: `SILENCIO_MAX_S=8s` fazia `_corrida` desistir no meio do turno;
+  a régua de 65% aceitava o audio cortado como completo.
+- Arquivos: `core/gemini_voice.py`, `main.py`, `tests/test_fala_sem_corte.py` (novo).
+- Implementado: `SILENCIO_MAX_S=20s`; `_INTEIRA_PARA_TOCAR=0.85` e
+  `_INTEIRA_PARA_GRAVAR=0.90`; `_gerar_inteiro` devolve `b""` quando nenhuma
+  tentativa atinge a régua, fazendo o chamador cair no caminho que fala
+  conforme o audio chega em vez de tocar uma frase pela metade.
+- Testes: 4 RED → 5 GREEN; 343 testes da area; suite completa 630 passed,
+  4 failed (mesmas preexistentes).
+- `compileall` e `git diff --check`: limpos.
+- Evidencia: frase de 122 caracteres com corte em 67% rejeitada; completa aceita.
+- Decisao: sem commit nesta rodada; aguardando aprovacao.
+
+## 22/11/2026 — Rodada 8: clima "agora a tarde"
+- Aprovacao explicita do usuario para a melhoria proposta na resposta anterior.
+- Arquivos: `actions/weather_report.py`, `main.py`,
+  `tests/test_clima_agora.py` (novo; testes de clima do usuario intactos).
+- Implementado:
+  - `current=time` acrescentado a URL do Open-Meteo (com `timezone=auto`);
+  - `_hora_local_atual` le a hora da cidade sem depender do relogio do PC;
+  - `_filtrar_horas(..., desde=None)` limita as horas restantes do turno;
+  - `weather_action` aplica o limite so quando o pedido contem "agora";
+  - descricao da ferramenta `weather_report` orienta a preservar "agora" em `time`.
+- Regras: turno ja comecado → so horas restantes; antes do turno → turno
+  completo; sem `current.time` → turno completo; sem horas restantes → turno
+  completo (nunca resposta vazia).
+- Testes: 5 RED → 11 GREEN; 352 testes da area; suite completa 639 passed,
+  4 failed (mesmas preexistentes); 14 testes de clima do usuario passaram.
+- `compileall` e `git diff --check`: limpos.
+- Evidencia: 16h "agora a tarde" → 0%; 16h "hoje à tarde" → 80%; 10h → 80%;
+  sem hora local → 80%.
+- Decisao: sem commit nesta rodada; aguardando aprovacao.
+
+## 22/11/2026 — Rodada 9: fim das 4 falhas persistentes
+- Pergunta do usuario: dava para resolver as falhas?
+- Resposta: sim, todas. Diagnostico por reproducao antes de editar.
+- Arquivos: `core/interface_canvas_planos.py`, `core/interface_mapa.py`,
+  `tests/test_interface_canvas.py`, `tests/test_config_dashboard.py`.
+- Correcoes: botao Salvar mostrado e posicionado; composer mostrado no teste de
+  layout (widget oculto nao recebe geometria do Qt); guarda de revisao removida
+  em `ExcluirCardCommand._lembretes`; cache de `nomes_tela` limpo no fixture.
+- Testes: os 4 testes passaram isolados e na suite completa.
+- **Suite completa: 643 passed, 0 failed** — primeira vez sem falhas.
+- `compileall` e `git diff --check`: limpos.
+- Decisao: sem commit nesta rodada; aguardando aprovacao.

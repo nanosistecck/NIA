@@ -1672,12 +1672,12 @@ TOOL_DECLARATIONS = [
         # 01/10/2026: a ferramenta passou a DEVOLVER a previsao pronta (ceu,
         # minima/maxima e chance de chuva) em vez de abrir o navegador. Sem
         # cidade ela usa a do dono; o dia sai do `time`.
-        "description": "Previsao do tempo pronta para falar (ceu, minima e maxima, chance de chuva). Use para clima, temperatura, vai chover, frio, calor. Sem cidade dita, NAO pergunte: deixe city vazio que o PC usa a cidade do dono.",
+        "description": "Previsao do tempo pronta para falar (ceu, minima e maxima, chance de chuva). Use para clima, temperatura, vai chover, frio, calor. Preserve em time o dia E o periodo ou horario pedido (ex.: amanha a tarde, hoje a noite, sexta as 15h). Com 'agora' no pedido (ex.: 'agora a tarde'), preserva 'agora' em time: a resposta usa so as horas restantes do periodo na cidade. Sem periodo, retorna o resumo do dia inteiro. Sem cidade dita, NAO pergunte: deixe city vazio que o PC usa a cidade do dono.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "city": {"type": "STRING", "description": "City name (vazio = cidade do dono)"},
-                "time": {"type": "STRING", "description": "hoje | amanha | depois de amanha | semana | um dia da semana (sexta, sabado...)"}
+                "time": {"type": "STRING", "description": "Dia e periodo completos: hoje | amanha | depois de amanha | semana | sexta; acrescente pela manha, a tarde, a noite, de madrugada ou as 15h quando solicitado. Ex.: amanha pela manha. Nao descarte o periodo pedido."}
             },
             "required": []
         }
@@ -2613,6 +2613,12 @@ class NiaLive:
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._interrupted          = False   # True while draining audio after user interrupt
+        # Interrupcao conversacional (rodada 4): por padrao a acao corrente pode
+        # ser interrompida; "faz ate o final" desliga essa permissao.
+        self._interruptivel        = True
+        self._boca_bypass          = False   # proxima fala nao espera a antiga
+        self._fala_seq             = 0       # token para descartar TTS em voo
+        self._ferramenta_futuro    = None
         self._turno_seq            = 0       # resultados atrasados não mudam outra conversa
         self._busca_seq            = 0
         # Card temporário do Canvas: o token sobe no INÍCIO de cada consulta.
@@ -2641,6 +2647,7 @@ class NiaLive:
         self.ui.on_revoke_devices   = self._revoke_devices
         self.ui.on_whatsapp_clicked = self._open_whatsapp_from_button
         self.ui.on_interrupt        = self.interrupt
+        self.ui.on_atividade        = self.atividade_em_andamento
         self.ui.on_falar_resumo     = self._falar_resumo
         # SKILL 07: catálogo, dock, chat e voz usam o mesmo executor.
         CH.registrar_executor(self._executar_habilidade)
@@ -7441,6 +7448,9 @@ class NiaLive:
 
     def _executar_frase_habilidade(self, texto: str, origem: str) -> bool:
         """Reconhece frases do catálogo e comandos de planejamento no chat/voz."""
+        tratar = getattr(self, "_tratar_interrupcao", None)
+        if tratar is not None and tratar(texto, origem):
+            return True
         retomar = getattr(self, "_retomar_pedido_canvas", None)
         texto, retomada, tem_anterior = (
             retomar(texto) if retomar is not None else (texto, False, False))
@@ -7523,10 +7533,55 @@ class NiaLive:
         except Exception:
             pass
 
-    def interrupt(self) -> None:
-        """Stop NIA mid-speech: drain queued audio and open mic immediately."""
+    def pedido_ate_o_final(self, texto: str) -> bool:
+        """Frase que pede explicitamente para não interromper a ação atual."""
+        import re as _re
+        n = AP.normalizar(texto)
+        return bool(_re.search(
+            r'\b(?:ate o final|ate acabar|ate o fim|deixa terminar|deixe terminar|'
+            r'nao interrompa|sem interrupcao|termina ai|termine ai|'
+            r'continua ate|continue ate|deixa a tarefa ir ate o fim)\b', n))
+
+    def atividade_em_andamento(self) -> bool:
+        """Fala ou ferramenta em curso — usado pelo chat para interromper."""
+        trava = getattr(self, "_speaking_lock", None)
+        if trava is None:
+            falando = bool(getattr(self, "_is_speaking", False))
+        else:
+            with trava:
+                falando = bool(getattr(self, "_is_speaking", False))
+        return falando or bool(getattr(self, "_tool_busy", False))
+
+    def _tratar_interrupcao(self, texto: str, origem: str) -> bool:
+        """Devolve True quando a mensagem foi consumida e não deve seguir."""
+        if self.pedido_ate_o_final(texto):
+            self._interruptivel = False
+            mensagem = "Certo, vou terminar a ação atual antes de continuar."
+            self.ui.write_log("SIS: " + mensagem)
+            falar = getattr(self, "_falar_resposta_comando", None)
+            if falar is not None:
+                falar(mensagem, origem)
+            return True
+        self._interruptivel = True
+        if not getattr(self, "_interrupted", False) \
+                and self.atividade_em_andamento():
+            self.interrupt(silencioso=True)
+        return False
+
+    def interrupt(self, silencioso: bool = False) -> None:
+        """Para fala/tarefa corrente para atender a nova mensagem do dono."""
+        if not getattr(self, "_interruptivel", True):
+            return
         self._interrupted = True
+        self._boca_bypass = True   # proxima fala nao espera a que foi calada
         self._turno_seq += 1   # resultados em voo não alcançam mais esta conversa
+        self._fala_seq = getattr(self, "_fala_seq", 0) + 1
+        futuro = getattr(self, "_ferramenta_futuro", None)
+        if futuro is not None and not futuro.done():
+            try:
+                futuro.cancel()
+            except Exception:
+                pass
         q = self.audio_in_queue
         if q:
             drained = 0
@@ -7545,7 +7600,8 @@ class NiaLive:
         self._mic_fechado_ate = 0.0
         if self._turn_done_event:
             self._turn_done_event.clear()
-        self.ui.write_log("SYS: Interrupted — listening...")
+        if not silencioso:
+            self.ui.write_log("SYS: Interrupted — listening...")
 
     # ── SEGUNDO PLANO (01/11/2026, v1.0.37) ──────────────────────────────────
     #
@@ -8295,8 +8351,16 @@ class NiaLive:
                 return "O motor ainda nao subiu, tente de novo em instantes."
             futuro = asyncio.run_coroutine_threadsafe(
                 self._execute_tool(_Chamada(nome, args)), self._loop)
+            self._ferramenta_futuro = futuro
             # Teto generoso: leads e imagem passam de um minuto de verdade.
-            resposta = futuro.result(timeout=900)
+            try:
+                resposta = futuro.result(timeout=900)
+            except Exception as exc:
+                if type(exc).__name__ == 'CancelledError':
+                    return 'Tarefa interrompida pelo usuário antes de terminar.'
+                raise
+            finally:
+                self._ferramenta_futuro = None
             bruto = getattr(resposta, "response", None) or {}
             if (nome == "whatsapp_bridge" and isinstance(bruto, dict)
                     and bruto.get("literal_confirmation")):
@@ -8724,9 +8788,10 @@ class NiaLive:
         partes = [
             f"Seu nome é {nome}. Você é o assistente pessoal do dono deste computador e está "
             f"FALANDO com ele em voz alta, ao vivo, em português do Brasil.",
-            "A mensagem é o dono falando com você: responda falando, direto e curto — "
-            "conversa: uma ou duas frases; pergunta de conhecimento, dica ou opinião: o conteúdo "
-            "primeiro, até quarenta palavras. Fale como gente, natural. Nunca use lista, título, "
+            "A mensagem é o dono falando com você: responda falando, direto, no tamanho que "
+            "a conversa pede — conversa de rotina: uma ou duas frases; explicação, dica, "
+            "raciocínio ou lista: fale até o fim, sem cortar por cautela, com o conteúdo primeiro. "
+            "Fale como gente, natural. Nunca use lista, título, "
             "emoji nem risada escrita. Nunca repita uma fala sua do mesmo jeito. Não diga o nome "
             "dele a toda frase. Não cumprimente se ele não cumprimentou.",
             "AQUI VOCÊ SÓ CONVERSA: nunca diga que abriu, criou, mandou, pesquisou ou fez qualquer "
@@ -8766,9 +8831,10 @@ class NiaLive:
         t1 = _t.monotonic()
         self._ultimo_ttfs = 0.0
         estado = {"bytes": 0, "t_som": 0.0}
+        seq_fala = getattr(self, "_fala_seq", 0)
 
         def _no_pedaco(raw: bytes) -> None:
-            if not raw:
+            if getattr(self, "_fala_seq", 0) != seq_fala or not raw:
                 return
             if not estado["t_som"]:
                 estado["t_som"] = time.monotonic()
@@ -8785,7 +8851,7 @@ class NiaLive:
                     self.audio_in_queue.put_nowait, raw[pos: pos + 2400])
 
         _trava = self._trava_boca()
-        _pegou = _trava.acquire(timeout=10)
+        _pegou = self._adquirir_boca(10)
         dito = ""
         try:
             dito = motor.speak_para_fila(texto, _no_pedaco, modo="conversar") or ""
@@ -8935,6 +9001,16 @@ class NiaLive:
             return True
         return agora < float(getattr(self, "_fala_inteira_ate", 0.0) or 0.0)
 
+    def _timeout_boca(self, padrao: float) -> float:
+        """Apos interrupcao, a nova fala entra sem esperar a geracao antiga."""
+        return 0.0 if getattr(self, "_boca_bypass", False) else padrao
+
+    def _adquirir_boca(self, timeout: float) -> bool:
+        """Adquire a trava da boca e consome o bypass da interrupcao."""
+        pegou = self._trava_boca().acquire(timeout=self._timeout_boca(timeout))
+        self._boca_bypass = False
+        return pegou
+
     def _trava_boca(self):
         """Uma fala de nuvem por vez na mesma sessao de voz.
 
@@ -8992,8 +9068,8 @@ class NiaLive:
 
     # Uma fala e "inteira" quando tem pelo menos isto do tempo esperado. Para
     # GRAVAR a regua e mais alta: o que vai para o disco toca para sempre.
-    _INTEIRA_PARA_TOCAR = 0.65
-    _INTEIRA_PARA_GRAVAR = 0.80
+    _INTEIRA_PARA_TOCAR = 0.85
+    _INTEIRA_PARA_GRAVAR = 0.90
 
     @staticmethod
     def _fala_esperada_s(texto: str) -> float:
@@ -9023,7 +9099,7 @@ class NiaLive:
                     _p.append(bytes(raw))
 
             trava = self._trava_boca()
-            pegou = trava.acquire(timeout=25)
+            pegou = self._adquirir_boca(25)
             try:
                 motor.speak_para_fila(texto, _junta)
             except Exception as exc:
@@ -9042,7 +9118,13 @@ class NiaLive:
                 _voice_diag("fala_inteira_cortada",
                             f"{dur:.1f}s para {len(str(texto))} letras "
                             f"(esperava ~{self._fala_esperada_s(texto):.1f}s) — gerando de novo")
-        return melhor
+        if melhor and self._fala_completa(
+                texto, len(melhor) / 2 / 24000, self._INTEIRA_PARA_TOCAR):
+            return melhor
+        # Nada foi tocado ainda. Devolver audio cortado faria o dono ouvir a
+        # frase pela metade ("...92%" sem "de chance de chuva"). Melhor cair
+        # no caminho que fala conforme o audio chega.
+        return b""
 
     def _tocar_bruto(self, raw: bytes, ao_primeiro_som=None) -> float:
         """Poe a fala inteira na fila de uma vez. Devolve a duracao."""
@@ -9306,9 +9388,10 @@ class NiaLive:
                 # deixava o microfone fechado tempo demais — era a queixa do
                 # Diego de falar logo depois e ele nao ouvir.
                 estado = {"bytes": 0, "comecou": False, "t_som": 0.0}
+                seq_fala = getattr(self, "_fala_seq", 0)
 
                 def _no_pedaco(raw: bytes) -> None:
-                    if not raw:
+                    if getattr(self, "_fala_seq", 0) != seq_fala or not raw:
                         return
                     if not estado["comecou"]:
                         estado["comecou"] = True
@@ -9348,7 +9431,7 @@ class NiaLive:
                 # que uma gravacao presa deixe o NIA mudo: passado dele,
                 # fala assim mesmo, como era antes.
                 _trava = self._trava_boca()
-                _pegou = _trava.acquire(timeout=25)
+                _pegou = self._adquirir_boca(25)
                 try:
                     _motor.speak_para_fila(texto, _no_pedaco)
                 finally:

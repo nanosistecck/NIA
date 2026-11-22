@@ -419,6 +419,8 @@ class CanvasEditor(QWidget):
         zoom.move(max(4,w-zoom.width()-18), h-zoom.height()-16)
         self.navegar.setGeometry(150, h-46, 40, 36)
         self.estado_nia.setGeometry(156, h-144, min(200, max(80, w-500)), 28)
+        self.botao_salvar.setGeometry((w-110)//2 - 124, h-42, 110, 32)
+        self.botao_salvar.show()
         self.chat_toggle.setGeometry((w-110)//2, h-42, 110, 32)
         self.chat_toggle.show()
         if self._mounted:
@@ -440,6 +442,7 @@ class CanvasEditor(QWidget):
         self.estado_nia.raise_()
         self.navegar.raise_()
         self.chat_toggle.raise_()
+        self.botao_salvar.raise_()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

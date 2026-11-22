@@ -1,30 +1,33 @@
-# Criterios de aceite e evidencias — rodada 3
+# Criterios de aceite e evidencias — status final
 
-| Requisito | Teste | Evidencia | Estado |
+## Rodada 9 — 4 falhas persistentes resolvidas
+
+| Falha | Causa | Correcao | Estado |
 |---|---|---|---|
-| Pedido sobre funcionamento gera cards uteis | `test_interacao_canvas_pedido.py` (14 testes) | 5 cards com titulos e descricoes locais, conectados ao central | OK |
-| Frase real do usuario e reconhecida | `test_frase_real_e_reconhecida_como_funcionamento` | `CC.pedido_funcionamento_nia` True | OK |
-| Espelho vazio nao descarta lote valido | `test_espelho_vazio_nao_descarta_lote_valido` | card aplicado; sem "O plano mudou" | OK |
-| Plano realmente trocado ainda descarta | `test_plano_real_trocado_ainda_descarta` | mensagem de mudanca preservada | OK |
-| "tenta fazer meu pedido" reprocessa | `test_retomada_reprocessa_ultimo_pedido` | `CH.reconhecer` nao chamado; cards criados | OK |
-| Variantes de retomada reconhecidas | parametro com 5 frases | todas True | OK |
-| Sem pedido anterior responde localmente | `test_retomada_sem_pedido_responde_localmente` | sem queda no cerebro comum | OK |
-| Sem regressao das rodadas 1 e 2 | 196 tests da area | 196 passed | OK |
-| Suite completa | `pytest -q` | **575 passed, 4 failed** (mesmas preexistentes) | OK |
-| Sintaxe e diff | `compileall` / `git diff --check` | limpos | OK |
+| `test_botao_salvar_no_overlay_e_grava` | botão `salvar_canvas` criado oculto e nunca posicionado | `_reposicionar` mostra e posiciona o botão (110x32) ao lado do chat | OK |
+| `test_dock_delega_a_aparencia_e_aplica_preferencias` | Qt nao posiciona widget oculto; composer ficava em (0,0) | teste mostra o composer para medir o layout e o esconde depois | OK |
+| `test_excluir_card_suspende_e_desfazer_restaura` | guarda de revisao confundia exclusao do card com edicao externa | guarda removida; `suspender_por_card`/`restaurar_por_card` so mexem nos lembretes | OK |
+| `test_topo_compacto` | cache global de `nomes_tela` vazava "Nome de teste" | fixture `config_isolada` limpa `nomes_tela._cache` | OK |
 
-## Evidencia funcional e visual
+## Resultado final da suíte
 
-- Antes: `diag_provedor2.py` reproduziu "SIS: O plano mudou desde o pedido;
-  nada foi aplicado." e `diag_pedido.py` mostrou titulos crus e retomada caindo
-  no cerebro comum.
-- Depois (`%TEMP%\gerar_evidencia3.py`), com as frases exatas do usuario:
-  - "vc consegue criar cards relacionados ao seu funcionamento e inserir nesse plano?" → OK;
-  - "tenta fazer meu pedido" → OK;
-  - titulos: Como a NIA funciona, Canvas Infinito, Planos e memória,
-    Ferramentas e integrações, Evolução proposta;
-  - verificacao automatica: `TEM "O plano mudou"? False`.
-- Captura inspecionada: `logs/captura_interacao_canvas.png` (272.672 bytes),
-  com o card central conectado aos cards de funcionamento da NIA.
-- Ressalva: sem microfone, provedor real ou tela fisica. A interface e o Canvas
-  foram executados de fato; provedor e voz foram simulados.
+- `python -m pytest -q`: **643 passed, 0 failed**.
+- Nenhuma falha preexistente restante.
+- `compileall` e `git diff --check`: limpos.
+
+## Rodadas anteriores (resumo)
+
+| Rodada | Entrega | Evidencia |
+|---|---|---|
+| 1 | gramatica de cards/ideias, prioridade de plano, resumo sem IDs | 34 testes novos |
+| 2 | conversa priorizada no chat do Canvas | 18 testes novos |
+| 3 | pedido generativo sobre a NIA, retomada, contexto real | 14 testes novos |
+| 4 | interrupção conversacional e "faz até o final" | 18 testes novos |
+| 5 | troca rápida de assunto (bypass da trava da boca) | 6 testes novos |
+| 6 | fala completa (sem teto de palavras em explicações) | 10 testes novos |
+| 7 | fala cortada no meio (silêncio 20s, régua 0.85) | 5 testes novos |
+| 8 | clima "agora a tarde" com hora local da cidade | 11 testes novos |
+| 9 | 4 falhas antigas resolvidas | suíte 643/643 |
+
+Ressalvas: sintese de voz real, provedor de IA e microfone nao disponiveis;
+validacao feita com interface Qt executada e dados simulados.

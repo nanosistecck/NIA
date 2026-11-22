@@ -3834,6 +3834,7 @@ class MainWindow(QMainWindow):
         self.on_remote_clicked   = None   # callable: () -> (url, key) | None
         self.on_whatsapp_clicked = None   # callable: () -> None — open/connect WhatsApp QR
         self.on_interrupt        = None   # callable: () -> None — stop NIA mid-speech
+        self.on_atividade        = None   # callable: () -> bool — fala/tarefa em curso
         self.on_cowork_acao      = None   # callable: (acao, valor) — botoes do Cowork
         self.on_computer_use        = None   # callable: () — botao COMPUTER USE do dock
         self.on_computer_use_estado = None   # callable: () -> "livre" | "esperando" | "trabalhando"
@@ -6523,6 +6524,15 @@ class MainWindow(QMainWindow):
         if not txt: return
         self._input.clear()
         self._log.append_log(f"Você: {txt}")
+        # Conversa normal: nova mensagem cala a fala/tarefa anterior antes de
+        # seguir. "Faz até o final" e tratado pelo proprio NiaLive.
+        atividade = getattr(self, 'on_atividade', None)
+        interromper = getattr(self, 'on_interrupt', None)
+        if interromper is not None and (atividade is None or atividade()):
+            try:
+                interromper(silencioso=True)
+            except TypeError:
+                interromper()
         if self.on_text_command:
             threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 

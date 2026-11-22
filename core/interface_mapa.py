@@ -606,9 +606,10 @@ class ExcluirCardCommand(_Comando):
             disco = BP.carregar(plano.id)
             if disco is None:
                 return
-            # Only reminder-only external revisions may be merged here.
-            if disco.revisao != plano.revisao and disco.mapa != plano.mapa:
-                return
+            # O mapa pode divergir de propósito: excluir/restaurar um card acabou
+            # de alterá-lo. `suspender_por_card`/`restaurar_por_card` carregam o
+            # plano do disco e mexem SÓ nos lembretes, então é seguro seguir
+            # mesmo com revisão diferente.
             if suspender:
                 _lembretes.suspender_por_card(plano.id, self.card_id)
             else:

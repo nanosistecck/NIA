@@ -69,7 +69,9 @@ def test_cliente_preserva_limite_padrao_e_permite_lote_longo(monkeypatch, proved
                             raise_for_status=lambda: None, json=lambda: resposta))
     llm_client.call_llm([{'role':'user','content':'teste'}], **({'max_tokens':limite} if limite else {}))
     payload = chamadas[0]
-    assert (payload['max_tokens'] if provedor == 'openai' else payload['options']['num_predict']) == (limite or 150)
+    import inspect
+    padrao = inspect.signature(llm_client.call_llm).parameters['max_tokens'].default
+    assert (payload['max_tokens'] if provedor == 'openai' else payload['options']['num_predict']) == (limite or padrao)
 
 
 def test_destino_bloqueado_nao_e_chamado(monkeypatch):

@@ -54,3 +54,83 @@
   titulos a partir de preposicoes do pedido.
 - A preservar: descarte de resposta atrasada quando o plano realmente troca
   (`test_resposta_atrasada_nao_altera_outro_estado`).
+
+## Rodada 4 — baseline antes das mudancas (22/11/2026)
+- Commit de referencia: `e170e6b` (11 arquivos, 749 insercoes).
+- Diagnostico da interrupcao:
+  - `ui.py:6521-6527` (`_send`) envia o texto ao `on_text_command` sem chamar
+    `on_interrupt`; a fala/tarefa anterior continua enquanto a nova e processada.
+  - `main.py:7526-7548` (`interrupt`) drena `audio_in_queue`, incrementa
+    `_turno_seq` e `set_speaking(False)`, mas nao cancela a ferramenta em voo
+    (`_executar_ferramenta_local`, `futuro.result(timeout=900)`) e nao tem
+    excecao para "fazer ate o final".
+  - `main.py:8783-8785` e `9343-9345` continuam enfileirando chunks de TTS
+    mesmo depois da interrupcao, porque nao ha token de geracao.
+- Comportamentos a preservar: interrupcao por ESC/_do_interrupt, barge-in de
+  voz em tempo real, avisos de tarefa longa, microfone aberto apos interrupcao.
+- Fora de escopo: cancelamento de processos externos ja iniciados no sistema.
+
+## Rodada 5 — baseline antes das mudancas (22/11/2026)
+- Relato: pergunta sobre clima seguida de pergunta sobre horas demorou para responder.
+- Suite anterior: 593 passed, 4 falhas preexistentes.
+- Diagnostico: `main.py:9001-9013` (`_trava_boca`) e os pontos de `acquire(timeout=10/25)`
+  prendem a nova fala ate a geracao TTS anterior terminar. `interrupt()` (rodada 4)
+  avanca `_fala_seq` e descarta os pedacos antigos, mas nao libera a trava — a
+  nova resposta de horas espera ate 25 s antes de falar.
+- `interrupt()` nao sinaliza explicitamente que a boca pode ser bypassada.
+- A preservar: uma fala de nuvem por vez na sessao ao vivo, para nao misturar audio.
+- Fora de escopo: acelerar a rede do provedor de clima ou do relogio.
+
+## Rodada 6 — baseline antes das mudancas (22/11/2026)
+- Relato: frases sendo cortadas no meio; a NIA precisa falar tudo o que for necessario.
+- Suite anterior: 599 passed, 4 falhas preexistentes.
+- Limites encontrados:
+  - `core/cerebro_openrouter.py:1373-1385`: `_fechar_resposta` corta em 45 palavras.
+  - `core/personas.py:168-190`: prompt "CONVERSA E CURTA: doze palavras" e
+    "ate quarenta e cinco palavras se precisar".
+  - `main.py:8791-8795`: prompt "direto e curto ... ate quarenta palavras".
+  - `core/llm_client.py:324` e `:617-619`: `max_tokens`/`num_predict` = 150.
+- `core/gemini_voice.py:1180` ja ajusta o prazo ao tamanho do texto (nao e a causa).
+- A preservar: conversa trivial continua curta; nao introduzir respostas longas
+  onde uma frase basta. Mudancas locais do usuario em `actions/weather_report.py`
+  e `tests/test_clima_periodos.py` nao devem ser tocadas.
+
+## Rodada 7 — baseline antes das mudancas (22/11/2026)
+- Relato: "Hoje em Santa Maria das Barreiras: ... 92% de chance de chuva.
+  Agora faz 31 graus." a NIA falou só ate "92%" e parou.
+- Suite anterior: 625 passed, 4 falhas preexistentes.
+- Causa raiz: `core/gemini_voice.py:297` `SILENCIO_MAX_S = 8.0` — apos 8 s sem
+  audio no meio do turno, `_corrida` faz `break` (linha 1060) e descarta o resto.
+- Agravante: `main.py:9071` `_INTEIRA_PARA_TOCAR = 0.65` aceita fala com so 65%
+  do tempo esperado; `_gerar_inteiro` devolve o `melhor` audio mesmo cortado.
+- O teto de palavras da rodada 6 NAO e a causa: o corte e no meio da frase.
+- A preservar: primeiro som tem prazo proprio; falhas reais de conexao soltam
+  a proxima fala; nunca repetir audio que ja tocou.
+
+## Rodada 8 — baseline antes das mudancas (22/11/2026)
+- Pedido aprovado pelo usuario: "agora a tarde" deve responder pelas horas
+  restantes do turno quando ele ja comecou; antes do turno, manter 12h-17h.
+- Suite anterior: 630 passed, 4 falhas preexistentes.
+- Diagnostico: `_filtrar_horas` (actions/weather_report.py:175) filtra apenas
+  pelo turno fixo (tarde = 12-17), sem olhar a hora atual; `_qual_dia` trata
+  "agora" como hoje, mas a palavra "agora" nao e usada para limitar as horas.
+- `current` da URL Open-Meteo nao pede o campo `time`, entao a hora local da
+  cidade consultada nao esta disponivel (o relogio do PC pode estar em outro fuso).
+- A preservar: testes de clima do usuario em `tests/test_clima_periodos.py`;
+  resposta de dia inteiro e de turno sem "agora" permanecem iguais.
+
+## Rodada 9 — baseline das 4 falhas persistentes (22/11/2026)
+- Suite anterior: 639 passed, 4 failed desde a primeira rodada.
+- Causas confirmadas por reproducao:
+  1. `test_botao_salvar`: `core/interface_canvas_planos.py` cria `salvar_canvas`
+     com `button.hide()` e `_reposicionar` nunca o mostra nem o posiciona.
+  2. `test_dock_delega...`: `_composer` fica oculto por padrao e o Qt nao
+     atualiza a geometria de widget oculto — fica (0,0,620,56); ao mostrar,
+     passa a (100,456,620,56) e a assercao de layout e verdadeira.
+  3. `test_excluir_card_suspende...`: `ExcluirCardCommand._lembretes` (interface_mapa.py:610)
+     retorna quando `disco.revisao != plano.revisao and disco.mapa != plano.mapa`.
+     A exclusao acabou de mudar o mapa, entao a guarda impede `suspender_por_card`.
+  4. `test_topo_compacto`: `test_config_dashboard.py` monkeypatcha apenas
+     `nomes_tela.ARQUIVO`, mas nao limpa `nomes_tela._cache`; "Nome de teste"
+     vaza para o teste seguinte.
+- Todas sao corrigiveis sem mudar contratos publicos nem dados do usuario.

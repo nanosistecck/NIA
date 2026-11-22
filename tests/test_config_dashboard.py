@@ -80,6 +80,9 @@ def config_isolada(tmp_path, monkeypatch):
     from core import dono, nomes_tela, tema
     monkeypatch.setattr(dono, 'ARQUIVO', tmp_path / 'dono.json')
     monkeypatch.setattr(nomes_tela, 'ARQUIVO', tmp_path / 'nomes_tela.json')
+    # O cache e global e sobrevive ao monkeypatch do ARQUIVO: sem limpar aqui,
+    # "Nome de teste" vaza para os testes seguintes.
+    monkeypatch.setattr(nomes_tela, '_cache', None)
     monkeypatch.setattr(tema, 'ARQUIVO', tmp_path / 'cores.json')
     monkeypatch.setattr(ui, 'NUCLEO_FILE', tmp_path / 'nucleo.json')
     monkeypatch.setattr(tema, '_escolhas', {})

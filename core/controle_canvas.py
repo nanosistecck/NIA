@@ -346,12 +346,79 @@ def _pedido_rotulo_conexao(texto: str, contexto: dict) -> tuple[list | None, lis
              'rotulo': rotulo}], []
 
 
+_CARDS_FUNCIONAMENTO_NIA = (
+    ('Como a NIA funciona',
+     'Chat e voz usam a mesma rota; comandos locais decidem antes do provedor.'),
+    ('Canvas Infinito',
+     'Planos, cards e conexões em um mapa com desfazer, salvamento atômico e contexto vivo.'),
+    ('Planos e memória',
+     'Planos em JSON versionado; o contexto é lido sob demanda antes de qualquer ação.'),
+    ('Ferramentas e integrações',
+     'Habilidades locais, lembretes, fontes e modelos de planejamento no mesmo fluxo.'),
+    ('Evolução proposta',
+     'Melhorias validadas em etapas pequenas, com testes, regressão e evidências.'),
+)
+
+
+def pedido_funcionamento_nia(texto: str) -> bool:
+    """Pedido generativo sobre o próprio sistema, com conteúdo local."""
+    n = normalizar(texto)
+    if not re.search(r'\b(?:card|cards|painel|ramo|mapa|plano)\b', n):
+        return False
+    return bool(re.search(
+        r'\b(?:seu funcionamento|sua arquitetura|suas capacidades|'
+        r'como voce funciona|como funciona a nia|funcionamento da nia|'
+        r'arquitetura da nia|seu sistema|minha evolucao|sua evolucao|'
+        r'evolucao|melhorias|proximos passos)\b', n))
+
+
+def pedido_retomada(texto: str) -> bool:
+    """Frase que pede para repetir o último pedido do Canvas."""
+    n = normalizar(texto).strip(' .!?')
+    if not re.match(
+            r'^(?:tente|tenta|tente novamente|faca|faça|faz|fazer|repita|repete|'
+            r'reexecute|reexecuta)\b', n):
+        return False
+    return bool(re.search(
+        r'\b(?:de novo|novamente|meu pedido|o pedido|isso|isso ai)\b', n))
+
+
+def _pedido_funcionamento_nia(texto: str, contexto: dict) -> tuple[list | None, list[str]]:
+    if not pedido_funcionamento_nia(texto):
+        return None, []
+    cartoes = contexto.get('cartoes') or []
+    selecionado = contexto.get('card_id')
+    raiz_id = (contexto.get('plano').mapa.get('raiz_id')
+               if contexto.get('plano') else None)
+    base = next((c for c in cartoes if c.get('id') == selecionado), None)
+    if base is None and raiz_id:
+        base = next((c for c in cartoes if c.get('id') == raiz_id), None)
+    if base is None:
+        return [], ['Abra um plano antes de criar cards sobre a NIA.']
+    x0 = float(base.get('x') or 0.0) + 300.0
+    y0 = float(base.get('y') or 0.0) + 130.0
+    operacoes = []
+    for i, (titulo, descricao) in enumerate(_CARDS_FUNCIONAMENTO_NIA):
+        temp = f'nia{i}'
+        operacoes.append({
+            'tipo': 'criar_card', 'titulo': titulo, 'descricao': descricao,
+            'temp_id': temp, 'x': x0 + (i % 3) * 320.0,
+            'y': y0 + (i // 3) * 170.0,
+        })
+        operacoes.append({'tipo': 'conectar', 'origem': base['id'],
+                          'destino_ref': temp})
+    return operacoes, []
+
+
 def pedido_controle(texto, contexto):
     """Resolve operações locais inequívocas; o restante segue para o provedor."""
     n = normalizar(texto).strip(" .!?")
     if pede_limpar_mapa(texto):
         return (None, []) if pede_substituir_mapa(texto) else ([{'tipo':'limpar_mapa'}], [])
     try:
+        funcionamento, erros = _pedido_funcionamento_nia(texto, contexto)
+        if funcionamento is not None:
+            return funcionamento, erros
         criacao, erros = _pedido_criar_card(texto, contexto)
         if criacao is not None:
             return criacao, erros

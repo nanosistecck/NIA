@@ -7106,8 +7106,7 @@ class NiaUI:
                     editor.editor_internal.pilha.undo()
                     informar('SIS: Alteração aplicada e desfeita no plano '+plano.titulo+'.')
                 else:
-                    ids = [op.get('card_id') or op.get('titulo') or op.get('origem') for op in operacoes]
-                    informar('SIS: Alteração concluída em '+plano.titulo+': '+', '.join(str(i) for i in ids if i)+'.')
+                    informar('SIS: ' + _assistencia.resumo_lote(operacoes, plano))
                 editor.contexto_mudou.emit(editor.contexto())
             except (ValueError, OSError) as exc:
                 informar('SIS: Não foi possível aplicar a alteração: '+str(exc))
@@ -7131,6 +7130,16 @@ class NiaUI:
     def estado_canvas_vivo(self):
         """Plano do editor aberto, com edições pendentes (thread-safe)."""
         return self.contexto_canvas().get('plano')
+
+    def plano_canvas_vivo(self):
+        """Plano real do editor visível, quando o espelho de sinal está vazio."""
+        editor = getattr(self._win, '_canvas_editor', None)
+        if editor is None or not editor.isVisible():
+            return None
+        try:
+            return editor.editor_internal.plano_atual()
+        except Exception:
+            return None
 
     def destacar_card(self, plano_id: str, card_id: str | None) -> None:
         """Destaca o card de uma resposta somente se o plano estiver visível."""

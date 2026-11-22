@@ -1,10 +1,8 @@
-# Mapa de impacto
+# Mapa de impacto — rodada 2
 
 | Modulo/arquivo | Contrato existente | Mudanca necessaria | Risco | Teste de compatibilidade |
 |---|---|---|---|---|
-| `core/comandos_planos.py` | `reconhecer` classifica CRIAR/ABRIR/FECHAR/etc. | Nao classificar criacao de card como CRIAR; adicionar LISTAR_PLANOS e "gerenciar planos" | Medio: pode deixar de criar planos legitimos | `tests/test_comandos_planos.py`, `tests/test_criacao_voz.py` |
-| `core/controle_canvas.py` | `pedido_controle` resolve comandos locais | Parser de criacao de card(s), ideias e rotulo de conexao | Medio: titulos/ops errados | `tests/test_controle_canvas.py`, novo teste de gramatica |
-| `core/assistencia_planos.py` | `intencao_para_lote` chama controle/estruturado | Nenhuma mudanca de contrato; usa os novos comandos locais | Baixo | `tests/test_edicao_assistida_revisao.py` |
-| `main.py` | `_executar_frase_habilidade` roteia navegacao vs Canvas | Mensagem clara sem plano; manter autorizacao e provedor | Baixo | `tests/test_simulacao_controle_canvas.py` |
-| `ui.py` | Ponte Qt `aplicar_lote_assistido` | Sem mudanca | Nenhum | Testes existentes |
-| `.opencode/safe-evolution/*.md` | Estado persistente | Registrar baseline, escopo, impacto e evidencias | Nenhum | Revisao manual |
+| `core/assistencia_planos.py` | Intenções e contexto do Canvas | Adicionar `conversa_sobre_plano`, `resumo_conversa_plano` e `resumo_lote` | Medio: reconhecedor pode capturar hora/clima | `tests/test_prioridade_conversa_plano.py` |
+| `main.py` | `_executar_frase_habilidade` decide rota local x ferramenta | Responder pelo plano antes de `CH.reconhecer` | Medio: pode roubar comandos de sistema | testes de rota + suíte de habilidades |
+| `ui.py` | `aplicar_lote_assistido` informa IDs e títulos crus | Usar `resumo_lote` com títulos e limite | Baixo | testes existentes exigem "concluída" |
+| `tests/test_prioridade_conversa_plano.py` | — | Novo arquivo RED→GREEN | Nenhum | — |

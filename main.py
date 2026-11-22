@@ -7109,6 +7109,18 @@ class NiaLive:
                 f"Objetivo do plano: {contexto.get('objetivo', '')}. "
                 f"Vizinhos no mapa: {vizinhos}.")
 
+    def _responder_conversa_plano(self, texto: str, origem: str) -> bool:
+        """No Canvas, a conversa sobre o plano vem antes de qualquer ferramenta."""
+        contexto = self._contexto_planos()
+        if not AP.conversa_sobre_plano(texto, contexto):
+            return False
+        resposta = AP.resumo_conversa_plano(texto, contexto)
+        self.ui.write_log('SIS: ' + resposta)
+        falar = getattr(self, '_falar_resposta_comando', None)
+        if falar is not None:
+            falar(resposta, origem)
+        return True
+
     def _processar_pedido_assistido(self, texto: str, origem: str) -> bool:
         """Explicar, sugerir ou editar o plano aberto, no mesmo fluxo chat/voz."""
         from core.controle_canvas import pedido_criar_card, pedido_modo, pedido_negado
@@ -7155,6 +7167,12 @@ class NiaLive:
             self._pedido_canvas_pendente = None
             return False
         intencao = AP.reconhecer_intencao(texto)
+        if intencao in ("EDITAR", "DESFAZER") and plano_aberto is not None:
+            self._ultimo_pedido_canvas = {
+                "texto": texto, "plano_id": plano_aberto.id,
+                "sessao_id": contexto_canvas.get("sessao_id"),
+                "em": time.time(),
+            }
         if intencao == "NENHUMA":
             return False
         if intencao == 'PLANO_ATUAL':
@@ -7276,14 +7294,23 @@ class NiaLive:
             return True
         alvo_id = contexto_canvas.get("card_id")
         fingerprint = AP.fingerprint(plano)
-        ponte_viva = getattr(self.ui, "estado_canvas_vivo", None)
-        vivo = None
-        if ponte_viva is not None:
-            try:
-                vivo = ponte_viva()
-            except Exception:
-                vivo = None
-        if vivo is not None and getattr(vivo, "id", None) != plano.id:
+        def vivo_atual():
+            """Espelho de sinal primeiro; editor real como fonte de verdade."""
+            pontes = [p for p in (getattr(self.ui, "estado_canvas_vivo", None),
+                                  getattr(self.ui, "plano_canvas_vivo", None))
+                      if p is not None]
+            for ponte in pontes:
+                try:
+                    valor = ponte()
+                except Exception:
+                    valor = None
+                if valor is not None:
+                    return bool(pontes), valor
+            return bool(pontes), None
+
+        tem_ponte, vivo = vivo_atual()
+        if tem_ponte and vivo is not None \
+                and getattr(vivo, "id", None) != plano.id:
             responder(
                 "SIS: O plano mudou desde o pedido; a resposta não foi aplicada.")
             return True
@@ -7323,11 +7350,10 @@ class NiaLive:
                     op["campos"]["resumo"] = proposto
 
         # Read again AFTER the provider returns; the user may have switched maps.
-        if ponte_viva is not None:
-            vivo = ponte_viva()
-            if vivo is None or vivo.id != plano.id:
-                responder('SIS: O plano mudou desde o pedido; nada foi aplicado.')
-                return True
+        tem_ponte, vivo = vivo_atual()
+        if tem_ponte and (vivo is None or vivo.id != plano.id):
+            responder('SIS: O plano mudou desde o pedido; nada foi aplicado.')
+            return True
         # Não rebasear uma resposta sobre edições manuais ocorridas enquanto
         # o provedor estava trabalhando, mesmo que outro card fosse o alvo.
         if vivo is not None and AP.fingerprint(vivo) != fingerprint:
@@ -7398,8 +7424,34 @@ class NiaLive:
             self.ui.write_log("SIS: Não foi possível salvar o lembrete.")
         return True
 
+    def _retomar_pedido_canvas(self, texto: str) -> tuple[str, bool, bool]:
+        """Devolve (texto efetivo, é retomada, existe pedido anterior)."""
+        from core import controle_canvas as CC
+        if not CC.pedido_retomada(texto):
+            return texto, False, False
+        anterior = getattr(self, "_ultimo_pedido_canvas", None)
+        contexto = self._contexto_planos()
+        valido = (anterior is not None
+                  and anterior.get("plano_id") == contexto.get("plano_id")
+                  and anterior.get("sessao_id") == contexto.get("sessao_id")
+                  and time.time() - anterior.get("em", 0.0) <= 300.0)
+        if not valido:
+            return texto, True, False
+        return anterior["texto"], True, True
+
     def _executar_frase_habilidade(self, texto: str, origem: str) -> bool:
         """Reconhece frases do catálogo e comandos de planejamento no chat/voz."""
+        retomar = getattr(self, "_retomar_pedido_canvas", None)
+        texto, retomada, tem_anterior = (
+            retomar(texto) if retomar is not None else (texto, False, False))
+        if retomada and not tem_anterior:
+            mensagem = ("Não tenho um pedido anterior neste plano. "
+                        "Diga o que devo criar ou alterar.")
+            self.ui.write_log("SIS: " + mensagem)
+            falar = getattr(self, "_falar_resposta_comando", None)
+            if falar is not None:
+                falar(mensagem, origem)
+            return True
         canvas_tratado = False
         try:
             contexto = self._contexto_planos()
@@ -7430,6 +7482,14 @@ class NiaLive:
                 return True
         except Exception as exc:
             _voice_diag('lembrete_rota_erro', type(exc).__name__)
+        # PRIORIDADE DO CANVAS: com plano aberto, falar do plano e respondido
+        # pelo contexto local. Nao pode cair em busca de arquivos, criacao de
+        # arquivos, internet ou qualquer outra ferramenta do cerebro.
+        try:
+            if self._responder_conversa_plano(texto, origem):
+                return True
+        except Exception as exc:
+            _voice_diag('conversa_plano_erro', type(exc).__name__)
         habilidade, termo = CH.reconhecer(texto)
         if habilidade is None:
             return False

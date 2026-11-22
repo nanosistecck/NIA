@@ -708,3 +708,110 @@ def pedido_estruturado(texto, contexto):
     except ValueError as exc:
         return [],[str(exc)]
     return None,[]
+
+
+# ── conversa contextual e resumo legível ───────────────────────────────────
+
+_TERMOS_CONVERSA_PLANO = (
+    "plano", "planos", "projeto", "projetos", "produto", "card", "cards",
+    "cartao", "ideia", "ideias", "objetivo", "canvas", "mapa", "tarefa",
+    "tarefas", "progresso", "conexao", "conexoes", "ramo", "status",
+    "descricao", "resumo",
+)
+
+
+def conversa_sobre_plano(texto: str, contexto: dict) -> bool:
+    """Com o Canvas aberto, reconhece conversa sobre o plano em edição."""
+    plano = contexto.get("plano")
+    if plano is None:
+        return False
+    n = normalizar(texto)
+    if not n:
+        return False
+    for termo in _TERMOS_CONVERSA_PLANO:
+        if re.search(r"\b" + re.escape(termo) + r"\b", n):
+            return True
+    titulo = normalizar(plano.titulo)
+    if len(titulo) >= 4 and titulo in n:
+        return True
+    for cartao in plano.mapa.get("cards", []):
+        nome = normalizar(cartao.get("titulo") or "")
+        if len(nome) >= 4 and nome in n:
+            return True
+    return False
+
+
+def resumo_conversa_plano(texto: str, contexto: dict) -> str:
+    """Resposta curta e local, sem IDs técnicos nem ferramentas externas."""
+    plano = contexto["plano"]
+    cartoes = plano.mapa.get("cards", [])
+    n = normalizar(texto)
+    if re.search(r"progresso|o que falta|pendente|conclui", n):
+        from core.planos import resumo_progresso
+        r = resumo_progresso(plano)
+        return (f'Em {plano.titulo}: {r["pendente"]} pendente(s), '
+                f'{r["em_andamento"]} em andamento, '
+                f'{r["bloqueado"]} bloqueado(s).')
+    cartao = next((c for c in cartoes
+                   if c.get("id") == contexto.get("card_id")), None)
+    if cartao and re.search(
+            r"\b(?:card|ideia|tarefa|descricao|resumo|titulo|conteudo|texto)\b", n):
+        corpo = str(cartao.get("descricao") or cartao.get("resumo")
+                    or "sem descrição")
+        return f'No card {cartao["titulo"]}: {corpo[:160]}.'
+    nomes = [str(c.get("titulo") or "") for c in cartoes if c.get("titulo")]
+    detalhe = ""
+    if nomes:
+        detalhe = " Cards: " + ", ".join(nomes[:3])
+        detalhe += (f" (e mais {len(nomes) - 3})." if len(nomes) > 3 else ".")
+    return f"Estamos em {plano.titulo}: {plano.objetivo}.{detalhe}"
+
+
+def resumo_lote(operacoes: list, plano) -> str:
+    """Resume um lote com títulos legíveis, sem expor IDs técnicos."""
+    cartoes = {c.get("id"): c for c in plano.mapa.get("cards", [])}
+    nomes: list[str] = []
+    criados = 0
+    for op in operacoes or []:
+        tipo = op.get("tipo")
+        if tipo in _CONTROLES or tipo in ("salvar", "editar_plano",
+                                          "desfazer", "refazer"):
+            continue
+        if tipo == "criar_card":
+            criados += 1
+            titulo = str(op.get("titulo") or "").strip()
+            if titulo:
+                nomes.append(titulo)
+            continue
+        if tipo == "excluir_card":
+            anterior = cartoes.get(op.get("card_id")) or {}
+            nomes.append("removido: " + str(anterior.get("titulo") or "card"))
+            continue
+        if tipo in ("editar_campos", "alterar_progresso", "anexar_texto",
+                    "mover_card", "selecionar_card"):
+            anterior = cartoes.get(op.get("card_id")) or {}
+            if anterior.get("titulo"):
+                nomes.append(str(anterior["titulo"]))
+            continue
+        if tipo in ("conectar", "desconectar", "editar_conexao"):
+            for chave in ("origem", "destino"):
+                anterior = cartoes.get(op.get(chave)) or {}
+                if anterior.get("titulo"):
+                    nomes.append(str(anterior["titulo"]))
+    vistos: set[str] = set()
+    unicos = []
+    for nome in nomes:
+        if nome not in vistos:
+            vistos.add(nome)
+            unicos.append(nome)
+    if criados:
+        acao = (f"{criados} card criado" if criados == 1
+                else f"{criados} cards criados")
+    else:
+        acao = "cards atualizados"
+    if not unicos:
+        return f"Alteração concluída em {plano.titulo}: {acao}."
+    lista = ", ".join(unicos[:3])
+    if len(unicos) > 3:
+        lista += f" e mais {len(unicos) - 3}"
+    return f"Alteração concluída em {plano.titulo}: {acao} ({lista})."

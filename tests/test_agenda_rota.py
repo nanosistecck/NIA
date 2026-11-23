@@ -52,6 +52,20 @@ def test_bom_dia_responde_sem_compromisso(nia, monkeypatch):
     assert "compromisso" in " ".join(registros).lower()
 
 
+def test_mostrar_card_sem_compromisso_nao_ment(nia):
+    obj, registros, _ = nia
+    assert obj._executar_frase_habilidade("mostrar card da agenda", "texto")
+    assert "não há compromisso" in " ".join(registros).lower()
+
+
+def test_concluir_com_agenda_vazia_nao_diz_ambiguo(nia):
+    obj, registros, _ = nia
+    assert obj._executar_frase_habilidade("conclua o compromisso", "texto")
+    texto = " ".join(registros).lower()
+    assert "não há compromisso pendente" in texto
+    assert "mais de um" not in texto
+
+
 def test_criar_compromisso_pela_rota(nia):
     obj, registros, _ = nia
     assert obj._executar_frase_habilidade(

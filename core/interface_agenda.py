@@ -26,6 +26,8 @@ COR_TEXTO2 = "#8FB5C9"
 COR_MARCADO = "#2EE6A0"
 
 _DIAS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+_MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+             "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
 _ESTILO = f"""
 QWidget {{ background:{COR_FUNDO}; color:{COR_TEXTO};
           font-family:'Segoe UI',sans-serif; font-size:13px; }}
@@ -156,7 +158,7 @@ class AgendaWindow(QWidget):
                 except (TypeError, ValueError):
                     pass
         self.lbl_mes.setText(
-            f"{self.mes_atual.strftime('%B %Y')}".capitalize())
+            f"{_MESES_PT[self.mes_atual.month - 1]} {self.mes_atual.year}")
         while self.grade.count():
             item = self.grade.takeAt(0)
             widget = item.widget()

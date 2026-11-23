@@ -4,8 +4,8 @@ import json
 import time
 
 from PyQt6.QtCore import (
-    Qt, QPointF, QUrl, QPropertyAnimation, QEasingCurve, QByteArray, QRect,
-    QRectF, QSize, QTimer, pyqtSignal,
+    Qt, QPointF, QEvent, QUrl, QPropertyAnimation, QEasingCurve, QByteArray,
+    QRect, QRectF, QSize, QTimer, pyqtSignal,
 )
 from PyQt6.QtGui import QColor, QPainter, QPixmap, QRadialGradient, QDesktopServices, QIcon, QFont
 from PyQt6.QtSvg import QSvgRenderer
@@ -307,6 +307,8 @@ class CanvasStage(QWidget):
         self.agenda_texto.setStyleSheet('color:#d8f8ff;')
         agenda_layout.addWidget(self.agenda_texto, 1)
         self.agenda_host.hide()
+        self._agenda_estado = True      # False: o stage ocultou o card automaticamente
+        self.agenda_host.installEventFilter(self)
 
         # Card temporário (hora, data ou clima): ciclo próprio, um por vez.
         # Não entra em `self.cards` para não ser fechado por show_content().
@@ -357,13 +359,31 @@ class CanvasStage(QWidget):
     def set_hoje_status(self, texto: str) -> None:
         self.hoje_status.setText(str(texto or '')[:160])
 
-    def set_agenda_visivel(self, visivel: bool) -> None:
+    def set_agenda_visivel(self, visivel: bool, sinal: bool = True) -> None:
+        self._agenda_estado = bool(visivel)
         self.agenda_host.setVisible(bool(visivel))
         self.arrange(True)
-        self.agenda_visibilidade.emit(bool(visivel))
+        if sinal:
+            self.agenda_visibilidade.emit(bool(visivel))
 
     def agenda_visivel(self) -> bool:
-        return self.agenda_host.isVisible()
+        # O Qt pode re-mostrar o host ao mostrar a janela; o estado do stage
+        # (automatico, sem compromisso) prevalece sobre a funcao de visibilidade.
+        return self.agenda_host.isVisible() and self._agenda_estado
+
+    def ocultar_agenda(self) -> None:
+        """Oculta o card sem mudar a preferência salva (fechamento automático)."""
+        self._agenda_estado = False
+        self.agenda_host.setVisible(False)
+        self.arrange(True)
+
+    def eventFilter(self, obj, event):
+        # Qt reenvia Show ao host ao mostrar a janela; reaplica o estado do stage.
+        if obj is self.agenda_host and event.type() == QEvent.Type.Show:
+            if not self._agenda_estado:
+                obj.setVisible(False)
+                return True
+        return False
 
     def set_agenda_texto(self, titulo: str, quando: str, preparo: str = '') -> None:
         texto = str(titulo or 'Nenhum compromisso próximo.')

@@ -57,6 +57,7 @@ def test_janela_mostra_compromisso_do_dia(janela):
     app.processEvents()
     jan = w._agenda_window
     assert jan is not None
+    assert jan.lbl_mes.text() == "novembro 2026"
     assert jan.mes_atual.year == 2026 and jan.mes_atual.month == 11
     assert jan.dia_selecionado.day == 27
     texto = jan.txt_compromissos.toPlainText()

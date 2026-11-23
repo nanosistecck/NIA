@@ -7458,7 +7458,11 @@ class NiaLive:
         elif acao in ("mover", "editar", "concluir", "cancelar"):
             alvo = CAG.resolver_alvo(texto, AG.listar(), AG.proximo())
             if alvo is None:
-                mensagem = "Há mais de um compromisso com esse nome. Qual deles?"
+                pendentes = [i for i in AG.listar()
+                             if i.get("estado") == "pendente"]
+                mensagem = ("Não há compromisso pendente para isso."
+                            if not pendentes else
+                            "Há mais de um compromisso com esse nome. Qual deles?")
             else:
                 if acao == "mover":
                     AG.mover(alvo["id"], resultado["inicio"])
@@ -7473,13 +7477,23 @@ class NiaLive:
             mostrar = getattr(self.ui, "mostrar_agenda", None)
             if mostrar is not None:
                 mostrar()
-            mensagem = "Card da agenda exibido."
+            mensagem = ("Card da agenda exibido."
+                        if AG.proximo() else
+                        "Não há compromisso para exibir no card.")
         else:
             return False
         self.ui.write_log("SIS: " + mensagem)
         falar = getattr(self, "_falar_resposta_comando", None)
         if falar is not None:
             falar(mensagem, origem)
+        # Compromisso alterado via chat: atualiza o card do Canvas principal.
+        atualizar = getattr(getattr(self.ui, "_win", None),
+                            "_atualizar_cartao_agenda", None)
+        if atualizar is not None:
+            try:
+                atualizar()
+            except Exception:
+                pass
         return True
 
     def _retomar_pedido_canvas(self, texto: str) -> tuple[str, bool, bool]:

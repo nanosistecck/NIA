@@ -6242,13 +6242,20 @@ class MainWindow(QMainWindow):
             self._atualizar_cartao_agenda()
 
     def _atualizar_cartao_agenda(self) -> None:
-        """Preenche o card do Canvas principal com o próximo compromisso."""
+        """Preenche o card do Canvas principal; só aparece com compromisso."""
         try:
             from core import agenda as _agenda
             item = _agenda.proximo()
             if item is None:
-                self._stage.set_agenda_texto('Nenhum compromisso próximo.', '', '')
+                # Sem compromisso próximo: o card não aparece. Sem mudar a
+                # preferência salva (fechamento explícito do usuário).
+                self._stage.ocultar_agenda()
                 return
+            cartoes = self._prefs.data.get('cards')
+            pref = bool(cartoes.get('agenda', True)) if isinstance(cartoes, dict) else True
+            if not self._stage.agenda_visivel() and pref:
+                # Compromisso existe e a preferência permite: o card reaparece.
+                self._stage.set_agenda_visivel(True, sinal=False)
             inicio = datetime.fromisoformat(str(item['inicio']))
             preparo = inicio - timedelta(
                 minutes=int(item.get('preparo_minutos') or 0))

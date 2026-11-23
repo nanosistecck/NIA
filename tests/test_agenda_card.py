@@ -41,6 +41,28 @@ def janela(app, tmp_path, monkeypatch):
     app.processEvents()
 
 
+def test_card_nao_aparece_sem_compromisso(app, tmp_path, monkeypatch):
+    monkeypatch.setenv("NIA_PLANOS_DIR", str(tmp_path / "planos"))
+    monkeypatch.setenv("NIA_AGENDA", str(tmp_path / "agenda.json"))
+    monkeypatch.setenv("NIA_PERFIL", "sem-compromisso")
+    monkeypatch.setattr(ui, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(ui.MainWindow, "_check_config", lambda self: True)
+    w = ui.MainWindow("face.png")
+    w.resize(1280, 820)
+    w.show()
+    app.processEvents()
+    assert not w._stage.agenda_visivel()
+    w.hide(); w.deleteLater(); app.processEvents()
+
+
+def test_card_atualiza_apos_criacao_por_chat(janela):
+    w, casca, app, _ = janela
+    agenda.criar("Segunda reunião", "2026-11-28T10:00:00-03:00", "reuniao")
+    w._atualizar_cartao_agenda()
+    app.processEvents()
+    assert "Reunião com João" in w._stage.agenda_texto.text()
+
+
 def test_card_mostra_proximo_e_fecha(janela):
     w, casca, app, tmp = janela
     stage = w._stage

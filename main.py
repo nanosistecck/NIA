@@ -7439,40 +7439,85 @@ class NiaLive:
         if not resultado.get("tratado"):
             return False
         acao = resultado.get("acao")
+        rotulos = {
+            "concluir": "Compromisso concluído",
+            "cancelar": "Compromisso cancelado",
+            "excluir": "Compromisso excluído",
+            "mover": "Compromisso movido",
+            "editar": "Compromisso atualizado",
+        }
+        campos_editados = resultado.get("campos") or {}
+        rotulos_campos = {
+            "titulo": "Compromisso renomeado",
+            "tipo": "Tipo atualizado",
+            "notas": "Notas atualizadas",
+            "preparo_minutos": "Preparo atualizado",
+            "estado": ("Compromisso reaberto"
+                       if campos_editados.get("estado") == "pendente"
+                       else "Estado atualizado"),
+        }
         if acao == "pendente":
             mensagem = resultado.get("resposta") or "Informe a data e a hora."
         elif acao == "saudacao":
-            mensagem = AG.resumo_proximo()
+            n = AP.normalizar(texto)
+            if "boa tarde" in n:
+                saudacao = "Boa tarde!"
+            elif "boa noite" in n:
+                saudacao = "Boa noite!"
+            else:
+                saudacao = "Bom dia!"
+            mensagem = saudacao + " " + AG.resumo_proximo()
         elif acao == "proximo":
             mensagem = AG.resumo_proximo()
         elif acao == "listar":
-            itens = [i for i in AG.listar() if i.get("estado") == "pendente"][:5]
-            mensagem = ("Compromissos: " + "; ".join(
-                f'{i["titulo"]} ({str(i["inicio"])[:16]})' for i in itens) + "."
-                if itens else "Nenhum compromisso pendente.")
+            todos = [i for i in AG.listar() if i.get("estado") == "pendente"]
+            itens = AG.filtrar_por_periodo(
+                todos, resultado.get("periodo"))[:5]
+            if itens:
+                mensagem = ("Compromissos: " + "; ".join(
+                    f'{i["titulo"]} ({str(i["inicio"])[:16]})' for i in itens)
+                    + ". " + AG.resumo_proximo())
+            else:
+                mensagem = ("Nenhum compromisso nesse período. "
+                            + AG.resumo_proximo())
         elif acao == "criar":
             item = AG.criar(resultado["titulo"], resultado["inicio"],
                             resultado.get("tipo", "outro"))
             mensagem = (f'Compromisso salvo: {item["titulo"]}. '
                         + AG.resumo_proximo())
-        elif acao in ("mover", "editar", "concluir", "cancelar"):
-            alvo = CAG.resolver_alvo(texto, AG.listar(), AG.proximo())
-            if alvo is None:
+        elif acao in ("mover", "editar", "concluir", "cancelar", "excluir"):
+            todos_pedidos = acao == "excluir" and bool(
+                re.search(r"\b(?:todos|todas)\b", str(texto or ""), re.I))
+            if todos_pedidos:
+                mensagem = "Posso excluir um compromisso por vez. Qual devo excluir?"
+            else:
+                alvo = CAG.resolver_alvo(texto, AG.listar(), AG.proximo())
+            if not todos_pedidos and alvo is None:
                 pendentes = [i for i in AG.listar()
                              if i.get("estado") == "pendente"]
-                mensagem = ("Não há compromisso pendente para isso."
-                            if not pendentes else
-                            "Há mais de um compromisso com esse nome. Qual deles?")
-            else:
+                if not pendentes:
+                    mensagem = "Não há compromisso pendente para isso."
+                elif CAG.contar_casados(texto, AG.listar()) > 1:
+                    mensagem = "Há mais de um compromisso com esse nome. Qual deles?"
+                elif CAG.tem_referencia(texto):
+                    mensagem = "Não encontrei compromisso com esse nome."
+                else:
+                    mensagem = "Há mais de um compromisso com esse nome. Qual deles?"
+            elif not todos_pedidos and alvo is not None:
                 if acao == "mover":
                     AG.mover(alvo["id"], resultado["inicio"])
                 elif acao == "editar":
-                    AG.editar(alvo["id"], resultado.get("campos") or {})
+                    AG.editar(alvo["id"], campos_editados)
                 elif acao == "concluir":
                     AG.concluir(alvo["id"])
-                else:
+                elif acao == "cancelar":
                     AG.cancelar(alvo["id"])
-                mensagem = f'Compromisso {acao}: {alvo["titulo"]}.'
+                else:
+                    AG.excluir(alvo["id"])
+                rotulo_acao = (rotulos_campos.get(next(iter(campos_editados), ""),
+                                                  rotulos[acao])
+                               if acao == "editar" else rotulos[acao])
+                mensagem = f'{rotulo_acao}: {alvo["titulo"]}.'
         elif acao == "mostrar_card":
             mostrar = getattr(self.ui, "mostrar_agenda", None)
             if mostrar is not None:
@@ -7527,6 +7572,13 @@ class NiaLive:
             if falar is not None:
                 falar(mensagem, origem)
             return True
+        # A Agenda vem ANTES do Canvas: "adicione/mude/exclua ..." sao pedidos
+        # de compromisso e nao podem ser capturados pela edicao de planos.
+        try:
+            if self._processar_pedido_agenda(texto, origem):
+                return True
+        except Exception as exc:
+            _voice_diag('agenda_rota_erro', type(exc).__name__)
         canvas_tratado = False
         try:
             contexto = self._contexto_planos()
@@ -7557,11 +7609,6 @@ class NiaLive:
                 return True
         except Exception as exc:
             _voice_diag('lembrete_rota_erro', type(exc).__name__)
-        try:
-            if self._processar_pedido_agenda(texto, origem):
-                return True
-        except Exception as exc:
-            _voice_diag('agenda_rota_erro', type(exc).__name__)
         # PRIORIDADE DO CANVAS: com plano aberto, falar do plano e respondido
         # pelo contexto local. Nao pode cair em busca de arquivos, criacao de
         # arquivos, internet ou qualquer outra ferramenta do cerebro.

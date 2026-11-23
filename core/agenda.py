@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -119,7 +120,7 @@ def criar(titulo: str, inicio: str, tipo: str = "outro",
         raise ValueError("data e hora invalidas")
     tipo = str(tipo or "outro").strip().lower()
     if tipo not in TIPOS:
-        tipo = "outro"
+        raise ValueError("tipo de compromisso invalido")
     try:
         preparo = int(preparo_minutos) if preparo_minutos is not None else sugerir_preparo(tipo)
     except (TypeError, ValueError):
@@ -139,8 +140,21 @@ def editar(item_id: str, mudancas: dict) -> dict:
     item = _encontrar(item_id)
     permitidas = {"titulo", "inicio", "fim", "tipo", "preparo_minutos", "notas", "estado"}
     for chave, valor in (mudancas or {}).items():
-        if chave in permitidas:
-            item[chave] = valor
+        if chave not in permitidas:
+            continue
+        if chave == "titulo" and not str(valor or "").strip():
+            raise ValueError("titulo obrigatorio")
+        if chave in ("inicio", "fim") and valor is not None:
+            try:
+                datetime.fromisoformat(str(valor))
+            except (TypeError, ValueError):
+                raise ValueError("data e hora invalidas")
+        if chave == "tipo" and str(valor or "").strip().lower() not in TIPOS:
+            raise ValueError("tipo de compromisso invalido")
+        if chave == "estado" and valor not in ESTADOS:
+            raise ValueError("estado invalido")
+        item[chave] = (valor.strip() if chave in ("titulo", "notas") and valor is not None
+                       else str(valor).strip().lower() if chave == "tipo" else valor)
     if item.get("estado") not in ESTADOS:
         item["estado"] = "pendente"
     item["atualizado_em"] = datetime.now(timezone.utc).isoformat()
@@ -158,6 +172,53 @@ def concluir(item_id: str) -> dict:
 
 def cancelar(item_id: str) -> dict:
     return editar(item_id, {"estado": "cancelado"})
+
+
+def reabrir(item_id: str) -> dict:
+    return editar(item_id, {"estado": "pendente"})
+
+
+def excluir(item_id: str) -> None:
+    """Remove o compromisso do perfil atual, sem tocar nos demais."""
+    itens = [i for i in carregar()["itens"] if i.get("id") != item_id]
+    salvar(itens)
+
+
+def filtrar_por_periodo(itens: list, periodo: str | None, agora=None) -> list:
+    """Filtra por hoje/amanha/proximo mes; None devolve todos."""
+    if not periodo:
+        return list(itens or [])
+    referencia = _agora(agora)
+    if hasattr(referencia, "astimezone"):
+        try:
+            referencia = referencia.astimezone(ZoneInfo("America/Sao_Paulo"))
+        except Exception:
+            pass
+    selecionados = []
+    for item in itens or []:
+        try:
+            inicio = _agora(item.get("inicio"))
+            if hasattr(inicio, "astimezone"):
+                inicio = inicio.astimezone(ZoneInfo("America/Sao_Paulo"))
+        except (TypeError, ValueError):
+            continue
+        if periodo == "hoje" and inicio.date() == referencia.date():
+            selecionados.append(item)
+        elif periodo == "amanha" and inicio.date() == referencia.date() + timedelta(days=1):
+            selecionados.append(item)
+        elif periodo == "proximo_mes" and (inicio.year, inicio.month) == (
+                (referencia.year + (referencia.month // 12),
+                 referencia.month % 12 + 1)):
+            selecionados.append(item)
+        elif periodo == "semana" and 0 <= (inicio.date() - referencia.date()).days <= 7:
+            selecionados.append(item)
+        elif periodo == "proxima_semana":
+            proxima_segunda = referencia.date() + timedelta(
+                days=7 - referencia.weekday())
+            fim = proxima_segunda + timedelta(days=6)
+            if proxima_segunda <= inicio.date() <= fim:
+                selecionados.append(item)
+    return selecionados
 
 
 def listar() -> list:
@@ -180,6 +241,35 @@ def proximo(agora=None) -> dict | None:
 
 
 def interpretar(texto: str, agora=None, fuso: str = "America/Sao_Paulo") -> str | None:
+    n = normalizar(texto)
+    dia_dito = re.search(r"\bdia\s+(\d{1,2})\b", n)
+    if dia_dito and "amanha" not in n and "hoje" not in n:
+        hora_dita = re.search(r"\bas\s+(\d{1,2})(?::(\d{2})|h(\d{2}))?\b", n)
+        if not hora_dita:
+            hora_dita = re.search(r"\b(\d{1,2})h(\d{2})?\b", n)
+        if not hora_dita:
+            return None
+        referencia = _agora(agora)
+        dia = int(dia_dito.group(1))
+        horas = int(hora_dita.group(1))
+        minutos = 0
+        for grupo in hora_dita.groups()[1:]:
+            if grupo:
+                minutos = int(grupo)
+                break
+        if not 1 <= dia <= 31 or horas > 23 or minutos > 59:
+            return None
+        ano, mes = referencia.year, referencia.month
+        if dia < referencia.day:
+            mes += 1
+            if mes > 12:
+                mes, ano = 1, ano + 1
+        try:
+            zona = ZoneInfo(fuso)
+            momento = datetime(ano, mes, dia, horas, minutos, tzinfo=zona)
+            return momento.isoformat()
+        except Exception:
+            return None
     horario, _mensagem = L.interpretar(texto, fuso=fuso, agora=_agora(agora))
     if not horario:
         return None

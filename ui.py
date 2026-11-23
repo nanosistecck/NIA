@@ -46,6 +46,7 @@ from PyQt6.QtWidgets import (
 from core import segundo_plano as _segundo_plano
 from core import catalogo_habilidades as _catalogo_habilidades
 from core import interface_planos as _interface_planos
+from core import interface_agenda as _interface_agenda
 from core import interface_canvas_planos as _interface_canvas_planos
 from core import assistencia_planos as _assistencia
 from core import lembretes as _lembretes
@@ -5179,6 +5180,39 @@ class MainWindow(QMainWindow):
     def _planos_fechou(self) -> None:
         self._planos_window = None
 
+    def _abrir_agenda(self):
+        """Abre (ou traz de volta) a janela da Agenda pelo dock."""
+        atual = getattr(self, "_agenda_window", None)
+        if atual is not None:
+            try:
+                atual.showNormal()
+                atual.raise_()
+                atual.activateWindow()
+                return atual
+            except RuntimeError:
+                self._agenda_window = None
+        try:
+            janela = _interface_agenda.AgendaWindow()
+            janela.fechada.connect(lambda: setattr(self, "_agenda_window", None))
+            janela.alterado.connect(self._agenda_alterou)
+            self._agenda_window = janela
+            janela.show()
+            janela.raise_()
+            janela.activateWindow()
+            return janela
+        except Exception as exc:
+            casca = getattr(self, "_ui", None)
+            if casca is not None:
+                casca.write_log(
+                    f"ERR: nao abri a agenda — {type(exc).__name__}: {str(exc)[:110]}")
+            return None
+
+    def _agenda_alterou(self) -> None:
+        """Atualiza o card do Canvas principal após mudança na Agenda."""
+        atualizar = getattr(self, "_atualizar_cartao_agenda", None)
+        if atualizar is not None:
+            atualizar()
+
     def _abrir_planos(self):
         """Abre (ou traz de volta) o Gerenciador de Planos pelo dock."""
         atual = getattr(self, "_planos_window", None)
@@ -5552,6 +5586,14 @@ class MainWindow(QMainWindow):
             "Planos: crie, encontre, visualize, edite e arquive planos no Canvas.")
         self._planos_btn.clicked.connect(self._abrir_planos)
         row.addWidget(self._planos_btn)
+
+        # AGENDA: janela de controle e acompanhamento de compromissos.
+        self._agenda_btn = self._make_control_button("agenda", "▦\nAGENDA\nABRIR", C.PRI)
+        self._agenda_btn.setToolTip(
+            "Agenda: compromissos, tarefas e prazos com data, hora e preparo. "
+            "A NIA adiciona e consulta por chat ou voz.")
+        self._agenda_btn.clicked.connect(self._abrir_agenda)
+        row.addWidget(self._agenda_btn)
 
         # SEGUNDO PLANO (01/11/2026, v1.0.37, pedido do Diego): o NIA sai da
         # tela e fica so no icone perto do relogio, sem ouvir nem fazer nada.

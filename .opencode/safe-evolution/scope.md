@@ -1,25 +1,35 @@
-# Escopo e requisitos — rodada 10 (ação no PC) — CONCLUÍDO
+# Escopo — rodada 12 (correcoes apontadas nos testes do dono)
 
-## Ideia
-"abra o youtube e toque uma musica" não pode ser tratado como abertura de
-plano; a frase deve seguir para a habilidade/rota de PC.
+## Solicitado
+Corrigir os 6 erros encontrados nos testes reais da NIA e depois procurar mais
+problemas que precisem de atencao.
 
-## Causa e solução
-- `CP.reconhecer` tinha um regex final que capturava qualquer "abra" como ABRIR.
-- Agora só `continua|continue|retoma|retome` caem nesse regex; abertura de plano
-  por nome continua no regex específico (`abra o plano/projeto/produto ...`).
+## Correcoes
+1. Agenda tem prioridade sobre o Canvas quando o texto e claramente de agenda.
+2. Acao `excluir` (com `excluir(item_id)` no modulo puro).
+3. Referencia de titulo que nao casa NAO cai para o proximo: "Nao encontrei...".
+4. Mensagens por acao (concluido/cancelado/excluido/movido/preparo).
+5. Listagem filtra periodo (hoje/amanha/proximo mes) e cita o proximo compromisso.
+6. "bom dia" com saudacao.
 
 ## Preservado
-- "abra o plano X", "Abre o projeto Y", "abra o produto Z" → ABRIR.
-- Retomar estudo, gerenciador, listar planos.
-- Rodadas 1-9: suíte 643/643.
+Todas as funcionalidades e Rulings da rodada 11; suite 689/689 como baseline.
+
+## Plano
+- [x] Diagnosticar com testes reais
+- [x] Escrever testes RED
+- [x] Corrigir parser, modulo e rota
+- [x] Rodar suite completa e varredura extra
+- [x] Registrar evidencias
 
 ## Resultado
-- 11 testes novos; suíte completa **654 passed, 0 failed**.
-- Frase do relato: `CP.reconhecer → NENHUMA`, habilidade chamada, sem listar planos.
+- 6 erros relatados + 6 da varredura extra, todos corrigidos.
+- 18 testes novos; suite **707 passed, 0 failed**.
+- Duas regressoes de rota com o Canvas corrigidas e testadas.
 
-## Rodada 11 — Agenda (concluida)
-- Desenho e plano aprovados; execucao nativa.
-- 6 tarefas concluidas; suíte **685 passed, 0 failed**.
-- Janela com grade mensal no dock e card no Canvas principal.
-- Ver detalhes em `acceptance.md` e `changes.md`.
+## Rodada 13 — CRUD completo (concluida)
+- Usuario aprovou o desenho e a execucao.
+- 5 tarefas executadas em modo nativo, TDD RED→GREEN.
+- Builder check respondido; bug de tratamento de erro corrigido.
+- Suite **724 passed, 0 failed**; captura da janela em modo edicao inspecionada.
+- Ver `acceptance.md` e `changes.md`.

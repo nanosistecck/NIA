@@ -239,3 +239,34 @@ Para cada etapa registre: data, tarefa, arquivos, motivo, testes executados, res
 - Revisao final com servico gratuito: 5 achados corrigidos (1 Critical, 3 Important,
   1 Minor), 4 testes novos, suite 689/689, commit `caa9b90`.
 - Decisao registrada: somente servicos gratuitos (revisor pago falhou por credito).
+
+## 23/11/2026 — Rodada 12: correcoes dos testes reais
+- Tarefa: o dono testou a NIA e pediu correcao de 6 erros + varredura extra.
+- Arquivos: `core/agenda.py`, `core/comandos_agenda.py`, `main.py`,
+  `tests/test_agenda_correcoes.py` (novo, 18 testes).
+- Correcoes: prioridade da Agenda sobre o Canvas, acao excluir, alvo por
+  tokens (com ambiguidade), mensagens por acao, filtro de periodo nas listagens
+  com citacao do proximo, saudacoes bom dia/tarde/noite, titulo sem data,
+  "dia N", e "exclua todos" sem apagar em lote.
+- Duas regressoes encontradas e corrigidas durante a suite: "Exclua o card
+  Validação" e "Conecte o card ... Entrega" voltaram ao Canvas ao exigir que
+  frases com "card" nao entrem na Agenda (exceto "card da agenda").
+- Suite final 707/707, exit 0; compileall e diff limpos.
+- Duas varreduras reais executadas: todas as frases do relato e as extras
+  responderam corretamente.
+- Nenhum commit feito nesta rodada; branch AGENDA com mudancas pendentes.
+
+## 23/11/2026 — Rodada 13: CRUD completo da Agenda
+- Usuario aprovou o desenho e autorizou alteracoes.
+- Spec `docs/superpowers/specs/2026-11-23-agenda-crud-design.md` e plano
+  `docs/superpowers/plans/2026-11-23-agenda-crud.md` escritos.
+- Builder check (gratuito) com 5 perguntas: respondidas no spec; a primeira
+  revelou bug real (ValueError sem tratamento na rota) — corrigido com teste.
+- Tasks 1-3: validacao/reabrir no modelo, novos comandos, rota com rotulos por
+  campo e tratamento de erro. Commit `0936ce4`.
+- Task 4: janela com lista clicavel, notas, estado, botoes Salvar/Cancelar/
+  Concluir/Reabrir/Excluir e confirmacao. Commit `97ce4a8`.
+- Regressao encontrada e corrigida: "Renomeie o produto..." foi capturado pela
+  Agenda ao adicionar verbos genericos ao detector; removidos.
+- Suite final 724/724, exit 0; compileall e diff limpos.
+- Evidencia `logs/captura_agenda_crud.png` inspecionada.

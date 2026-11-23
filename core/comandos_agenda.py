@@ -19,7 +19,7 @@ _PEDIDO = re.compile(
     r"programe|programar|compromissos?|reuni[aã]o|tarefas?|entrega|"
     r"viagem|anivers[aá]rio|consulta|revis[aã]o|pr[oó]ximo compromisso|"
     r"o que tenho|bom dia|boa tarde|boa noite|mostrar card da agenda|"
-    r"preparo|prazo|renomeie|renomear|reabra|reabrir|notas|descricao)\b", re.I)
+    r"preparo|prazo)\b", re.I)
 
 _VERBOS_CRIAR = re.compile(
     r"^\s*(?:nia[, ]+)?(?:agende|agendar|adicione|adicionar|crie|criar|"

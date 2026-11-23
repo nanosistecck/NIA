@@ -35,6 +35,40 @@
 - Commit de correcao: `caa9b90`.
 - Evidencia: `logs/captura_agenda_final.png` inspecionada.
 
+## Rodada 12 — testes reais do dono e correcoes
+
+| Erro relatado/encontrado | Correcao | Evidencia |
+|---|---|---|
+| "adicione/mude/exclua" caiam no Canvas | Agenda priorizada e detector restringido a termos de agenda; frases com "card" vao ao Canvas | testes reais e 18 testes novos |
+| `excluir` inexistente | `AG.excluir` + acao no parser | "Compromisso excluído: Revisão dezembro." |
+| titulo inexistente caira no proximo | referencia explicita nao casa → "Não encontrei..." | teste dedicado |
+| "Compromisso concluir:" | mensagens por acao (concluído/cancelado/excluído/movido/preparo) | teste dedicado |
+| listagens sem filtro e sem proximo | `filtrar_por_periodo` (hoje/amanha/proximo mes/semana/proxima semana) + resumo do proximo | teste dedicado |
+| "bom dia" sem saudacao | saudacao conforme faixa (bom dia/tarde/noite) + resumo | 3 parametros |
+| Varredura extra: titulo com data, dia do mes, ambiguidade, "exclua todos" | corrigidos | 18 testes + 2 varreduras reais |
+| Suite final | `pytest -q` | **707 passed, 0 failed, exit 0** |
+| Sintaxe | `compileall` / `git diff --check` | limpos |
+
+Pendencia menor observada: "desfaça a exclusão" cai no Canvas ("Abra um plano..."),
+pois nao existe lixeira/desfazer de exclusao na Agenda — fora de escopo.
+
+## Rodada 13 — CRUD completo
+
+| Requisito | Evidencia | Estado |
+|---|---|---|
+| Validacao em `editar`/`criar` e `reabrir` | 5 testes em `tests/test_agenda_crud.py` | OK |
+| Renomear/tipo/notas/reabrir por voz | 4 testes de parser + 3 de rota | OK |
+| Erro de validacao nao cai no modelo | teste `test_erro_de_validacao_nao_cai_no_modelo` | OK |
+| Janela: selecionar, editar todos os campos, concluir, reabrir, excluir com confirmacao | 5 testes em `tests/test_interface_agenda_crud.py` | OK |
+| Builder check: 5 perguntas respondidas no spec; bug de tratamento de erro corrigido | spec + teste | OK |
+| Regressao de rota: "Renomeie o produto..." continua no Canvas | teste existente verde | OK |
+| Suite final | `pytest -q` → **724 passed, 0 failed, exit 0** | OK |
+| Sintaxe | `compileall` / `git diff --check` limpos | OK |
+
+Evidencia visual: `logs/captura_agenda_crud.png` inspecionada — formulario com
+titulo, data, hora, tipo, preparo, notas e estado preenchidos, botoes
+Salvar/Cancelar/Concluir/Reabrir/Excluir e grade com o dia selecionado.
+
 ## Correcoes encontradas pelo TDD
 
 - `interpretar` devolvia UTC (15h viraria 18h) → convertido para `America/Sao_Paulo`.

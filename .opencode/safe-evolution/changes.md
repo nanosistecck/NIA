@@ -236,3 +236,6 @@ Para cada etapa registre: data, tarefa, arquivos, motivo, testes executados, res
 - Task 6: suite **685 passed, 0 failed, exit 0**; compileall e diff limpos.
 - Correcoes por teste registradas em `acceptance.md`.
 - Evidencias visuais inspecionadas (janela e card no Canvas principal).
+- Revisao final com servico gratuito: 5 achados corrigidos (1 Critical, 3 Important,
+  1 Minor), 4 testes novos, suite 689/689, commit `caa9b90`.
+- Decisao registrada: somente servicos gratuitos (revisor pago falhou por credito).

@@ -23,6 +23,18 @@
   preparar às 08:45" e botão ×. Inspecionada.
 - Capturas em `logs/` nao sao versionadas (`.gitignore`).
 
+## Revisao final de branch (servico gratuito)
+
+- Revisor `opencode/tidepool-alpha-free` avaliou `cd72528..b33cb01`.
+- 1 Critical: card aparecia sem compromisso → corrigido e verificado
+  (sem compromisso: `agenda_visivel=False`; com: `True`).
+- 3 Important: mensagem "Card exibido" sem compromisso; "ambiguo" com agenda
+  vazia; card nao atualizava apos mudanca por chat → corrigidos.
+- 1 Minor: mes do calendario em ingles → corrigido para portugues.
+- 4 testes novos cobrem os achados; suite final **689 passed, 0 failed, exit 0**.
+- Commit de correcao: `caa9b90`.
+- Evidencia: `logs/captura_agenda_final.png` inspecionada.
+
 ## Correcoes encontradas pelo TDD
 
 - `interpretar` devolvia UTC (15h viraria 18h) → convertido para `America/Sao_Paulo`.

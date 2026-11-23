@@ -135,6 +135,19 @@
      vaza para o teste seguinte.
 - Todas sao corrigiveis sem mudar contratos publicos nem dados do usuario.
 
+## Rodada 11 — Agenda (23/11/2026)
+- Branch: `AGENDA` (criada de `CANVAS-INFINITO`), limpa e sincronizada com `origin/AGENDA`.
+- Commits na origem: `cd72528` (roteamento de acao no PC), PR #4 aberto em CANVAS-INFINITO.
+- Suite anterior: **654 passed, 0 failed**; `compileall`/`git diff --check` limpos.
+- Ideia aprovada no play back: modulo proprio `core/agenda.py`, janela estilo
+  Google Calendar com identidade NIA, card no CANVAS PRINCIPAL (clima/horas),
+  nao no Canvas dos planos; sugestao automatica de preparo por tipo, editavel.
+- Recon: nao existe `autonomous-builder`; `core/lembretes.py` e atrelado a planos;
+  `ui._build_dock` monta botoes; `CanvasStage.hoje_host` e o molde do card;
+  `core/resumo_dia.py` define persistencia por perfil fora do Git.
+- Documento de desenho: `docs/superpowers/specs/2026-11-23-agenda-design.md`.
+- Nenhum codigo de produto alterado nesta etapa.
+
 ## Rodada 10 — baseline antes das mudancas (22/11/2026)
 - Relato: "abra o youtube e toque uma musica" → NIA listou 23 planos.
 - Suite anterior: 643 passed, 0 failed; commit/push `8c8c499`.

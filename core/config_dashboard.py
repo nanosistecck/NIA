@@ -2422,7 +2422,9 @@ class ConfigDashboardWindow(QWidget):
         cartao.body.addWidget(self.hoje_visivel_check)
         self.agenda_visivel_check = QCheckBox(
             "Mostrar o cartão de próximo compromisso no Canvas", cartao)
-        cartoes = getattr(self._service.host._prefs, 'data', {}).get('cards')
+        host = getattr(self._service, 'host', None)
+        prefs = getattr(host, '_prefs', None)
+        cartoes = getattr(prefs, 'data', {}).get('cards')
         self.agenda_visivel_check.setChecked(
             bool(cartoes.get('agenda', True)) if isinstance(cartoes, dict) else True)
         self.agenda_visivel_check.toggled.connect(self._agenda_visibilidade_mudou)
@@ -2755,7 +2757,9 @@ class ConfigDashboardWindow(QWidget):
 
     def _agenda_visibilidade_mudou(self, ligado: bool) -> None:
         try:
-            host = self._service.host
+            host = getattr(self._service, 'host', None)
+            if host is None:
+                return
             cartoes = host._prefs.data.get('cards')
             if not isinstance(cartoes, dict):
                 cartoes = {}

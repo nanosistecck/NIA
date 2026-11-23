@@ -205,3 +205,34 @@ Para cada etapa registre: data, tarefa, arquivos, motivo, testes executados, res
 - Evidencia: frase chega em `CH.reconhecer`, log "Tocando música no YouTube",
   nenhuma listagem de planos.
 - Decisao: sem commit nesta rodada; aguardando aprovacao.
+
+## 23/11/2026 — Rodada 11: Agenda (etapa de desenho)
+- Tarefa: nova aplicacao de Agenda no dock e no Canvas principal.
+- Diagnostico: recon do dock, `CanvasStage.hoje_host`, `resumo_dia.py`,
+  `lembretes.py` e `comandos_lembretes.py`; estado Git e suíte conferidos.
+- Play back aprovado pelo usuario, com duas correcoes dele:
+  - o card vai no Canvas principal (clima/horas), nao no Canvas dos planos;
+  - calendario parecido com o Google, porem mais moderno/elegante; com data,
+    hora e sugestao de quando comecar a preparar.
+- Abordagem A escolhida: modulo proprio, sem tocar em planos/lembretes.
+- Arquivo criado: `docs/superpowers/specs/2026-11-23-agenda-design.md`.
+- Estado atualizado: `baseline.md`, `impact-map.md`.
+- Revisao de builder executada: 4 perguntas.
+  - Decisoes do construtor: reexibicao do card via checkbox no dashboard + comando
+    "mostrar card da agenda"; "bom dia" ganha intent propria e helper
+    `resumo_proximo()`; campos `plano_id`/`card_id` removidos do registro.
+  - Decisao do dono: alvo de comando sem ID = titulo/data ditos, senao proximo
+    compromisso, com pergunta quando ambiguo.
+- Desenho aprovado; `writing-plans` executado.
+- Plano salvo em `docs/superpowers/plans/2026-11-23-agenda.md` (6 tarefas,
+  RED→GREEN, capturas obrigatorias nas tasks 4 e 5).
+- Self-review do plano: especificacao coberta, tipos consistentes entre tasks,
+  5 inputs de risco com teste, sem TBD.
+- Metodo de execucao escolhido pelo dono: Native (`executing-plans`).
+- Workspace/ledger manuais (scripts bash indisponiveis no WSL sem distro).
+- Tasks 1-5 completas, cada uma RED→GREEN e commitada:
+  - `ad4ed95` persistencia, `200365f` comandos, `ed20174` rota,
+    `a80e3bb` janela, `ba38866` card.
+- Task 6: suite **685 passed, 0 failed, exit 0**; compileall e diff limpos.
+- Correcoes por teste registradas em `acceptance.md`.
+- Evidencias visuais inspecionadas (janela e card no Canvas principal).

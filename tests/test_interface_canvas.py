@@ -78,8 +78,10 @@ def test_text_enter_hidden_log_and_interrupt(window,app):
 
 def test_results_thread_pin_update_copy_close_and_scroll(window,app):
     w=window
-    # O cartão Hoje é persistente; esconda-o para testar só os cartões de resultado.
+    # Hoje e Agenda são cartões fixos; esconda-os para testar só os de resultado.
     w._stage.set_hoje_visible(False)
+    w._stage.set_agenda_visivel(False)
+    settle(app)
     center=w._hud_cam_stack.geometry().center().x()
     worker=threading.Thread(target=lambda:w._content_sig.emit('<b>Pesquisa</b>','<script>texto é dado</script>'))
     worker.start(); worker.join(); settle(app)

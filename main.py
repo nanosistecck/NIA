@@ -7431,6 +7431,57 @@ class NiaLive:
             self.ui.write_log("SIS: Não foi possível salvar o lembrete.")
         return True
 
+    def _processar_pedido_agenda(self, texto: str, origem: str) -> bool:
+        """Cria/consulta/edit a Agenda no mesmo fluxo de chat e voz."""
+        from core import agenda as AG
+        from core import comandos_agenda as CAG
+        resultado = CAG.processar(texto)
+        if not resultado.get("tratado"):
+            return False
+        acao = resultado.get("acao")
+        if acao == "pendente":
+            mensagem = resultado.get("resposta") or "Informe a data e a hora."
+        elif acao == "saudacao":
+            mensagem = AG.resumo_proximo()
+        elif acao == "proximo":
+            mensagem = AG.resumo_proximo()
+        elif acao == "listar":
+            itens = [i for i in AG.listar() if i.get("estado") == "pendente"][:5]
+            mensagem = ("Compromissos: " + "; ".join(
+                f'{i["titulo"]} ({str(i["inicio"])[:16]})' for i in itens) + "."
+                if itens else "Nenhum compromisso pendente.")
+        elif acao == "criar":
+            item = AG.criar(resultado["titulo"], resultado["inicio"],
+                            resultado.get("tipo", "outro"))
+            mensagem = (f'Compromisso salvo: {item["titulo"]}. '
+                        + AG.resumo_proximo())
+        elif acao in ("mover", "editar", "concluir", "cancelar"):
+            alvo = CAG.resolver_alvo(texto, AG.listar(), AG.proximo())
+            if alvo is None:
+                mensagem = "Há mais de um compromisso com esse nome. Qual deles?"
+            else:
+                if acao == "mover":
+                    AG.mover(alvo["id"], resultado["inicio"])
+                elif acao == "editar":
+                    AG.editar(alvo["id"], resultado.get("campos") or {})
+                elif acao == "concluir":
+                    AG.concluir(alvo["id"])
+                else:
+                    AG.cancelar(alvo["id"])
+                mensagem = f'Compromisso {acao}: {alvo["titulo"]}.'
+        elif acao == "mostrar_card":
+            mostrar = getattr(self.ui, "mostrar_agenda", None)
+            if mostrar is not None:
+                mostrar()
+            mensagem = "Card da agenda exibido."
+        else:
+            return False
+        self.ui.write_log("SIS: " + mensagem)
+        falar = getattr(self, "_falar_resposta_comando", None)
+        if falar is not None:
+            falar(mensagem, origem)
+        return True
+
     def _retomar_pedido_canvas(self, texto: str) -> tuple[str, bool, bool]:
         """Devolve (texto efetivo, é retomada, existe pedido anterior)."""
         from core import controle_canvas as CC
@@ -7492,6 +7543,11 @@ class NiaLive:
                 return True
         except Exception as exc:
             _voice_diag('lembrete_rota_erro', type(exc).__name__)
+        try:
+            if self._processar_pedido_agenda(texto, origem):
+                return True
+        except Exception as exc:
+            _voice_diag('agenda_rota_erro', type(exc).__name__)
         # PRIORIDADE DO CANVAS: com plano aberto, falar do plano e respondido
         # pelo contexto local. Nao pode cair em busca de arquivos, criacao de
         # arquivos, internet ou qualquer outra ferramenta do cerebro.
@@ -8619,6 +8675,13 @@ class NiaLive:
             faixa = "manha" if 5 <= hora < 12 else ("tarde" if 12 <= hora < 18 else "noite")
             _tabela = self._SAUDACOES_EN if _em_ingles() else self._SAUDACOES
             frase = _r.choice(_tabela[faixa]).format(nome=nome)
+            try:
+                from core import agenda as _AG  # noqa: PLC0415
+                proximo = _AG.resumo_proximo()
+                if proximo and "nenhum compromisso" not in proximo.lower():
+                    frase += " " + proximo
+            except Exception:
+                pass
             _voice_diag("saudacao", frase[:60])
             self._falar_local(
                 frase,

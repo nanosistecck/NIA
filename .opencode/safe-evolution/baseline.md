@@ -135,6 +135,29 @@
      vaza para o teste seguinte.
 - Todas sao corrigiveis sem mudar contratos publicos nem dados do usuario.
 
+## Rodada 13 — CRUD completo da Agenda (23/11/2026)
+- Branch `AGENDA`, worktree com mudancas pendentes da rodada 12 (nao commitadas).
+- Suite anterior: 707 passed, 0 failed; `compileall`/`git diff --check` limpos.
+- Pedido do dono: "criar o crud completo da agenda, pra que possamos ter controle total".
+- Recon: `AG.editar` ja aceita todos os campos, mas a janela so adiciona e le;
+  a voz so edita preparo/data/estado; falta renomear, tipo, notas e reabrir;
+  falta validacao em `editar()` e botoes de editar/excluir/concluir na janela.
+- Desenho aprovado; spec em `docs/superpowers/specs/2026-11-23-agenda-crud-design.md`.
+- Builder check em andamento (modelo gratuito).
+- Nenhum codigo de produto alterado nesta etapa.
+
+## Rodada 12 — correcoes dos testes do dono (23/11/2026)
+- Teste real da NIA (interface offscreen, perfil isolado) revelou 6 falhas:
+  1. "adicione/mude/exclua ..." caem no Canvas de planos ("Abra um plano...")
+     porque `_processar_pedido_assistido` roda antes de `_processar_pedido_agenda`.
+  2. `excluir` nao existe como acao no parser da Agenda.
+  3. referencia de titulo inexistente silenciosamente cai para o proximo.
+  4. mensagem "Compromisso concluir:" gramaticalmente errada.
+  5. listagens nao filtram "proximo mes"/"hoje" e nao citam o proximo.
+  6. "bom dia" responde sem saudacao.
+- Branco: branch AGENDA, 689 testes verdes antes das mudancas.
+- A preservar: comportamentos ja validados e Rulings da rodada 11.
+
 ## Rodada 11 — Agenda (23/11/2026)
 - Branch: `AGENDA` (criada de `CANVAS-INFINITO`), limpa e sincronizada com `origin/AGENDA`.
 - Commits na origem: `cd72528` (roteamento de acao no PC), PR #4 aberto em CANVAS-INFINITO.

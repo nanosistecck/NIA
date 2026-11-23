@@ -7504,20 +7504,23 @@ class NiaLive:
                 else:
                     mensagem = "Há mais de um compromisso com esse nome. Qual deles?"
             elif not todos_pedidos and alvo is not None:
-                if acao == "mover":
-                    AG.mover(alvo["id"], resultado["inicio"])
-                elif acao == "editar":
-                    AG.editar(alvo["id"], campos_editados)
-                elif acao == "concluir":
-                    AG.concluir(alvo["id"])
-                elif acao == "cancelar":
-                    AG.cancelar(alvo["id"])
-                else:
-                    AG.excluir(alvo["id"])
-                rotulo_acao = (rotulos_campos.get(next(iter(campos_editados), ""),
-                                                  rotulos[acao])
-                               if acao == "editar" else rotulos[acao])
-                mensagem = f'{rotulo_acao}: {alvo["titulo"]}.'
+                try:
+                    if acao == "mover":
+                        AG.mover(alvo["id"], resultado["inicio"])
+                    elif acao == "editar":
+                        AG.editar(alvo["id"], campos_editados)
+                    elif acao == "concluir":
+                        AG.concluir(alvo["id"])
+                    elif acao == "cancelar":
+                        AG.cancelar(alvo["id"])
+                    else:
+                        AG.excluir(alvo["id"])
+                    rotulo_acao = (rotulos_campos.get(next(iter(campos_editados), ""),
+                                                      rotulos[acao])
+                                   if acao == "editar" else rotulos[acao])
+                    mensagem = f'{rotulo_acao}: {alvo["titulo"]}.'
+                except ValueError as exc:
+                    mensagem = f"Não foi possível alterar: {exc}"
         elif acao == "mostrar_card":
             mostrar = getattr(self.ui, "mostrar_agenda", None)
             if mostrar is not None:

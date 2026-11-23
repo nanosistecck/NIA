@@ -105,6 +105,14 @@ def test_renomear_pela_rota(nia):
     assert "renomeado" in " ".join(registros).lower()
 
 
+def test_erro_de_validacao_nao_cai_no_modelo(nia):
+    obj, registros = nia
+    agenda.criar("Consulta", "2026-11-24T09:00:00-03:00")
+    assert obj._executar_frase_habilidade("renomeie a consulta para", "texto")
+    assert "não foi possível" in " ".join(registros).lower()
+    assert agenda.listar()[0]["titulo"] == "Consulta"
+
+
 def test_reabrir_pela_rota(nia):
     obj, registros = nia
     item = agenda.criar("Consulta", "2026-11-24T09:00:00-03:00")

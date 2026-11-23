@@ -134,3 +134,14 @@
      `nomes_tela.ARQUIVO`, mas nao limpa `nomes_tela._cache`; "Nome de teste"
      vaza para o teste seguinte.
 - Todas sao corrigiveis sem mudar contratos publicos nem dados do usuario.
+
+## Rodada 10 — baseline antes das mudancas (22/11/2026)
+- Relato: "abra o youtube e toque uma musica" → NIA listou 23 planos.
+- Suite anterior: 643 passed, 0 failed; commit/push `8c8c499`.
+- Reproducao: `CP.reconhecer("abra o youtube e toque uma musica").tipo == "ABRIR"`;
+  o mesmo vale para "abra a secretaria" e "abra o bloco de notas".
+- Causa: `core/comandos_planos.py:137` regex final
+  `^(?:nia)?(?:abra|abre|abrir|continua|...)` classifica QUALQUER "abra" como
+  abertura de plano. O regex especifico da linha 113 ja cobre "abra o plano/projeto/produto".
+- A preservar: "abra o plano X", "Abre o projeto Y", retomar estudo, gerenciador.
+- Rotas corretas existentes: `_rede_de_abrir`, `_rede_do_site`, `CH.reconhecer`.

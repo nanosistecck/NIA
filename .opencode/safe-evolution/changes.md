@@ -193,3 +193,15 @@ Para cada etapa registre: data, tarefa, arquivos, motivo, testes executados, res
 - **Suite completa: 643 passed, 0 failed** — primeira vez sem falhas.
 - `compileall` e `git diff --check`: limpos.
 - Decisao: sem commit nesta rodada; aguardando aprovacao.
+
+## 22/11/2026 — Rodada 10: acao no PC deixou de ser confundida com plano
+- Relato: "abra o youtube e toque uma musica" listou 23 planos.
+- Causa: regex final de `CP.reconhecer` classificava qualquer "abra" como ABRIR.
+- Arquivos: `core/comandos_planos.py`, `tests/test_contexto_acao_pc.py` (novo).
+- Correcao: regex final agora so aceita `continua|continue|retoma|retome`;
+  abertura de plano por nome continua no regex especifico anterior.
+- Testes: 7 RED → 11 GREEN; suite completa 654 passed, 0 failed.
+- `compileall` e `git diff --check`: limpos.
+- Evidencia: frase chega em `CH.reconhecer`, log "Tocando música no YouTube",
+  nenhuma listagem de planos.
+- Decisao: sem commit nesta rodada; aguardando aprovacao.

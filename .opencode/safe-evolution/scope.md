@@ -1,21 +1,19 @@
-# Escopo e requisitos — rodada 9 (falhas persistentes) — CONCLUÍDO
+# Escopo e requisitos — rodada 10 (ação no PC) — CONCLUÍDO
 
 ## Ideia
-Resolver as 4 falhas que apareciam desde a primeira rodada.
+"abra o youtube e toque uma musica" não pode ser tratado como abertura de
+plano; a frase deve seguir para a habilidade/rota de PC.
 
-## Causas e solucoes
-1. Botao Salvar oculto → `_reposicionar` mostra e posiciona.
-2. Composer oculto sem geometria → teste mostra antes de medir o layout.
-3. Lembrete nao suspendia → guarda de revisao removida; funcoes de lembrete
-   alteram somente os lembretes, nunca o mapa do editor.
-4. Titulo "Nome de teste" → cache de `nomes_tela` limpo no fixture isolado.
+## Causa e solução
+- `CP.reconhecer` tinha um regex final que capturava qualquer "abra" como ABRIR.
+- Agora só `continua|continue|retoma|retome` caem nesse regex; abertura de plano
+  por nome continua no regex específico (`abra o plano/projeto/produto ...`).
+
+## Preservado
+- "abra o plano X", "Abre o projeto Y", "abra o produto Z" → ABRIR.
+- Retomar estudo, gerenciador, listar planos.
+- Rodadas 1-9: suíte 643/643.
 
 ## Resultado
-- `pytest -q`: **643 passed, 0 failed**.
-- Nenhuma funcionalidade das rodadas 1-8 regressiu.
-- Arquivos de clima do usuario preservados.
-
-## Plano sequencial
-- [x] Diagnosticar as 4 causas com reproducao
-- [x] Corrigir sem mudar contratos publicos
-- [x] Validar isolado e na suite completa (643/643)
+- 11 testes novos; suíte completa **654 passed, 0 failed**.
+- Frase do relato: `CP.reconhecer → NENHUMA`, habilidade chamada, sem listar planos.

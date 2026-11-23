@@ -134,7 +134,10 @@ def reconhecer(texto: str, contexto: dict | None = None) -> Intencao:
     if re.search(r"vamos planejar|quero criar|criar (um|uma|o|a|estudo)|comecar|iniciar", n) \
             and not _CRIACAO_DE_CARD.search(n) and not _QUERO_CARD.search(n):
         return Intencao("CRIAR", dados)
-    if re.search(r"^(?:nia[, ]+)?(?:abra|abre|abrir|continua|continue|retoma|retome)\b", n):
+    # "abra/abre/abrir" so abre PLANO quando o alvo foi dito no regex acima.
+    # Caso contrario, a frase e acao no PC/site/app e precisa seguir para as
+    # habilidades e rotas locais — senao "abra o youtube" lista planos.
+    if re.search(r"^(?:nia[, ]+)?(?:continua|continue|retoma|retome)\b", n):
         return Intencao("ABRIR", dados)
     return Intencao("NENHUMA", dados)
 

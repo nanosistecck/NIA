@@ -1,33 +1,24 @@
-# Criterios de aceite e evidencias — status final
+# Criterios de aceite e evidencias — rodada 10
 
-## Rodada 9 — 4 falhas persistentes resolvidas
-
-| Falha | Causa | Correcao | Estado |
+| Requisito | Teste | Evidencia | Estado |
 |---|---|---|---|
-| `test_botao_salvar_no_overlay_e_grava` | botão `salvar_canvas` criado oculto e nunca posicionado | `_reposicionar` mostra e posiciona o botão (110x32) ao lado do chat | OK |
-| `test_dock_delega_a_aparencia_e_aplica_preferencias` | Qt nao posiciona widget oculto; composer ficava em (0,0) | teste mostra o composer para medir o layout e o esconde depois | OK |
-| `test_excluir_card_suspende_e_desfazer_restaura` | guarda de revisao confundia exclusao do card com edicao externa | guarda removida; `suspender_por_card`/`restaurar_por_card` so mexem nos lembretes | OK |
-| `test_topo_compacto` | cache global de `nomes_tela` vazava "Nome de teste" | fixture `config_isolada` limpa `nomes_tela._cache` | OK |
+| "abra o youtube..." nao e ABRIR | `tests/test_contexto_acao_pc.py` (11 testes) | `CP.reconhecer` → NENHUMA | OK |
+| Apps/sites nao viram plano | parametro com 6 frases | todas NENHUMA | OK |
+| Abre plano por nome preservado | parametro com 3 frases | todas ABRIR | OK |
+| Retomar/gerenciador preservados | `test_retomar_e_gerenciador_preservados` | RETOMAR / GERENCIADOR | OK |
+| Frase chega na habilidade | `test_frase_de_pc_chega_na_habilidade_e_nao_lista_planos` | `CH.reconhecer` chamado | OK |
+| Nao lista planos | mesmo teste | nenhum "Encontrei vários planos" | OK |
+| Suite completa | `pytest -q` | **654 passed, 0 failed** | OK |
+| Sintaxe e diff | `compileall` / `git diff --check` | limpos | OK |
 
-## Resultado final da suíte
+## Evidencia funcional (frase exata do relato)
 
-- `python -m pytest -q`: **643 passed, 0 failed**.
-- Nenhuma falha preexistente restante.
-- `compileall` e `git diff --check`: limpos.
+```
+CP.reconhecer: NENHUMA
+roteado: True
+habilidade chamada: True
+log: SIS: Tocando música no YouTube
+listou planos? False
+```
 
-## Rodadas anteriores (resumo)
-
-| Rodada | Entrega | Evidencia |
-|---|---|---|
-| 1 | gramatica de cards/ideias, prioridade de plano, resumo sem IDs | 34 testes novos |
-| 2 | conversa priorizada no chat do Canvas | 18 testes novos |
-| 3 | pedido generativo sobre a NIA, retomada, contexto real | 14 testes novos |
-| 4 | interrupção conversacional e "faz até o final" | 18 testes novos |
-| 5 | troca rápida de assunto (bypass da trava da boca) | 6 testes novos |
-| 6 | fala completa (sem teto de palavras em explicações) | 10 testes novos |
-| 7 | fala cortada no meio (silêncio 20s, régua 0.85) | 5 testes novos |
-| 8 | clima "agora a tarde" com hora local da cidade | 11 testes novos |
-| 9 | 4 falhas antigas resolvidas | suíte 643/643 |
-
-Ressalvas: sintese de voz real, provedor de IA e microfone nao disponiveis;
-validacao feita com interface Qt executada e dados simulados.
+Ressalva: habilidade executada com stub (sem abrir o YouTube de verdade).

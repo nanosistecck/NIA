@@ -36,7 +36,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QScrollArea, QSizePolicy,
+    QMainWindow, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget,
     QGridLayout, QGraphicsDropShadowEffect, QMenu, QSystemTrayIcon,
 )
@@ -45,6 +45,11 @@ from PyQt6.QtWidgets import (
 # no icone perto do relogio, sem ouvir nem fazer nada. Ver core/segundo_plano.py.
 from core import segundo_plano as _segundo_plano
 from core import catalogo_habilidades as _catalogo_habilidades
+from core import interface_planos as _interface_planos
+from core import interface_canvas_planos as _interface_canvas_planos
+from core import assistencia_planos as _assistencia
+from core import lembretes as _lembretes
+from datetime import datetime, timezone
 
 # ── CORES DO CLIENTE (08/10/2026) ──────────────────────────────────────────
 # Toda folha de estilo passa pelo `core/tema.py` na hora de ser aplicada. O
@@ -56,6 +61,43 @@ from core import tema as _tema
 
 _SETSS_ORIGINAL = QWidget.setStyleSheet
 _SEM_TEMA = "/*sem-tema*/"
+
+# Preferência de janela (chave de nível superior em config/interface.json,
+# preservada por DockPreferences e pelo dashboard de Aparência).
+_CHAVE_JANELA_TELA_CHEIA = "janela_sem_bordas"
+_TESTE_JANELA = False   # testes isolados instanciam MainWindow diretamente
+
+
+def janela_sem_bordas_padrao() -> bool:
+    # Controles nativos do Windows sobre o próprio gradiente da NIA.
+    return False
+
+
+def janela_sem_bordas(caminho=None) -> bool:
+    caminho = Path(caminho) if caminho is not None else (CONFIG_DIR / "interface.json")
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return janela_sem_bordas_padrao()
+    if not isinstance(dados, dict) or _CHAVE_JANELA_TELA_CHEIA not in dados:
+        return janela_sem_bordas_padrao()
+    return bool(dados[_CHAVE_JANELA_TELA_CHEIA])
+
+
+def salvar_preferencia_janela(caminho, sem_bordas: bool) -> None:
+    caminho = Path(caminho)
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        dados = {}
+    if not isinstance(dados, dict):
+        dados = {}
+    dados[_CHAVE_JANELA_TELA_CHEIA] = bool(sem_bordas)
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    temporario = caminho.with_suffix(".tmp")
+    temporario.write_text(json.dumps(dados, ensure_ascii=False, indent=2),
+                          encoding="utf-8")
+    temporario.replace(caminho)
 
 
 def _setss_com_tema(self, css):
@@ -1737,11 +1779,10 @@ class _MarcaNia(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(52, 52)
+        self.setFixedSize(36, 36)
         self._ang = 0.0
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._girar)
-        # 15 quadros bastam para um desenho de 52 px girando devagar (eram 25).
         self._tmr.start(66)
 
     def _girar(self):
@@ -1753,34 +1794,18 @@ class _MarcaNia(QWidget):
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        c = QPointF(26, 26)
-        halo = QRadialGradient(c, 26)
-        halo.setColorAt(0.0, qcol(_tc(C.PRI), 70))
-        halo.setColorAt(1.0, qcol(_tc(C.PRI), 0))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(halo))
-        p.drawEllipse(c, 26, 26)
-        anel = QConicalGradient(c, -self._ang)
-        anel.setColorAt(0.0, qcol(_tc(C.PRI), 255))
-        anel.setColorAt(0.35, qcol(_tc(C.INDIGO), 190))
-        anel.setColorAt(0.70, qcol(_tc(C.PRI), 20))
-        anel.setColorAt(1.0, qcol(_tc(C.PRI), 255))
+        c = QPointF(18, 18)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QBrush(anel), 2.2))
-        p.drawEllipse(c, 16.5, 16.5)
-        p.setPen(QPen(qcol(_tc(C.PRI), 70), 1.0))
-        p.drawEllipse(c, 11.0, 11.0)
-        p.setPen(QPen(qcol(_tc(C.PRI), 170), 1.3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        ret = QRectF(c.x() - 21, c.y() - 21, 42, 42)
+        p.setPen(QPen(qcol(_tc(C.PRI), 102), 1.0))
+        p.drawEllipse(c, 14.5, 14.5)
+        p.setPen(QPen(qcol(_tc(C.PRI), 255), 2.0,
+                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        ret = QRectF(c.x() - 10.5, c.y() - 10.5, 21, 21)
         for rep in range(2):
-            p.drawArc(ret, int(((self._ang * 1.6) + rep * 180) * 16), 38 * 16)
-        nucleo = QRadialGradient(c, 7.0)
-        nucleo.setColorAt(0.0, qcol(_tc("#ffffff"), 255))
-        nucleo.setColorAt(0.35, qcol(_tc(C.PRI), 230))
-        nucleo.setColorAt(1.0, qcol(_tc(C.PRI), 0))
+            p.drawArc(ret, int((self._ang + rep * 180) * 16), 110 * 16)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(nucleo))
-        p.drawEllipse(c, 7.0, 7.0)
+        p.setBrush(qcol(_tc("#7FF0FF"), 255))
+        p.drawEllipse(c, 4.2, 4.2)
         p.end()
 
 
@@ -2046,89 +2071,53 @@ class ControlCard(QPushButton):
         renderer.render(painter, QRectF(center.x()-13*k,center.y()-13*k,26*k,26*k))
 
     def paintEvent(self, _):
-        # BOTAO DO DOCK (visual novo, 05/10/2026). Texto em 3 linhas, animacoes
-        # e sinais iguais aos de antes; so o desenho mudou.
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         w, h = self.width(), self.height()
         hover = self._hover_progress
         press = self._press_progress
-        y_shift = -2.5 * hover + 1.5 * press
+        y_shift = -1.5 * hover + 1.0 * press
         rect = QRectF(3.0, 3.0 + y_shift, w - 6.0, h - 6.0)
-        radius = 16.0
+        radius = 14.0
         accent = QColor(_tema.cor_botao(self.objectName(), self._display_color.name())
                         or self._display_color.name())
 
+        vidro = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        vidro.setColorAt(0.0, QColor(14, 42, 64, 160))
+        vidro.setColorAt(1.0, QColor(7, 22, 38, 170))
+        p.setBrush(QBrush(vidro))
+        p.setPen(QPen(qcol(accent.name(), round(51 + 100 * hover)), 1.0))
+        p.drawRoundedRect(rect, radius, radius)
         if hover > 0.01 or press > 0.01:
-            fundo = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-            fundo.setColorAt(0.0, qcol(accent.name(), round(34 * hover + 30 * press)))
-            fundo.setColorAt(1.0, qcol(accent.name(), round(8 * hover)))
-            p.setBrush(QBrush(fundo))
-            p.setPen(QPen(qcol(accent.name(), round(90 * hover)), 1.0))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(qcol(accent.name(), round(28 * hover + 26 * press)))
             p.drawRoundedRect(rect, radius, radius)
 
+        # ícone centralizado, sem texto embaixo
+        ic = QPointF(w / 2.0, h / 2.0 + y_shift)
+        self._paint_vector_icon(
+            p, ic,
+            self._mix_color(accent, QColor(_tc("#ffffff")), 0.30 + 0.25 * hover),
+            "", 0.82)
+
+        # ponto de status só quando o texto diz ATIVO/ATIVA
         lines = self.text().splitlines()
-        title = lines[1] if len(lines) > 1 else ""
-        if self.objectName() in _BOTOES_COM_NOME:
-            title = _nome_tela("botao_" + self.objectName(), title)
         status = lines[2] if len(lines) > 2 else ""
-
-        dock_icon_size = self.property('dock_icon_size')
-        compact = dock_icon_size is not None or h <= 56
-        ic = QPointF(w / 2.0, (h / 2.0 if compact else 28.0) + y_shift)
-        r_ic = 18.0
-        halo = QRadialGradient(ic, r_ic * 2.1)
-        halo.setColorAt(0.0, qcol(accent.name(), round(55 + 70 * hover)))
-        halo.setColorAt(0.55, qcol(accent.name(), round(12 + 20 * hover)))
-        halo.setColorAt(1.0, qcol(accent.name(), 0))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(halo))
-        p.drawEllipse(ic, r_ic * 2.1, r_ic * 2.1)
-
-        disco = QLinearGradient(QPointF(ic.x(), ic.y() - r_ic), QPointF(ic.x(), ic.y() + r_ic))
-        disco.setColorAt(0.0, self._mix_color(QColor(_tc("#042a3a")), accent, 0.30))
-        disco.setColorAt(1.0, self._mix_color(QColor(_tc("#010d14")), accent, 0.10))
-        p.setBrush(QBrush(disco))
-        p.setPen(QPen(qcol(accent.name(), round(120 + 100 * hover)), 1.2))
-        if compact:
-            half = min(w,h)/2-5
-            p.drawRoundedRect(QRectF(ic.x()-half,ic.y()-half,half*2,half*2),13,13)
-        else:
-            p.drawEllipse(ic, r_ic, r_ic)
-        cor_icone = self._mix_color(accent, QColor(_tc("#ffffff")), 0.30 + 0.25 * hover)
-        self._paint_vector_icon(p, ic, cor_icone, status,
-                                float(dock_icon_size)/26 if dock_icon_size else 0.82)
-
         if status.strip().upper() in {"ATIVO", "ATIVA"}:
-            led = QPointF(ic.x() + r_ic * 0.74, ic.y() - r_ic * 0.74)
-            luz = QRadialGradient(led, 7.0)
-            luz.setColorAt(0.0, qcol(accent.name(), 210))
-            luz.setColorAt(1.0, qcol(accent.name(), 0))
+            led = QPointF(w - 10, 10)
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(luz))
-            p.drawEllipse(led, 7.0, 7.0)
-            p.setBrush(QBrush(self._mix_color(accent, QColor(_tc("#ffffff")), 0.45)))
+            p.setBrush(self._mix_color(accent, QColor(_tc("#ffffff")), 0.45))
             p.drawEllipse(led, 2.4, 2.4)
 
-        if not compact:
-            p.setFont(_ftexto(7.3, QFont.Weight.DemiBold))
-            p.setPen(QPen(qcol(_tc(C.WHITE), 235), 1))
-            p.drawText(QRectF(1, 50 + y_shift, w - 2, 14), Qt.AlignmentFlag.AlignCenter, title)
-            p.setFont(_espacado(_fx(6.0, QFont.Weight.DemiBold), 0.8))
-            p.setPen(QPen(self._mix_color(accent, QColor(_tc("#ffffff")), 0.10), 1))
-            p.drawText(QRectF(1, 64 + y_shift, w - 2, 12), Qt.AlignmentFlag.AlignCenter, status)
-
         if self._ripple_progress < 1.0:
-            ripple_path = QPainterPath()
-            ripple_path.addRoundedRect(rect, radius, radius)
+            clip = QPainterPath()
+            clip.addRoundedRect(rect, radius, radius)
             p.save()
-            p.setClipPath(ripple_path)
+            p.setClipPath(clip)
             reach = math.hypot(w, h) * (0.12 + self._ripple_progress)
-            ripple_alpha = round(80 * (1.0 - self._ripple_progress) ** 1.5)
+            alpha = round(80 * (1.0 - self._ripple_progress) ** 1.5)
             ripple = QRadialGradient(self._ripple_origin, reach)
-            ripple.setColorAt(0.0, qcol(accent.name(), ripple_alpha))
-            ripple.setColorAt(0.65, qcol(accent.name(), round(ripple_alpha * 0.32)))
+            ripple.setColorAt(0.0, qcol(accent.name(), alpha))
             ripple.setColorAt(1.0, qcol(accent.name(), 0))
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(ripple))
@@ -3755,6 +3744,40 @@ class AvisoComputador(QWidget):
         return True
 
 
+_SB_SALVAR = int(QMessageBox.StandardButton.Save)
+_SB_CANCELAR = int(QMessageBox.StandardButton.Cancel)
+
+
+def _perguntar_salvar_mapa(janela):
+    """Pergunta explícita quando o mapa não pôde ser salvo ao sair."""
+    return QMessageBox.question(
+        janela, "Planos",
+        "Não foi possível salvar o mapa. O que deseja fazer?",
+        QMessageBox.StandardButton.Save
+        | QMessageBox.StandardButton.Discard
+        | QMessageBox.StandardButton.Cancel,
+        QMessageBox.StandardButton.Cancel)
+
+
+class _FundoComGrade(CanvasBackground):
+    """Fundo da NIA com a grade da prancha, mais visível que antes."""
+
+    _PASSO_V = 80     # linhas horizontais
+    _PASSO_H = 160    # linhas verticais
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self)
+        # Azul escuro integrado ao gradiente do fundo: discreto, sem neon.
+        p.setPen(QPen(QColor(16, 74, 112, 48), 1))
+        w, h = self.width(), self.height()
+        for x in range(0, w, self._PASSO_H):
+            p.drawLine(x, 0, x, h)
+        for y in range(0, h, self._PASSO_V):
+            p.drawLine(0, y, w, y)
+        p.end()
+
+
 class MainWindow(QMainWindow):
     _log_sig     = pyqtSignal(str)
     _state_sig   = pyqtSignal(str)
@@ -3772,6 +3795,7 @@ class MainWindow(QMainWindow):
     _trans_voz_sig    = pyqtSignal(str, str, str)  # (fase, antigo, novo) — uma voz chama a outra
     _hoje_sig         = pyqtSignal(str, str, str)  # (texto, gerado_em, status)
     _hoje_status_sig  = pyqtSignal(str, str)       # (mensagem, estado)
+    _canvas_action_sig = pyqtSignal(object)
     _brief_sig        = pyqtSignal(object)         # card temporário (hora/data/clima)
 
     def __init__(self, face_path: str):
@@ -3810,6 +3834,7 @@ class MainWindow(QMainWindow):
         self.on_remote_clicked   = None   # callable: () -> (url, key) | None
         self.on_whatsapp_clicked = None   # callable: () -> None — open/connect WhatsApp QR
         self.on_interrupt        = None   # callable: () -> None — stop NIA mid-speech
+        self.on_atividade        = None   # callable: () -> bool — fala/tarefa em curso
         self.on_cowork_acao      = None   # callable: (acao, valor) — botoes do Cowork
         self.on_computer_use        = None   # callable: () — botao COMPUTER USE do dock
         self.on_computer_use_estado = None   # callable: () -> "livre" | "esperando" | "trabalhando"
@@ -3825,7 +3850,7 @@ class MainWindow(QMainWindow):
         self._whatsapp_overlay: WhatsAppQrOverlay | None = None
         self._whatsapp_connecting = False
 
-        central = CanvasBackground(preferences=DockPreferences(CONFIG_DIR / 'interface.json').data)
+        central = _FundoComGrade(preferences=DockPreferences(CONFIG_DIR / 'interface.json').data)
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(28, 16, 28, 24)
@@ -3925,20 +3950,50 @@ class MainWindow(QMainWindow):
         self._composer.setObjectName("Glass")
         self._composer.setStyleSheet(GLASS)
         composer_layout = QVBoxLayout(self._composer)
-        composer_layout.setContentsMargins(14, 6, 14, 6)
+        composer_layout.setContentsMargins(8, 0, 8, 0)
         self._file_hint = QLabel(_dica_arquivo())
         self._file_hint.setWordWrap(True)
         self._file_hint.hide()
         composer_layout.addWidget(self._file_hint)
         composer_layout.addLayout(self._build_input_row())
         footer = QHBoxLayout()
+        self._composer_layout = footer
         footer.addStretch()
         footer.addWidget(self._composer, 1)
         footer.addStretch()
         root.addLayout(footer)
-        self._composer.setMinimumWidth(460)
-        self._composer.setMaximumWidth(600)
-        self._composer.setMinimumHeight(58)
+        self._composer.setFixedWidth(620)
+        self._composer.setFixedHeight(56)
+        self._composer.setStyleSheet(
+            "QFrame#Glass { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            " stop:0 rgba(14,42,64,160), stop:1 rgba(7,22,38,170));"
+            " border: 1px solid rgba(25,211,243,51); border-radius: 24px; }")
+        # Botão abaixo do campo: mostra ou esconde o histórico da conversa.
+        self._btn_chat_abajo = QPushButton(self)
+        self._btn_chat_abajo.setObjectName("chat_inferior")
+        self._btn_chat_abajo.setIcon(icon("mic"))
+        self._btn_chat_abajo.setText("  Conversa")
+        self._btn_chat_abajo.setCheckable(True)
+        self._btn_chat_abajo.setChecked(False)
+        self._btn_chat_abajo.setToolTip("Mostrar ou esconder o campo de conversa")
+        self._btn_chat_abajo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_chat_abajo.setStyleSheet(
+            "QPushButton { color:#8FD9EE; background: rgba(10,34,50,150);"
+            " border:1px solid rgba(25,211,243,55); border-radius:12px;"
+            " padding:3px 12px; font-size:11px; min-height:22px;"
+            " qproperty-iconSize: 16px; }"
+            "QPushButton:hover { background: rgba(25,211,243,40); color:#E6F6FF; }"
+            "QPushButton:focus { border:2px solid #19D3F3; }"
+            "QPushButton:checked { background: rgba(25,211,243,70); color:#E6F6FF; }")
+        self._btn_chat_abajo.clicked.connect(self._toggle_chat_abajo)
+        self._btn_chat_abajo.setToolTip("Mostrar ou esconder o campo de conversa")
+        abaixo = QHBoxLayout()
+        abaixo.setContentsMargins(0, 2, 0, 0)
+        abaixo.addStretch()
+        abaixo.addWidget(self._btn_chat_abajo)
+        abaixo.addStretch()
+        root.addLayout(abaixo)
+        self._composer.hide()  #oculto por padrão; botão "Conversa" revela
 
         # Metrik güncelleme timer'ı
         self._metric_tmr = QTimer(self)
@@ -3946,8 +4001,14 @@ class MainWindow(QMainWindow):
         self._metric_tmr.start(3000)
         self._update_metrics()
 
+        # Lembretes locais: um único timer rearmado para o próximo vencimento.
+        self._lembrete_timer = QTimer(self)
+        self._lembrete_timer.setSingleShot(True)
+        QTimer.singleShot(2000, self._reagendar_lembretes)
+
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
+        self._canvas_action_sig.connect(lambda fn: fn())
         self._content_sig.connect(self._show_content)
         self._brief_sig.connect(self._show_canvas_brief)
         self._hoje_sig.connect(self._mostrar_hoje)
@@ -4477,6 +4538,110 @@ class MainWindow(QMainWindow):
         else:
             self.showFullScreen()
 
+    # ── JANELA EM TELA CHEIA / SEM BORDAS ────────────────────────────────
+    def _aplicar_barra_nativa(self) -> bool:
+        """Integra apenas esta janela ao quadro nativo do DWM."""
+        if platform.system() != "Windows":
+            return False
+        if not hasattr(self, "_dwm_frame"):
+            from core.windows_frame import WindowsFrame
+            self._dwm_frame = WindowsFrame(self)
+        return self._dwm_frame.install()
+
+    def event(self, event):
+        try:
+            result = super().event(event)
+        except RuntimeError:
+            return True  # widget already deleted during shutdown
+        try:
+            frame = getattr(self, "_dwm_frame", None)
+        except RuntimeError:
+            return result
+        if frame is not None and frame.active:
+            from core.windows_frame import CAPTION_PAINT_EVENT
+            if event.type() in (QEvent.Type.UpdateRequest, CAPTION_PAINT_EVENT):
+                frame.paint_caption()
+        return result
+
+    def nativeEvent(self, event_type, message):
+        try:
+            frame = getattr(self, "_dwm_frame", None)
+        except RuntimeError:
+            return super().nativeEvent(event_type, message)
+        if frame is not None:
+            result = frame.native_event(message)
+            if result is not None:
+                return True, result
+        # Let Qt dispatch unhandled messages to DefWindowProc. Calling the
+        # wrapped base nativeEvent can dereference Qt platform state during winId().
+        return False, 0
+
+    def aplicar_modo_janela(self, sem_bordas: bool | None = None) -> None:
+        """Maximiza a janela, mantendo a barra de tarefas livre.
+
+        No Windows os estilos nativos são mantidos mesmo com a preferência
+        antiga de janela sem bordas. Nas outras plataformas ela é preservada.
+        Não usamos `showFullScreen()` (F11) como estado padrão.
+        """
+        if sem_bordas is None:
+            sem_bordas = janela_sem_bordas()
+        if platform.system() == "Windows":
+            sem_bordas = False
+        self.janela_tela_cheia = bool(sem_bordas)
+        flags = self.windowFlags()
+        if sem_bordas:
+            self.setWindowFlags(flags | Qt.WindowType.FramelessWindowHint)
+        else:
+            self.setWindowFlags(flags & ~Qt.WindowType.FramelessWindowHint)
+        # Respeita availávelGeometry (barra de tarefas do Windows) também no
+        # modo sem bordas: showMaximized() sozinho pode cobri-la.
+        try:
+            disponivel = QApplication.primaryScreen().availableGeometry()
+            if disponivel.isValid():
+                self.setGeometry(disponivel)
+        except Exception:
+            pass
+        self._aplicar_barra_nativa()
+        self.showMaximized()
+        self._estado_maximizado = True
+        self.raise_()
+        self.activateWindow()
+
+    def _construir_menu_janela(self) -> QMenu:
+        """Menu de contexto para controlar a janela sem bordas."""
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background: #041622; border: 1px solid rgba(150,215,240,90);"
+            " border-radius: 10px; padding: 6px; }"
+            "QMenu::item { padding: 7px 22px; color: #d8f8ff; border-radius: 6px; }"
+            "QMenu::item:selected { background: rgba(35,150,180,150); }")
+        acoes = (
+            ("Minimizar", self.showMinimized),
+            ("Maximizar / Tela cheia", lambda: self.aplicar_modo_janela(True)),
+            ("Restaurar janela", lambda: self.aplicar_modo_janela(False)),
+            ("Arrastar janela", self._iniciar_arraste_janela),
+            ("Reduzir para bandeja", self._ir_para_segundo_plano),
+        )
+        for rotulo, callback in acoes:
+            menu.addAction(rotulo, callback)
+        return menu
+
+    def _iniciar_arraste_janela(self) -> None:
+        handle = self.windowHandle()
+        if handle is not None and hasattr(handle, "startSystemMove"):
+            handle.startSystemMove()
+
+    def contextMenuEvent(self, event):  # noqa: N802 (Qt)
+        self._construir_menu_janela().exec(event.globalPos())
+
+    def mousePressEvent(self, event):  # noqa: N802 (Qt)
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.windowFlags() & Qt.WindowType.FramelessWindowHint
+                and not self.isFullScreen()):
+            self._iniciar_arraste_janela()
+            return
+        super().mousePressEvent(event)
+
     # ── SEGUNDO PLANO (01/11/2026, v1.0.37) ──────────────────────────────────
     #
     # Pedido do Diego: "um botao, uma tecla para ele minimizar, ficar em segundo
@@ -4704,6 +4869,14 @@ class MainWindow(QMainWindow):
             pass
 
     def closeEvent(self, event):
+        canvas = getattr(self, '_canvas_editor', None)
+        if canvas is not None and canvas.isVisible():
+            if canvas.mudancas_pendentes and not canvas.fechar_com_seguranca():
+                escolha = int(_perguntar_salvar_mapa(self))
+                if escolha == _SB_CANCELAR or (escolha == _SB_SALVAR and not canvas.fechar_com_seguranca()):
+                    event.ignore()
+                    return
+            canvas.editor_internal._timer.stop()
         self._hoje_seq += 1
         self._tmr_hoje.stop()
         super().closeEvent(event)
@@ -4837,21 +5010,21 @@ class MainWindow(QMainWindow):
 
     def _build_header(self) -> QWidget:
         w = QWidget()
-        w.setFixedHeight(58)
+        w.setFixedHeight(40)
         row = QHBoxLayout(w)
-        row.setContentsMargins(6,0,0,0)
-        row.setSpacing(14)
+        row.setContentsMargins(6, 0, 0, 0)
+        row.setSpacing(9)
         row.addWidget(_MarcaNia())
-        self._lbl_titulo_topo = QLabel(_nome_tela("titulo", "NIA"))
-        self._lbl_titulo_topo.setFont(_ftexto(19))
+        self._lbl_titulo_topo = QLabel(_nome_tela("titulo", "N.I.A"))
+        self._lbl_titulo_topo.setFont(_espacado(_fx(15, QFont.Weight.DemiBold), 1.0))
         self._lbl_titulo_topo.setStyleSheet("color:#edf8ff;background:transparent;")
         row.addWidget(self._lbl_titulo_topo)
         divider = QFrame()
-        divider.setFixedSize(1,22)
-        divider.setStyleSheet("background:#678195;")
+        divider.setFixedSize(1, 14)
+        divider.setStyleSheet("background: rgba(143,181,201,90);")
         row.addWidget(divider)
         self._rail_state_lbl = QLabel("●  Iniciando")
-        self._rail_state_lbl.setFont(_ftexto(11))
+        self._rail_state_lbl.setFont(_espacado(_fx(10, QFont.Weight.DemiBold), 1.5))
         self._rail_state_lbl.setStyleSheet(self._estilo_pilula(C.PRI))
         row.addWidget(self._rail_state_lbl)
         row.addStretch()
@@ -5002,6 +5175,216 @@ class MainWindow(QMainWindow):
                     f"ERR: nao abri as novas configuracoes — "
                     f"{type(exc).__name__}: {str(exc)[:110]}")
             return None
+
+    def _planos_fechou(self) -> None:
+        self._planos_window = None
+
+    def _abrir_planos(self):
+        """Abre (ou traz de volta) o Gerenciador de Planos pelo dock."""
+        atual = getattr(self, "_planos_window", None)
+        if atual is not None:
+            try:
+                atual.showNormal()
+                atual.raise_()
+                atual.activateWindow()
+                return atual
+            except RuntimeError:
+                self._planos_window = None
+        try:
+            janela = _interface_planos.PlanosWindow()
+            janela.abrir_canvas.connect(self._abrir_canvas_do_plano)
+            janela.abrir_canvas_assistido.connect(
+                lambda plano_id: self._abrir_canvas_do_plano(plano_id, assistido=True))
+            janela.fechada.connect(self._planos_fechou)
+            self._planos_window = janela
+            janela.show()
+            janela.raise_()
+            janela.activateWindow()
+            return janela
+        except Exception as exc:
+            casca = getattr(self, "_ui", None)
+            if casca is not None:
+                casca.write_log(
+                    f"ERR: nao abri os planos — {type(exc).__name__}: {str(exc)[:110]}")
+            return None
+
+    def _abrir_canvas_do_plano(self, plano_id: str, plano=None,
+                               assistido: bool = False) -> bool:
+        """Abre o mapa de um plano no editor embutido no Canvas."""
+        from core import planos as _planos
+        plano = plano or _planos.carregar(str(plano_id))
+        if plano is None:
+            self._log.append_log("ERR: plano não encontrado para abrir no Canvas.")
+            return False
+        if not plano.mapa.get("inicializado"):
+            plano = _planos.inicializar_mapa(plano.id)
+
+        atual = getattr(self, "_canvas_editor", None)
+        if atual is not None and atual.isVisible():
+            atual_id = atual.editor_internal.plano_atual().id
+            if atual_id == plano.id:
+                if assistido:
+                    atual.definir_modo(True)
+                gerenciador = getattr(self, '_planos_window', None)
+                if gerenciador is not None:
+                    gerenciador.hide()
+                atual.raise_()
+                return True
+            if atual_id != plano.id and atual.mudancas_pendentes:
+                if not atual.fechar_com_seguranca():
+                    escolha = int(_perguntar_salvar_mapa(self))
+                    if escolha == _SB_CANCELAR:
+                        return False
+                    if escolha == _SB_SALVAR \
+                            and not atual.fechar_com_seguranca():
+                        return False
+                    # Descartar explicitamente: impedir que o autosave
+                    # pendente sobrescreva o plano recém-aberto.
+                    atual.editor_internal.mudancas_pendentes = False
+                atual.editor_internal._timer.stop()
+
+        if not getattr(self, "_canvas_estado", None):
+            self._canvas_estado = {
+            "header": self.centralWidget().layout().itemAt(0).widget().isVisible(),
+            "dock": self._right_panel.isVisible(),
+            "expanded": self._right_panel.expanded,
+            "anchor": self._stage.anchor,
+            "results": self._stage.results.isVisible(),
+            "hoje": self._stage.hoje_host.isVisible(),
+            "brief": self._stage.brief_host.isVisible(),
+            "left": self._left_panel.isVisible(),
+            "drawer": self._drawer.isVisible(),
+        }
+        self._canvas_plano_id = plano.id
+        gerenciador = getattr(self, "_planos_window", None)
+        if gerenciador is not None:
+            gerenciador.hide()
+
+        self._right_panel.expanded = False      # sessão: sem persist()
+        self._right_panel.apply()
+        self._right_panel.hide()
+        self.centralWidget().layout().itemAt(0).widget().hide()
+
+        # Esconder os painéis ANTES de ancorar: com brief visível, arrange()
+        # usa _brief_geometries(), que ignora a âncora e deixa o núcleo no
+        # canto direito centralizado. Depois de esconder, nada chamava
+        # arrange() de novo. Fazer nesta ordem garante o canto inferior
+        # direito em toda abertura, inclusive reaberturas.
+        self._stage._canvas_editor_ativo = True
+        self._stage.results.hide()
+        self._stage.hoje_host.hide()
+        self._stage._brief_timer.stop()
+        self._stage.brief_host.hide()
+        self._left_panel.hide()
+        self._drawer.hide()
+        self._stage.tools_open = False
+        self._stage.chat_open = False
+        self._stage.anchor = "bottom-left"
+        self._stage.motion.stop()
+        self._stage.hud_stack.raise_()
+
+        editor = getattr(self, "_canvas_editor", None)
+        if editor is None:
+            editor = _interface_canvas_planos.CanvasEditor(self._stage, self.centralWidget())
+            self._state_sig.connect(editor.atualizar_estado)
+            editor.voltar.connect(self._voltar_dos_planos)
+            editor.contexto_mudou.connect(self._contexto_canvas_mudou)
+            self._canvas_editor = editor
+        editor.definir_modo(assistido)
+        editor.abrir(plano)
+        editor.show()
+        editor.montar_janela()
+        editor._reposicionar()
+        editor.raise_()
+        self._stage.hud_stack.raise_()
+        QTimer.singleShot(0, self._position_canvas_panels)
+        return True
+
+    def _contexto_canvas_mudou(self, contexto: dict) -> None:
+        """Espelho do contexto do editor, seguro para leitura pela casca Qt."""
+        self._contexto_canvas = dict(contexto or {})
+
+    def _voltar_dos_planos(self) -> bool:
+        """Encerra a sessão do Canvas e restaura dock, núcleo e lista."""
+        editor = getattr(self, "_canvas_editor", None)
+        if editor is not None and editor.isVisible():
+            if editor.mudancas_pendentes and not editor.fechar_com_seguranca():
+                escolha = int(_perguntar_salvar_mapa(self))
+                if escolha == _SB_CANCELAR:
+                    return False
+                if escolha == _SB_SALVAR and not editor.fechar_com_seguranca():
+                    return False
+            editor.desmontar_janela()
+            editor.hide()
+            editor.editor_internal._timer.stop()
+        self._contexto_canvas = {"plano_id": None, "card_id": None, "plano": None}
+
+        estado = getattr(self, "_canvas_estado", None)
+        if estado is not None:
+            self.centralWidget().layout().itemAt(0).widget().setVisible(estado["header"])
+            self._right_panel.setVisible(estado["dock"])
+            self._right_panel.expanded = bool(estado["expanded"])
+            self._right_panel.apply()
+            self._stage._canvas_editor_ativo = False
+            self._stage.anchor = estado["anchor"]
+            self._stage.arrange(True)
+            self._stage.results.setVisible(bool(estado["results"]))
+            self._stage.hoje_host.setVisible(bool(estado["hoje"]))
+            if estado["brief"]:
+                self._stage.brief_host.show()
+            self._left_panel.setVisible(bool(estado["left"]))
+            self._drawer.setVisible(bool(estado["drawer"]))
+            self._stage.tools_open = bool(estado["left"])
+            self._stage.chat_open = bool(estado["drawer"])
+            QTimer.singleShot(0, self._position_canvas_panels)
+            self._canvas_estado = None
+
+        plano_id = getattr(self, "_canvas_plano_id", None)
+        gerenciador = getattr(self, "_planos_window", None)
+        if gerenciador is None:
+            self._abrir_planos()
+            gerenciador = getattr(self, "_planos_window", None)
+        if gerenciador is not None:
+            gerenciador.recarregar()
+            if plano_id:
+                gerenciador.selecionar(plano_id)
+            gerenciador.showNormal()
+            gerenciador.raise_()
+            gerenciador.activateWindow()
+        return True
+
+    def _reagendar_lembretes(self) -> None:
+        """Mostra vencidos pendentes earma o próximo; nunca varre arquivos."""
+        try:
+            self._lembrete_timer.stop()
+            for item in _lembretes.vencidos():
+                _lembretes.registrar_aviso(item["id"], item["horario"])
+                self._mostrar_aviso_lembrete(item)
+            proximo = _lembretes.proximo()
+            if proximo is not None:
+                quando = datetime.fromisoformat(
+                    str(proximo["horario"]).replace("Z", "+00:00"))
+                segundos = max(
+                    1.0, (quando - datetime.now(timezone.utc)).total_seconds())
+                self._lembrete_timer.singleShot(
+                    int(min(segundos, 86400) * 1000), self._reagendar_lembretes)
+        except Exception:
+            pass
+
+    def _mostrar_aviso_lembrete(self, lembrete: dict) -> None:
+        plano_id = lembrete.get("plano_id")
+        card_id = lembrete.get("card_id")
+        texto = ("Lembrete de card." if card_id else "Lembrete de plano.")
+        botoes = QMessageBox.StandardButton.Open
+        if card_id:
+            botoes |= QMessageBox.StandardButton.Discard
+        botoes |= QMessageBox.StandardButton.Close
+        escolha = QMessageBox.information(
+            self, "Lembrete", texto, botoes, QMessageBox.StandardButton.Open)
+        if int(escolha) == int(QMessageBox.StandardButton.Open) and plano_id:
+            casca = getattr(self, "_ui", None)
+            if casca is not None:
+                casca.abrir_lembrete(plano_id, card_id)
 
     @staticmethod
     def _cartao(nome_obj: str) -> QWidget:
@@ -5163,6 +5546,13 @@ class MainWindow(QMainWindow):
         self._globo_btn.clicked.connect(self._abrir_globo)
         row.addWidget(self._globo_btn)
 
+        # PLANOS (Canvas Infinito): gerenciador local, sem rede nem modelos.
+        self._planos_btn = self._make_control_button("planos", "▦\nPLANOS\nABRIR", C.PRI)
+        self._planos_btn.setToolTip(
+            "Planos: crie, encontre, visualize, edite e arquive planos no Canvas.")
+        self._planos_btn.clicked.connect(self._abrir_planos)
+        row.addWidget(self._planos_btn)
+
         # SEGUNDO PLANO (01/11/2026, v1.0.37, pedido do Diego): o NIA sai da
         # tela e fica so no icone perto do relogio, sem ouvir nem fazer nada.
         # "SEGUNDO PLANO" inteiro nao cabe na linha do titulo (85 px medidos
@@ -5237,7 +5627,19 @@ class MainWindow(QMainWindow):
         self._stage.arrange(True)
         self._position_canvas_panels()
 
+    def _toggle_chat_abajo(self) -> None:
+        """Mostra ou esconde o campo de entrada do chat."""
+        visivel = self._btn_chat_abajo.isChecked()
+        self._composer.setVisible(visivel)
+        if visivel:
+            self._input.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._stage.chat_open = self._drawer.isVisible()
+        self._stage.arrange(True)
+
     def _position_canvas_panels(self):
+        canvas = getattr(self, "_canvas_editor", None)
+        if canvas is not None and canvas.isVisible():
+            canvas._reposicionar()
         if not hasattr(self, "_drawer"): return
         cw = self.centralWidget()
         pos = self._composer.mapTo(cw, self._composer.rect().topLeft())
@@ -5612,27 +6014,34 @@ class MainWindow(QMainWindow):
     ) -> QPushButton:
         button = ControlCard(text, color, background)
         button.setObjectName(name)
-        button.setFixedSize(54, 54)
+        button.setFixedSize(46, 46)
         button.setToolTip(text.replace("\n", " · "))
         button.setAccessibleName(text.replace("\n", " "))
         return button
 
     def _build_input_row(self) -> QHBoxLayout:
-        row = QHBoxLayout(); row.setSpacing(6)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        _ROUND = ("QPushButton { color: #8FD9EE; background: transparent; border: none;"
+                  " border-radius: 15px; min-width: 30px; max-width: 30px;"
+                  " min-height: 30px; max-height: 30px; }"
+                  "QPushButton:hover { background: rgba(25,211,243,30); color: #E6F6FF; }")
+
         attach = QPushButton()
         attach.setIcon(icon("attach"))
         attach.setToolTip("Anexar arquivos")
+        attach.setStyleSheet(_ROUND)
         attach.clicked.connect(self._drop_zone._browse)
         row.addWidget(attach)
 
         self._input = QLineEdit()
         self._input.setPlaceholderText("Converse com a NIA…")
-        self._input.setFont(_ftexto(11.5))
-        self._input.setFixedHeight(34)
+        self._input.setFont(_ftexto(13))
+        self._input.setFixedHeight(32)
         self._input.setStyleSheet(f"""
             QLineEdit {{
                 background: transparent; color: {C.WHITE};
-                border: none; border-radius: 11px; padding: 3px 12px;
+                border: none; padding: 2px 4px;
                 selection-background-color: {C.PRI_GHO};
             }}
             QLineEdit:focus {{ border: none; background: transparent; }}
@@ -5640,41 +6049,46 @@ class MainWindow(QMainWindow):
         self._input.returnPressed.connect(self._send)
         row.addWidget(self._input)
 
-        _fam_icone = _system_icon_font_family()
-        _fluent = _fam_icone != "Segoe UI Symbol"
         send = QPushButton()
         send.setIcon(icon("send", "#002332"))
-        send.setFixedSize(34, 34)
-        send.setFont(QFont(_fam_icone, 11) if _fluent else _fx(12, QFont.Weight.Bold))
+        send.setFixedSize(32, 32)
         send.setCursor(Qt.CursorShape.PointingHandCursor)
         send.setToolTip("Enviar")
         send.setStyleSheet("""
             QPushButton {
-                color: #00121a; border: none; border-radius: 17px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #00d4ff, stop:1 #008fbf);
+                color: #00121a; border: none; border-radius: 16px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #19D3F3, stop:1 #1673FF);
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5fe8ff, stop:1 #00a8dd);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5fe8ff, stop:1 #3585ff);
             }
             QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #00a8cc, stop:1 #006f99);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #00a8cc, stop:1 #0d56cc);
             }
         """)
         send.clicked.connect(self._send)
         row.addWidget(send)
+
         mic = QPushButton()
         self._composer_mic = mic
         mic.setCheckable(True)
         mic.setIcon(icon("mute"))
         mic.setToolTip("Microfone [F4]")
+        mic.setStyleSheet(_ROUND + """
+            QPushButton:checked { color: #7FF0FF; border: 1px solid rgba(25,211,243,180);
+                background: rgba(25,211,243,40); }""")
         mic.clicked.connect(self._toggle_mute)
         row.addWidget(mic)
+
         self._history_btn = QPushButton()
         self._history_btn.setIcon(icon("history"))
         self._history_btn.setCheckable(True)
         self._history_btn.setToolTip("Mostrar ou recolher histórico")
+        self._history_btn.setStyleSheet(_ROUND + """
+            QPushButton:checked { color: #7FF0FF; border: 1px solid rgba(25,211,243,180); }""")
         self._history_btn.clicked.connect(self._toggle_history)
         row.addWidget(self._history_btn)
+
         self._style_mute_btn()
         for i in range(row.count()):
             button = row.itemAt(i).widget()
@@ -5729,6 +6143,8 @@ class MainWindow(QMainWindow):
         """
         try:
             if not isinstance(dados, dict):
+                return
+            if getattr(self._stage, '_canvas_editor_ativo', False):
                 return
             tipo = str(dados.get('tipo') or '')
             try:
@@ -6108,6 +6524,15 @@ class MainWindow(QMainWindow):
         if not txt: return
         self._input.clear()
         self._log.append_log(f"Você: {txt}")
+        # Conversa normal: nova mensagem cala a fala/tarefa anterior antes de
+        # seguir. "Faz até o final" e tratado pelo proprio NiaLive.
+        atividade = getattr(self, 'on_atividade', None)
+        interromper = getattr(self, 'on_interrupt', None)
+        if interromper is not None and (atividade is None or atividade()):
+            try:
+                interromper(silencioso=True)
+            except TypeError:
+                interromper()
         if self.on_text_command:
             threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 
@@ -6183,7 +6608,10 @@ class MainWindow(QMainWindow):
     def aplicar_nomes(self) -> None:
         """Poe na tela os nomes da aba NOMES (chamado ao salvar, sem reabrir)."""
         try:
-            self.setWindowTitle(_nome_tela("janela", "NIA"))
+            # A barra nativa éPersonalizada (sem título/ícone); não reaplicar o
+            # nome do Windows aqui sob pena de mostrar "python"/"NIA" nela.
+            if not getattr(self, "_barra_sem_titulo", False):
+                self.setWindowTitle(_nome_tela("janela", "NIA"))
             if getattr(self, "_lbl_titulo_topo", None) is not None:
                 self._lbl_titulo_topo.setText(_nome_tela("titulo", "N.I.A"))
             self._lbl_titulo_topo.setToolTip(_nome_tela("subtitulo", self._sub_topo_padrao))
@@ -6303,6 +6731,14 @@ class NiaUI:
         # da engrenagem chamava metodo inexistente e a excecao dentro do slot do
         # Qt **derrubava o programa** (30/08/2026, primeiro clique do Diego).
         self._win._ui = self
+        # Tela cheia sem bordas por padrão; o usuário pode desligar em
+        # Configurações → Aparência. Testes isolados instanciam MainWindow
+        # diretamente e redimensionam a janela, então não entram aqui.
+        if not _TESTE_JANELA:
+            try:
+                self._win.aplicar_modo_janela(janela_sem_bordas())
+            except Exception as exc:
+                print(f"[ui] janela em tela cheia não aplicada: {exc}")
         # SECRETARIA DO WHATSAPP (05/11/2026): o cartao da ligacao nasce aqui, no Qt.
         try:
             from core import secretaria_tela as _sec_tela  # noqa: PLC0415
@@ -6558,6 +6994,195 @@ class NiaUI:
         """Thread-safe: abre uma área do dashboard sem inferência."""
         QTimer.singleShot(0, lambda: self._win._abrir_dashboard_config(pagina))
 
+    def abrir_planos(self) -> None:
+        """Thread-safe: abre o Gerenciador de Planos pelo mesmo caminho do dock."""
+        self._win._canvas_action_sig.emit(self._win._abrir_planos)
+
+    def abrir_plano(self, plano_id: str) -> None:
+        """Thread-safe: abre o mapa de um plano pelo mesmo ponto do gerenciador."""
+        def abrir():
+            janela = self._win
+            if janela._abrir_canvas_do_plano(str(plano_id)):
+                # A abertura por comando de voz acontece longe do clique do
+                # usuário: trazer a janela para frente para o Canvas aparecer.
+                janela.showNormal()
+                janela.raise_()
+                janela.activateWindow()
+        self._win._canvas_action_sig.emit(abrir)
+
+    def fechar_plano(self) -> None:
+        self._win._canvas_action_sig.emit(self._win._voltar_dos_planos)
+
+    def navegar_planos(self, acoes, ao_concluir):
+        """Navega na thread Qt e confirma só depois de concluir a ação."""
+        from core.planos import ErroPlano
+        def aplicar():
+            try:
+                for acao in acoes:
+                    tipo = acao.get('tipo')
+                    if tipo == 'abrir_canvas':
+                        if not self._win._abrir_canvas_do_plano(str(acao.get('plano_id'))):
+                            ao_concluir(False, 'Não foi possível abrir o plano. O plano atual foi preservado.')
+                            return
+                    elif tipo == 'fechar_canvas':
+                        if not self._win._voltar_dos_planos():
+                            ao_concluir(False, 'O fechamento foi cancelado. O plano continua aberto.')
+                            return
+                    elif tipo == 'abrir_manager':
+                        if self._win._abrir_planos() is None:
+                            ao_concluir(False, 'Não foi possível abrir a janela NIA Planos.')
+                            return
+                    else:
+                        ao_concluir(False, 'Ação de navegação desconhecida.')
+                        return
+                self._win.showNormal()
+                self._win.raise_()
+                self._win.activateWindow()
+                ao_concluir(True, '')
+            except (OSError, ValueError, ErroPlano) as exc:
+                ao_concluir(False, 'Não foi possível concluir a navegação: '+str(exc))
+        self._win._canvas_action_sig.emit(aplicar)
+
+    def contexto_canvas(self) -> dict:
+        """Cópia do espelho de contexto, segura para leitura fora da thread Qt."""
+        return dict(getattr(self._win, "_contexto_canvas", None)
+                    or {"plano_id": None, "card_id": None, "plano": None})
+
+    def definir_contexto_canvas(self, plano_id: str | None,
+                                card_id: str | None) -> None:
+        """Thread-safe: ajusta a seleção do editor para consultas contextuais."""
+        def aplicar():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if (editor is not None and editor.isVisible()
+                    and (not plano_id or editor.contexto()["plano_id"] == plano_id)):
+                editor.selecionar_card(card_id)
+        QTimer.singleShot(0, aplicar)
+
+    def abrir_lembrete(self, plano_id: str, card_id: str | None = None) -> None:
+        """Thread-safe: abre o plano/card de um lembrete pelo fluxo normal."""
+        def abrir():
+            self._win._abrir_canvas_do_plano(plano_id)
+            self._win._canvas_editor.definir_modo(False)
+            self._win._canvas_editor.selecionar_card(card_id)
+        QTimer.singleShot(0, abrir)
+
+    def abrir_plano_assistido(self, plano_id: str) -> None:
+        """Thread-safe: abre o Canvas em modo 'Editar com a NIA'."""
+        self._win._canvas_action_sig.emit(
+            lambda: self._win._abrir_canvas_do_plano(str(plano_id), assistido=True))
+
+    def definir_modo_assistido(self, assistido: bool, plano_id=None, sessao_id=None) -> None:
+        """Thread-safe: alterna Manual/Com a NIA sem recriar o editor."""
+        def aplicar():
+            editor = getattr(self._win, '_canvas_editor', None)
+            if (editor is None or not editor.isVisible()
+                    or (plano_id is not None and editor.editor_internal._plano.id != plano_id)
+                    or (sessao_id is not None and editor._sessao_id != sessao_id)):
+                return
+            editor.definir_modo(bool(assistido))
+        self._win._canvas_action_sig.emit(aplicar)
+
+    def executar_canvas(self, operacoes, rotulo, ao_concluir=None):
+        self.aplicar_lote_assistido(operacoes, rotulo, ao_concluir)
+
+    def aplicar_lote_assistido(self, operacoes: list, rotulo: str, ao_concluir=None) -> None:
+        """Thread-safe: aplica operações validadas em uma só ação de desfazer."""
+        def informar(mensagem):
+            self.write_log(mensagem)
+            if ao_concluir is not None:
+                ao_concluir(mensagem.removeprefix('SIS: '))
+        def aplicar():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if editor is None or not editor.isVisible():
+                informar('SIS: O Canvas foi fechado; nada foi aplicado.')
+                return
+            plano = editor.editor_internal.plano_atual()
+            expected = operacoes[0] if operacoes else {}
+            if (not editor.modo_assistido
+                    or expected.get('_sessao_id', editor._sessao_id) != editor._sessao_id
+                    or expected.get('_geracao_modo', editor._geracao_modo) != editor._geracao_modo):
+                informar('SIS: Ative Editar com a NIA neste Canvas antes de pedir alterações. Nada foi aplicado.')
+                return
+            if (expected.get('_plano_id', plano.id) != plano.id
+                    or expected.get('_fingerprint', _assistencia.fingerprint(plano)) != _assistencia.fingerprint(plano)):
+                informar('SIS: O plano mudou desde o pedido; nada foi aplicado.')
+                return
+            try:
+                mudou = _assistencia.aplicar_lote(editor.editor_internal, operacoes, rotulo)
+                if not mudou:
+                    informar("SIS: O mapa já estava nesse estado; nenhuma alteração necessária.")
+                    return
+                if expected.get('_desfazer_apos'):
+                    editor.editor_internal.pilha.undo()
+                    informar('SIS: Alteração aplicada e desfeita no plano '+plano.titulo+'.')
+                else:
+                    informar('SIS: ' + _assistencia.resumo_lote(operacoes, plano))
+                editor.contexto_mudou.emit(editor.contexto())
+            except (ValueError, OSError) as exc:
+                informar('SIS: Não foi possível aplicar a alteração: '+str(exc))
+        self._win._canvas_action_sig.emit(aplicar)
+
+    def adicionar_modelo_ramo(self, tipo: str) -> None:
+        """Thread-safe: adiciona um modelo como ramo do card selecionado."""
+        self._win._canvas_action_sig.emit(lambda: self._win._canvas_editor.adicionar_modelo(
+            str(tipo)) if (getattr(self._win, "_canvas_editor", None)
+                           and self._win._canvas_editor.isVisible()
+                           and self._win._canvas_editor.modo_assistido) else None)
+
+    def desfazer_lote_assistido(self) -> None:
+        """Thread-safe: desfaz o lote assistido se for a última operação."""
+        def desfazer():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if editor is not None and editor.isVisible() and editor.modo_assistido:
+                _assistencia.desfazer_lote(editor.editor_internal)
+        self._win._canvas_action_sig.emit(desfazer)
+
+    def estado_canvas_vivo(self):
+        """Plano do editor aberto, com edições pendentes (thread-safe)."""
+        return self.contexto_canvas().get('plano')
+
+    def plano_canvas_vivo(self):
+        """Plano real do editor visível, quando o espelho de sinal está vazio."""
+        editor = getattr(self._win, '_canvas_editor', None)
+        if editor is None or not editor.isVisible():
+            return None
+        try:
+            return editor.editor_internal.plano_atual()
+        except Exception:
+            return None
+
+    def destacar_card(self, plano_id: str, card_id: str | None) -> None:
+        """Destaca o card de uma resposta somente se o plano estiver visível."""
+        def aplicar():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if editor is None or not editor.isVisible() or not card_id:
+                return
+            if editor.editor_internal.plano_atual().id != str(plano_id):
+                return
+            editor.selecionar_card(card_id)
+            editor.editor_internal._view.centerOn(
+                editor.editor_internal.cena.itens_cards[card_id])
+        self._win._canvas_action_sig.emit(aplicar)
+
+    def perguntar_sobre_card(self, card_id: str | None,
+                             pergunta: str = "O que escrevi neste card?") -> None:
+        """Abre a conversa com o alvo identificado, sem digitar o nome."""
+        def aplicar():
+            editor = getattr(self._win, "_canvas_editor", None)
+            if editor is None or not editor.isVisible():
+                return
+            alvo = card_id or editor.card_selecionado_id
+            if not alvo:
+                return
+            editor.selecionar_card(alvo)
+            campo = self._win._input
+            self._win._drawer.setVisible(True)
+            self._win._stage.chat_open = True
+            self._win._stage.arrange(True)
+            campo.setText(f"{pergunta} (card: {alvo})")
+            campo.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._win._canvas_action_sig.emit(aplicar)
+
     def focar_busca_canvas(self, termo: str = '') -> None:
         """Thread-safe: deixa a caixa de entrada pronta para o termo da busca."""
         def focar():
@@ -6568,7 +7193,7 @@ class NiaUI:
             campo.setText(termo or '')
             campo.setPlaceholderText('Digite o termo da busca nos arquivos…')
             campo.setFocus(Qt.FocusReason.OtherFocusReason)
-        QTimer.singleShot(0, focar)
+        self._win._canvas_action_sig.emit(focar)
 
     def gerar_resumo_agora(self) -> None:
         """Thread-safe: geração manual da Skill 05, sem tocar na rotina agendada."""

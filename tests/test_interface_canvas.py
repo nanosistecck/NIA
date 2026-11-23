@@ -207,8 +207,12 @@ def test_dock_delega_a_aparencia_e_aplica_preferencias(window,app):
     assert dock.buttons['mute'].property('dock_icon_size')==40
     assert dock.buttons['config'].iconSize().width()==40
     w.resize(820,580); settle(app)
+    # O campo fica oculto por padrão; o Qt não atualiza a geometria de um
+    # widget oculto. Mostrá-lo é o que se quer medir: a posição no layout.
+    w._composer.show(); settle(app)
     assert dock.geometry().bottom()<w._composer.geometry().top()
     assert dock.scroll.verticalScrollBar().maximum()>0
+    w._composer.hide(); settle(app)
 
 
 def test_hoje_card_visibilidade_e_acoes(window, app, monkeypatch):
@@ -323,3 +327,10 @@ def test_dock_com_perfil_existente_preserva_posicoes(app, tmp_path):
     assert 'skill_secretaria' in dock.preferences.data['hidden']
     assert dock.preferences.data.get('skill_atalhos_v1') is True
     dock.hide(); dock.deleteLater(); app.processEvents()
+
+
+def test_botao_planos_registrado_e_personalizavel(window):
+    dock = window._right_panel
+    assert 'planos' in dock.buttons
+    assert dock.buttons['planos'].objectName() == 'planos'
+    assert 'planos' in dock.preferences.data.get('order', [])

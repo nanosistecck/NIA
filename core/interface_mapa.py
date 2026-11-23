@@ -1,0 +1,1331 @@
+# -*- coding: utf-8 -*-
+"""Editor visual do mapa de um plano (Etapa 2 do Canvas Infinito).
+
+``QGraphicsScene``/``QGraphicsView`` com cards e conexões desenhados por
+``QPainter`` (sem proxy widgets, sem timer de repaint em repouso). Comandos
+``QUndoCommand`` cobrem criação, edição, movimento, progresso, conexões e
+exclusão. A gravação reusa ``core.planos.atualizar`` (atômica, com revisão).
+"""
+from __future__ import annotations
+
+import copy
+from typing import Any
+
+from PyQt6.QtCore import QEvent, Qt, QSize, QPointF, QRectF, QTimer, pyqtSignal
+from PyQt6.QtGui import (
+    QBrush, QColor, QFont, QKeySequence, QPainter, QPainterPath,
+    QPainterPathStroker, QPen, QRadialGradient, QShortcut,
+    QUndoCommand, QUndoStack,
+)
+from PyQt6.QtWidgets import (
+    QApplication, QComboBox, QFormLayout, QGraphicsItem, QGraphicsPathItem,
+    QGraphicsScene, QGraphicsTextItem, QGraphicsView, QHBoxLayout, QLabel, QFrame, QMenu, QScrollArea,
+    QLineEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
+)
+
+from core.interface_canvas import icon
+from core import planos as BP
+from core.planos import (
+    FORMATO, TIPOS_CARD, STATUS_TAREFA, ConflitoDeRevisao, Plano,
+    atualizar, novo_id, validar_mapa,
+)
+
+_PRI = "#00d4ff"
+_GREEN = "#00ff88"
+_TEXT = "#d8f8ff"
+_MUTED = "#8fb8cc"
+_BG = "#011520"
+_CARD_W = 196.0
+_CARD_H = 84.0
+
+# Glass escuro em camadas, sem blur em tempo real: transparência estática,
+# borda fina clara e foco visível. A cena não tem moldura própria.
+_ESTILO = f"""
+QWidget#EditorMapaRoot {{ background: transparent; }}
+QGraphicsView {{
+    background: transparent; border: none; border-radius: 0px;
+}}
+QGraphicsView:focus {{ border: none; outline: none; }}
+QGraphicsView viewport {{ background: transparent; border: none; }}
+QLabel {{ color: {_TEXT}; background: transparent; }}
+QLineEdit, QComboBox {{
+    color: {_TEXT}; font-size:13px; background: rgba(4,22,36,210);
+    border: 1px solid rgba(150,215,240,80); border-radius: 7px; padding: 5px 8px;
+}}
+QLineEdit:focus, QComboBox:focus, QTextEdit:focus {{
+    border: 2px solid {_PRI}; background: rgba(8,32,50,235);
+}}
+QTextEdit {{ color: {_TEXT}; background: rgba(4,22,36,210);
+ border: 1px solid rgba(150,215,240,80); border-radius: 7px; padding: 7px; }}
+QPushButton {{
+    color: {_TEXT};
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(38,84,110,170), stop:1 rgba(10,38,56,185));
+    border: 1px solid rgba(150,215,240,80); border-radius: 8px;
+    padding: 6px 11px; min-height: 30px; font-size:14px;
+}}
+QPushButton:hover {{
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(52,112,142,205), stop:1 rgba(16,52,74,210));
+}}
+QPushButton:focus {{ border: 2px solid {_PRI}; }}
+QPushButton:disabled {{ color: #557a8c; background: rgba(8,24,36,150); }}
+QWidget#Detalhes {{
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 rgba(16,52,74,215), stop:1 rgba(5,22,36,225));
+    border: 1px solid rgba(160,225,250,90); border-radius: 14px;
+}}
+"""
+
+_COR_STATUS = {
+    "pendente": "#ffcc00",
+    "em_andamento": "#00d4ff",
+    "bloqueado": "#ff3355",
+    "concluido": "#00ff88",
+}
+_ROTULO_STATUS = {
+    "pendente": "PENDENTE", "em_andamento": "EM ANDAMENTO",
+    "bloqueado": "BLOQUEADO", "concluido": "CONCLUÍDO",
+}
+
+
+class CardItem(QGraphicsItem):
+    """Card do mapa: título, resumo curto e badge de progresso para tarefas."""
+
+    def __init__(self, dados: dict[str, Any]):
+        super().__init__()
+        self.dados = dict(dados)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self._pos_antes: QPointF | None = None
+
+    def boundingRect(self) -> QRectF:
+        # Inclui a sombra (+4 px abaixo) e o contorno de seleção (-5 px).
+        # Pintar fora do boundingRect deixa rastros no arraste: o Qt só
+        # invalida essa área e um zoom forçava o repaint completo.
+        return QRectF(-6.0, -6.0, _CARD_W + 12.0, _CARD_H + 12.0)
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        # Corpo fixo em coordenadas do item; o boundingRect é maior apenas
+        # para invalidação (sombra + contorno), não para desenho.
+        ret = QRectF(0.0, 0.0, _CARD_W, _CARD_H)
+        selecionado = self.isSelected()
+        origem = getattr(self.scene(), "origem_conexao", None) == self.dados.get("id") \
+            if self.scene() is not None else False
+        tarefa = self.dados.get("tipo") == "tarefa"
+        # Sombra desenhada (sem QGraphicsDropShadowEffect): profundidade
+        # estática, sem renderização contínua nem blur em tempo real.
+        sombra = ret.translated(0, 4)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(0, 6, 12, 110)))
+        painter.drawRoundedRect(sombra, 12, 12)
+        cor_borda = _GREEN if origem else (_PRI if selecionado else "#1a5c7a")
+        painter.setPen(QPen(QColor(cor_borda),
+                            3.0 if origem else (2.5 if selecionado else 1.4)))
+        painter.setBrush(QBrush(QColor(10, 40, 60, 226)))
+        painter.drawRoundedRect(ret, 10, 10)
+        if selecionado:
+            painter.setPen(QPen(QColor(_PRI), 1.5))
+            painter.setBrush(QColor('#073244'))
+            for point in (QPointF(0,_CARD_H/2),QPointF(_CARD_W,_CARD_H/2),QPointF(_CARD_W/2,0),QPointF(_CARD_W/2,_CARD_H)):
+                painter.drawEllipse(point, 3.5, 3.5)
+        fonte = QFont("Segoe UI", 10)
+        fonte.setBold(True)
+        painter.setFont(fonte)
+        painter.setPen(QColor(_TEXT))
+        painter.drawText(
+            QRectF(10, 8, _CARD_W - 20, 26),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            str(self.dados.get("titulo") or "Sem título")[:34])
+        fonte.setBold(False)
+        fonte.setPointSize(8)
+        painter.setFont(fonte)
+        painter.setPen(QColor(_MUTED))
+        painter.drawText(
+            QRectF(10, 34, _CARD_W - 20, 30),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            str(self.dados.get("resumo") or "")[:70])
+        if tarefa:
+            status = str(self.dados.get("status") or "pendente")
+            painter.setPen(QPen(QColor(_COR_STATUS.get(status, _MUTED))))
+            painter.drawText(
+                QRectF(10, _CARD_H - 20, _CARD_W - 20, 16),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                _ROTULO_STATUS.get(status, status.upper()))
+
+    def itemChange(self, change, value):
+        if (change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged
+                and self.scene() is not None):
+            atualizar = getattr(self.scene(), "atualizar_conexoes", None)
+            if atualizar:
+                atualizar(self.dados.get("id"))
+        return super().itemChange(change, value)
+
+    def mousePressEvent(self, event):
+        cena = self.scene()
+        if cena is not None and getattr(cena, "origem_conexao", None) is not None:
+            if self.dados.get("id") != cena.origem_conexao:
+                editor = getattr(cena, "editor", None)
+                if editor is not None:
+                    editor.concluir_conexao(self.dados.get("id"))
+                event.accept()
+                return
+        self._pos_antes = self.pos()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        antes = self._pos_antes
+        self._pos_antes = None
+        cena = self.scene()
+        if antes is None or cena is None or antes == self.pos():
+            return
+        pilha = getattr(cena, "pilha", None)
+        if pilha is not None:
+            pilha.push(MoverCardCommand(
+                cena.editor, self.dados["id"],
+                (antes.x(), antes.y()), (self.pos().x(), self.pos().y())))
+
+    def atualizar_dados(self, dados: dict) -> None:
+        self.dados = dict(dados)
+        self.update()
+
+
+class ConexaoItem(QGraphicsPathItem):
+    """Curva entre dois cards, com rótulo opcional."""
+
+    def __init__(self, dados: dict, cena: "CenaMapa"):
+        super().__init__()
+        self.dados = dict(dados)
+        self._cena = cena
+        self.setPen(QPen(QColor("#00d9ea"), 1.8))
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setAcceptHoverEvents(True)
+        self.setZValue(-1)
+        self._rotulo = QGraphicsTextItem(self)
+        self._rotulo.setDefaultTextColor(QColor(_MUTED))
+        self._rotulo.setFont(QFont("Segoe UI", 8))
+        self.atualizar()
+
+    def atualizar(self) -> None:
+        origem = self._cena.itens_cards.get(self.dados.get("origem"))
+        destino = self._cena.itens_cards.get(self.dados.get("destino"))
+        if origem is None or destino is None:
+            return
+        a = origem.pos() + QPointF(_CARD_W / 2, _CARD_H / 2)
+        b = destino.pos() + QPointF(_CARD_W / 2, _CARD_H / 2)
+        meio_x = (a.x() + b.x()) / 2
+        curva = QPainterPath()
+        curva.moveTo(a)
+        curva.cubicTo(QPointF(meio_x, a.y()), QPointF(meio_x, b.y()), b)
+        self.setPath(curva)
+        self._forma = self._cena.stroker.createStroke(curva)
+        self._rotulo.setPlainText(str(self.dados.get("rotulo") or ""))
+        self._rotulo.setPos(QPointF(meio_x - 40, (a.y() + b.y()) / 2 - 10))
+
+    def shape(self):
+        return getattr(self, "_forma", super().shape())
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            painter.setPen(QPen(QColor(_TEXT), 2.8, Qt.PenStyle.DashLine))
+            painter.drawPath(self.path())
+
+    def atualizar_dados(self, dados: dict) -> None:
+        self.dados = dict(dados)
+        self.atualizar()
+
+
+class CenaMapa(QGraphicsScene):
+    """Cena com os itens vivos; a fonte de verdade é `mapa_atual()`."""
+
+    def __init__(self, editor=None):
+        super().__init__()
+        self.editor = editor
+        self.grade = True
+        self.setSceneRect(-100000, -100000, 200000, 200000)
+        self.pilha: QUndoStack | None = None
+        self.itens_cards: dict[str, CardItem] = {}
+        self.itens_conexoes: dict[str, ConexaoItem] = {}
+        self.origem_conexao: str | None = None
+        self.item_previa = None
+        self.stroker = QPainterPathStroker()
+        self.stroker.setWidth(14.0)
+
+    def iniciar_previa(self, card_id: str, ponto: QPointF) -> None:
+        self.cancelar_previa()
+        self.origem_conexao = card_id
+        origem = self.itens_cards.get(card_id)
+        if origem is None:
+            return
+        a = origem.pos() + QPointF(_CARD_W / 2, _CARD_H / 2)
+        linha = QPainterPath()
+        linha.moveTo(a)
+        linha.lineTo(ponto)
+        self.item_previa = self.addPath(linha, QPen(QColor(_GREEN), 2.0,
+                                                   Qt.PenStyle.DashLine))
+
+    def mover_previa(self, ponto: QPointF) -> None:
+        if self.item_previa is None or self.origem_conexao is None:
+            return
+        origem = self.itens_cards.get(self.origem_conexao)
+        if origem is None:
+            return
+        a = origem.pos() + QPointF(_CARD_W / 2, _CARD_H / 2)
+        linha = QPainterPath()
+        linha.moveTo(a)
+        linha.lineTo(ponto)
+        self.item_previa.setPath(linha)
+
+    def cancelar_previa(self) -> None:
+        if self.item_previa is not None:
+            self.removeItem(self.item_previa)
+            self.item_previa = None
+        self.origem_conexao = None
+        for item in self.itens_cards.values():
+            if item.isSelected():
+                item.setSelected(False)
+        for item in self.itens_conexoes.values():
+            item.setSelected(False)
+
+    def drawBackground(self, painter, rect) -> None:
+        # Transparent: the main CanvasBackground is the only gradient painter.
+        if not self.grade:
+            return
+        zoom = painter.transform().m11()
+        step = 28 if zoom >= .65 else 84
+        if rect.width() / step > 200 or rect.height() / step > 200:
+            return
+        painter.setPen(QPen(QColor(65, 180, 205, 42), 1 / max(.2, zoom)))
+        points = [QPointF(x, y)
+                  for x in range(int(rect.left() // step) * step, int(rect.right()) + step, step)
+                  for y in range(int(rect.top() // step) * step, int(rect.bottom()) + step, step)]
+        if points:
+            painter.drawPoints(points)
+
+    def montar(self, mapa: dict) -> None:
+        self.cancelar_previa()
+        self.itens_cards.clear()
+        self.itens_conexoes.clear()
+        self.clear()
+        for dados in mapa.get("cards", []):
+            item = CardItem(dados)
+            item.setPos(float(dados.get("x") or 0.0), float(dados.get("y") or 0.0))
+            self.addItem(item)
+            self.itens_cards[dados["id"]] = item
+        for dados in mapa.get("conexoes", []):
+            item = ConexaoItem(dados, self)
+            self.addItem(item)
+            self.itens_conexoes[dados["id"]] = item
+
+    def adicionar_card(self, dados: dict) -> CardItem:
+        item = CardItem(dados)
+        item.setPos(float(dados.get("x") or 0.0), float(dados.get("y") or 0.0))
+        self.addItem(item)
+        self.itens_cards[dados["id"]] = item
+        return item
+
+    def remover_card(self, card_id: str) -> dict | None:
+        item = self.itens_cards.pop(card_id, None)
+        if item is None:
+            return None
+        dados = copy.deepcopy(item.dados)
+        self.removeItem(item)
+        return dados
+
+    def adicionar_conexao(self, dados: dict) -> ConexaoItem:
+        item = ConexaoItem(dados, self)
+        self.addItem(item)
+        self.itens_conexoes[dados["id"]] = item
+        return item
+
+    def remover_conexao(self, lig_id: str) -> dict | None:
+        item = self.itens_conexoes.pop(lig_id, None)
+        if item is None:
+            return None
+        dados = copy.deepcopy(item.dados)
+        self.removeItem(item)
+        return dados
+
+    def atualizar_conexoes(self, card_id: str | None) -> None:
+        for lig in self.itens_conexoes.values():
+            if card_id in (lig.dados.get("origem"), lig.dados.get("destino")):
+                lig.atualizar()
+
+    def mapa_atual(self) -> dict:
+        cards = []
+        for ident, item in self.itens_cards.items():
+            dados = copy.deepcopy(item.dados)
+            dados["id"] = ident
+            dados["x"] = float(item.pos().x())
+            dados["y"] = float(item.pos().y())
+            cards.append(dados)
+        conexoes = [copy.deepcopy(l.dados) for l in self.itens_conexoes.values()]
+        return {"cards": cards, "conexoes": conexoes}
+
+
+class MapaView(QGraphicsView):
+    """Pan, zoom ancorado no ponteiro e enquadramento sem reconstruir a cena."""
+
+    def __init__(self, cena: CenaMapa):
+        super().__init__(cena)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        # Repaint completo evita rastros quando um card é arrastado sobre
+        # conexões/sombra e o Qt invalida só a boundingRect antiga.
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+        self.viewport().setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+        self.viewport().setStyleSheet("background: transparent; border: none;")
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if self.scene().editor is not None:
+            self.scene().editor._camera_alterada()
+
+    def mouseMoveEvent(self, event):
+        cena = self.scene()
+        if cena is not None and getattr(cena, "origem_conexao", None) is not None:
+            cena.mover_previa(self.mapToScene(event.pos()))
+        super().mouseMoveEvent(event)
+
+    zoom_mudou = pyqtSignal(float)
+
+    def resizeEvent(self, event):
+        editor = self.scene().editor
+        camera = getattr(editor, '_camera', {})
+        center = QPointF(camera.get('cx',0), camera.get('cy',0))
+        super().resizeEvent(event)
+        self.centerOn(center)
+
+    def wheelEvent(self, event):
+        if getattr(self, 'roda_navega', False) and not (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            super().wheelEvent(event)
+            return
+        if not event.angleDelta().y():
+            event.ignore()
+            return
+        fator = 1.18 if event.angleDelta().y() > 0 else 1 / 1.18
+        atual = self.transform().m11()
+        if 0.2 <= atual * fator <= 3.0:
+            self.scale(fator, fator)
+            self.zoom_mudou.emit(self.transform().m11())
+            self.scene().editor._camera_alterada()
+            self.scene().editor._apos_mudanca()
+        event.accept()
+
+    def posicao_central(self) -> tuple[float, float, float]:
+        centro = self.mapToScene(self.viewport().rect().center())
+        return float(centro.x()), float(centro.y()), float(self.transform().m11())
+
+    def aplicar_camera(self, cx: float, cy: float, zoom: float) -> None:
+        self.resetTransform()
+        self.scale(max(0.2, min(3.0, zoom or 1.0)), max(0.2, min(3.0, zoom or 1.0)))
+        self.centerOn(QPointF(cx, cy))
+        self.zoom_mudou.emit(self.transform().m11())
+
+    def enquadrar(self) -> None:
+        ret = self.scene().itemsBoundingRect()
+        if ret.isEmpty():
+            ret = QRectF(-200, -120, 400, 240)
+        ret.adjust(-60, -60, 60, 60)
+        self.fitInView(ret, Qt.AspectRatioMode.KeepAspectRatio)
+        self.zoom_mudou.emit(self.transform().m11())
+
+
+# ── comandos de desfazer/refazer ────────────────────────────────────────
+class _Comando(QUndoCommand):
+    def __init__(self, editor: "EditorMapa", texto: str):
+        super().__init__(texto)
+        self.editor = editor
+
+    def _sincronizar(self) -> None:
+        self.editor._apos_mudanca()
+
+
+class CriarCardCommand(_Comando):
+    def __init__(self, editor, dados):
+        super().__init__(editor, "Criar card")
+        self.dados = copy.deepcopy(dados)
+
+    def redo(self):
+        self.editor.cena.adicionar_card(self.dados)
+        self._sincronizar()
+
+    def undo(self):
+        self.editor.cena.remover_card(self.dados["id"])
+        self._sincronizar()
+
+
+class EditarCardCommand(_Comando):
+    def __init__(self, editor, card_id, antes, depois):
+        super().__init__(editor, "Editar card")
+        self.card_id = card_id
+        self.antes = copy.deepcopy(antes)
+        self.depois = copy.deepcopy(depois)
+
+    def _aplicar(self, dados):
+        item = self.editor.cena.itens_cards.get(self.card_id)
+        if item is not None:
+            item.atualizar_dados(dados)
+            self.editor._selecionar_dados(item)
+        self._sincronizar()
+
+    def redo(self):
+        self._aplicar(self.depois)
+
+    def undo(self):
+        self._aplicar(self.antes)
+
+
+class EditarTextoCommand(_Comando):
+    """Uma sessão de digitação no campo de descrição = uma operação de undo."""
+
+    def __init__(self, editor, card_id, antes: str):
+        super().__init__(editor, "Editar texto")
+        self.card_id = card_id
+        self.antes = str(antes or "")
+        self.depois = self.antes
+
+    def ao_digitar(self, texto: str) -> None:
+        """Atualiza o card em memória sem criar outro comando nem gravar."""
+        self.depois = str(texto or "")
+        item = self.editor.cena.itens_cards.get(self.card_id)
+        if item is not None:
+            item.atualizar_dados({**item.dados, "descricao": self.depois})
+        self.editor._marcar_texto_vivo()
+
+    def _aplicar(self, texto: str) -> None:
+        item = self.editor.cena.itens_cards.get(self.card_id)
+        if item is not None:
+            item.atualizar_dados({**item.dados, "descricao": str(texto or "")})
+            self.editor._selecionar_dados(item)
+        self._sincronizar()
+
+    def redo(self):
+        self._aplicar(self.depois)
+
+    def undo(self):
+        self._aplicar(self.antes)
+
+
+class MoverCardCommand(_Comando):
+    def __init__(self, editor, card_id, antes, depois):
+        super().__init__(editor, "Mover card")
+        self.card_id = card_id
+        self.antes = antes
+        self.depois = depois
+
+    def _aplicar(self, pos):
+        item = self.editor.cena.itens_cards.get(self.card_id)
+        if item is not None:
+            item.setPos(QPointF(*pos))
+        self._sincronizar()
+
+    def redo(self):
+        self._aplicar(self.depois)
+
+    def undo(self):
+        self._aplicar(self.antes)
+
+
+class CriarConexaoCommand(_Comando):
+    def __init__(self, editor, dados):
+        super().__init__(editor, "Criar conexão")
+        self.dados = copy.deepcopy(dados)
+
+    def redo(self):
+        self.editor.cena.adicionar_conexao(self.dados)
+        self._sincronizar()
+
+    def undo(self):
+        self.editor.cena.remover_conexao(self.dados["id"])
+        self._sincronizar()
+
+
+class ExcluirConexaoCommand(_Comando):
+    def __init__(self, editor, dados):
+        super().__init__(editor, "Excluir conexão")
+        self.dados = copy.deepcopy(dados)
+
+    def redo(self):
+        self.editor.cena.remover_conexao(self.dados["id"])
+        self._sincronizar()
+
+    def undo(self):
+        self.editor.cena.adicionar_conexao(self.dados)
+        self._sincronizar()
+
+
+class ExcluirCardCommand(_Comando):
+    """Card e conexões incidentes são uma única operação atômica."""
+
+    def __init__(self, editor, card_id):
+        super().__init__(editor, "Excluir card")
+        self.card_id = card_id
+        self._card: dict | None = None
+        self._ligacoes: list[dict] = []
+
+    def _capturar(self):
+        if self._card is not None:
+            return
+        item = self.editor.cena.itens_cards.get(self.card_id)
+        if item is None:
+            return
+        self._card = copy.deepcopy(item.dados)
+        for lig in self.editor.cena.itens_conexoes.values():
+            if self.card_id in (lig.dados.get("origem"), lig.dados.get("destino")):
+                self._ligacoes.append(copy.deepcopy(lig.dados))
+
+    def redo(self):
+        self._capturar()
+        for lig in self._ligacoes:
+            self.editor.cena.remover_conexao(lig["id"])
+        self.editor.cena.remover_card(self.card_id)
+        self._sincronizar()
+        self._lembretes(suspender=True)
+
+    def undo(self):
+        if self._card is not None:
+            self.editor.cena.adicionar_card(self._card)
+            for lig in self._ligacoes:
+                self.editor.cena.adicionar_conexao(lig)
+        self._sincronizar()
+        self._lembretes(suspender=False)
+
+    def _lembretes(self, suspender: bool) -> None:
+        plano = getattr(self.editor, "_plano", None)
+        if plano is None:
+            return
+        try:
+            from core import lembretes as _lembretes  # noqa: PLC0415
+            disco = BP.carregar(plano.id)
+            if disco is None:
+                return
+            # O mapa pode divergir de propósito: excluir/restaurar um card acabou
+            # de alterá-lo. `suspender_por_card`/`restaurar_por_card` carregam o
+            # plano do disco e mexem SÓ nos lembretes, então é seguro seguir
+            # mesmo com revisão diferente.
+            if suspender:
+                _lembretes.suspender_por_card(plano.id, self.card_id)
+            else:
+                _lembretes.restaurar_por_card(plano.id, self.card_id)
+            disco = BP.carregar(plano.id)
+            if disco is not None:
+                self.editor._plano = BP.replace(plano, revisao=disco.revisao, lembretes=disco.lembretes)
+        except Exception:
+            pass
+
+
+class EditorMapa(QWidget):
+    """Editor do mapa: cena, painel de detalhes, undo e autosave."""
+
+    estado_salvamento = pyqtSignal(str)
+    estado_editado = pyqtSignal()
+    selecao_mudou = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("EditorMapaRoot")
+        self.setStyleSheet(_ESTILO)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._plano: Plano | None = None
+        self._camera = {"cx": 0.0, "cy": 0.0, "zoom": 1.0}
+        self.mudancas_pendentes = False
+        self.modo_conexao = False
+        self.conexao_origem: str | None = None
+        self._comando_texto = None
+        self._card_texto_id: str | None = None
+        self._carregando_dados = False
+        self._selecionado: str | None = None
+        self._selecionado_tipo: str = "card"
+        self.pilha = QUndoStack(self)
+        self.cena = CenaMapa(self)
+        self.cena.pilha = self.pilha
+        self._view = MapaView(self.cena)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.salvar)
+        self._construir()
+        self._conectar()
+
+    # ── construção ──────────────────────────────────────────────────────
+    def _construir(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(self._view)
+        self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._view.customContextMenuRequested.connect(self._menu_contexto)
+        self.barra = QFrame(self)
+        self.barra.setObjectName('AcoesMapa')
+        self.barra.setStyleSheet('QFrame#AcoesMapa {background:rgba(7,34,51,240); border:1px solid #35617a; border-radius:16px;}')
+        barra = QHBoxLayout(self.barra)
+        barra.setContentsMargins(8, 6, 8, 6)
+        self.botoes = {}
+        for nome, rotulo in (
+            ('novo_card', '+  Novo card'), ('conectar', 'Conectar'),
+            ('desfazer', '↶'), ('refazer', '↷'), ('mais', '•••'),
+            ('adicionar_conectado', 'Card conectado'), ('excluir', 'Excluir'),
+            ('enquadrar', 'Enquadrar'), ('central', 'Card central'), ('salvar', 'Salvar'),
+        ):
+            botao = QPushButton(rotulo, self.barra)
+            botao.setObjectName(nome)
+            self.botoes[nome] = botao
+            if nome in ('novo_card', 'conectar', 'desfazer', 'refazer', 'mais'):
+                barra.addWidget(botao)
+            else:
+                botao.hide()
+        self.botoes['salvar'].setIcon(icon('save'))
+        self.botoes['salvar'].setIconSize(QSize(20, 20))
+        self.botoes['salvar'].setToolTip('Salvar · Ctrl+S')
+        self.botoes['salvar'].setAccessibleName('Salvar canvas')
+        self.botoes['novo_card'].setStyleSheet('background:#007f94; border:1px solid #00dfee; font-weight:600;')
+        self.botoes['desfazer'].setToolTip('Desfazer · Ctrl+Z')
+        self.botoes['refazer'].setToolTip('Refazer · Ctrl+Y / Ctrl+Shift+Z')
+        self.botoes['mais'].clicked.connect(self._menu_acoes)
+        self.painel = QScrollArea(self)
+        self.painel.setObjectName('PainelDetalhes')
+        self.painel.setWidgetResizable(True)
+        self.painel.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.painel.setStyleSheet('QScrollArea#PainelDetalhes {background:rgba(5,28,42,240); border:1px solid #35617a; border-radius:16px;}')
+        detalhes = QWidget()
+        detalhes.setObjectName('Detalhes')
+        self.painel.setWidget(detalhes)
+        dv = QVBoxLayout(detalhes)
+        dv.setContentsMargins(18, 16, 18, 16)
+        self.rotulo_detalhes = QLabel('Detalhes do card', detalhes)
+        self.rotulo_detalhes.setWordWrap(True)
+        self.rotulo_detalhes.setStyleSheet('font-size:17px;font-weight:600;')
+        dv.addWidget(self.rotulo_detalhes)
+        campos = QFormLayout()
+        self.campos = campos
+        self.campo_titulo = QLineEdit(detalhes)
+        self.campo_titulo.setObjectName('mapa_titulo')
+        self.campo_resumo = QLineEdit(detalhes)
+        self.campo_resumo.setObjectName('mapa_resumo')
+        self.campo_descricao = QTextEdit(detalhes)
+        self.campo_descricao.setObjectName('mapa_descricao')
+        self.campo_descricao.setMinimumHeight(170)
+        self.campo_descricao.setAcceptRichText(False)
+        self.campo_descricao.setToolTip('Várias ideias, uma por linha. Ctrl+Enter confirma.')
+        self.campo_descricao.textChanged.connect(self._ao_digitar_texto)
+        self.campo_descricao.installEventFilter(self)
+        self.combo_tipo = QComboBox(detalhes)
+        self.combo_tipo.addItems(list(TIPOS_CARD))
+        self.combo_status = QComboBox(detalhes)
+        self.combo_status.addItems(list(STATUS_TAREFA))
+        self.campo_rotulo = QLineEdit(detalhes)
+        self.campo_rotulo.setPlaceholderText('Rótulo da conexão')
+        campos.addRow('Título', self.campo_titulo)
+        campos.addRow('Resumo', self.campo_resumo)
+        dv.addLayout(campos)
+        self.descricao_host = QSplitter(Qt.Orientation.Vertical)
+        self.descricao_label = QLabel('Descrição')
+        self.descricao_host.addWidget(self.descricao_label)
+        self.descricao_host.addWidget(self.campo_descricao)
+        self.descricao_host.setStretchFactor(1, 1)
+        dv.addWidget(self.descricao_host, 1)
+        self.campos_tipo = QFormLayout()
+        self.campos_tipo.addRow('Tipo', self.combo_tipo)
+        self.campos_tipo.addRow('Progresso', self.combo_status)
+        self.campos_tipo.addRow('Rótulo', self.campo_rotulo)
+        dv.addLayout(self.campos_tipo)
+        self.salvar_detalhes = QPushButton('Salvar detalhes', detalhes)
+        self.salvar_detalhes.setObjectName('salvar_detalhes')
+        dv.addWidget(self.salvar_detalhes)
+        self._detalhes_aberto = True
+        self.zoom_bar = QFrame(self)
+        self.zoom_bar.setStyleSheet('QFrame {background:rgba(7,34,51,235);border-radius:12px;}')
+        zoom_layout = QHBoxLayout(self.zoom_bar)
+        zoom_layout.setContentsMargins(4, 4, 4, 4)
+        for texto, slot in (('−', lambda: self.zoom(.85)), ('100%', lambda: self.zoom(0)),
+                            ('+', lambda: self.zoom(1.18)), ('⛶', self.enquadrar)):
+            botao = QPushButton(texto)
+            botao.setMinimumSize(38, 34)
+            botao.clicked.connect(slot)
+            zoom_layout.addWidget(botao)
+            if texto == '100%':
+                self.percentual = botao
+        self._view.zoom_mudou.connect(lambda z: self.percentual.setText(f'{z:.0%}'))
+        self.status = QLabel('Pronto.', self)
+        self.status.setObjectName('status_mapa')
+        self.status.hide()
+        self._habilitar_campos(False)
+
+    def _habilitar_campos(self, card, conexao=False):
+        for field in (self.campo_titulo, self.campo_resumo, self.campo_descricao,
+                      self.combo_tipo, self.combo_status):
+            field.setEnabled(card)
+        self.campo_rotulo.setEnabled(conexao)
+        self.campos_tipo.setRowVisible(self.campo_rotulo, conexao)
+        self.campos_tipo.setRowVisible(self.combo_tipo, not conexao)
+        self.campos_tipo.setRowVisible(self.combo_status, not conexao)
+        self.descricao_host.setVisible(not conexao)
+        self.campos.setRowVisible(self.campo_titulo, not conexao)
+        self.campos.setRowVisible(self.campo_resumo, not conexao)
+        self.salvar_detalhes.setEnabled(card or conexao)
+
+    def detalhes(self, aberto=None):
+        if aberto is None:
+            aberto = not self._detalhes_aberto
+        self._detalhes_aberto = bool(aberto)
+        self._dispor()
+        if not aberto:
+            self._view.setFocus()
+
+    def _dispor(self):
+        if not hasattr(self, 'painel'):
+            return
+        w, h = self.width(), self.height()
+        largo = w >= 1400
+        if getattr(self, '_last_largo', None) is True and not largo:
+            self._detalhes_aberto = False
+        self._last_largo = largo
+        panel_w = min(354, max(280, w - 40))
+        right = panel_w+34 if largo and self._detalhes_aberto else 0
+        if getattr(self, '_reserved_right', None) != right:
+            self._reserved_right = right
+            self._view.setViewportMargins(0, 0, right, 0)
+        self.painel.setGeometry(w-panel_w-20, 82, panel_w, max(160, h-110))
+        self.painel.setVisible(self._detalhes_aberto)
+        self.barra.adjustSize()
+        free = w - (panel_w+30 if largo and self._detalhes_aberto else 0)
+        self.barra.move(max(12, (free-self.barra.width())//2), 12)
+        self.zoom_bar.adjustSize()
+        if self.zoom_bar.parentWidget() is self:
+            self.zoom_bar.move(max(8, w-self.zoom_bar.width()-20), max(0, h-self.zoom_bar.height()-12))
+        self.barra.raise_()
+        self.painel.raise_()
+        self.zoom_bar.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._dispor()
+
+    def zoom(self, fator):
+        cx, cy, atual = self._view.posicao_central()
+        self._view.aplicar_camera(cx, cy, 1 if not fator else max(.2, min(3, atual*fator)))
+        self._camera_alterada()
+        self._apos_mudanca()
+
+    def _camera_alterada(self):
+        if self._plano is not None:
+            cx, cy, zoom = self._view.posicao_central()
+            self._camera = dict(cx=cx, cy=cy, zoom=zoom)
+
+    def _menu_acoes(self):
+        menu = QMenu(self)
+        for nome in ('adicionar_conectado', 'central', 'enquadrar', 'excluir', 'salvar'):
+            button = self.botoes[nome]
+            menu.addAction(button.icon(), button.text() or "Salvar", button.click)
+        menu.addAction('Detalhes do item', lambda: self.detalhes())
+        extra = getattr(self, 'acoes_extras', None)
+        if extra:
+            extra(menu)
+        menu.exec(self.botoes['mais'].mapToGlobal(self.botoes['mais'].rect().bottomLeft()))
+
+    def _menu_contexto(self, pos):
+        item = self._view.itemAt(pos)
+        if isinstance(item, (CardItem, ConexaoItem)):
+            self.cena.clearSelection()
+            item.setSelected(True)
+        menu = QMenu(self)
+        for nome in ('novo_card', 'adicionar_conectado', 'conectar', 'excluir'):
+            button = self.botoes[nome]
+            menu.addAction(button.icon(), button.text() or "Salvar", button.click)
+        menu.addAction('Detalhes', lambda: self.detalhes(True))
+        extra = getattr(self, 'acoes_extras', None)
+        if extra:
+            extra(menu)
+        menu.exec(self._view.mapToGlobal(pos))
+
+    def _conectar(self) -> None:
+        self.botoes["novo_card"].clicked.connect(self._novo_card)
+        self.botoes["adicionar_conectado"].clicked.connect(self._adicionar_conectado)
+        self.botoes["conectar"].clicked.connect(self._conectar_selecionados)
+        self.botoes["excluir"].clicked.connect(self.excluir_selecionado)
+        self.botoes["desfazer"].clicked.connect(self.desfazer)
+        self.botoes["refazer"].clicked.connect(self.refazer)
+        self.botoes["enquadrar"].clicked.connect(self.enquadrar)
+        self.botoes["central"].clicked.connect(self.voltar_ao_central)
+        self.botoes["salvar"].setMinimumSize(38, 34)
+        self.botoes["salvar"].clicked.connect(self.salvar)
+        self.pilha.canUndoChanged.connect(self.botoes["desfazer"].setEnabled)
+        self.pilha.canRedoChanged.connect(self.botoes["refazer"].setEnabled)
+        self.botoes["desfazer"].setEnabled(False)
+        self.botoes["refazer"].setEnabled(False)
+        self.salvar_detalhes.clicked.connect(self._salvar_detalhes)
+        self.cena.selectionChanged.connect(self._on_selection)
+        for seq, destino in (
+            ("Delete", self.excluir_selecionado),
+            ("Backspace", self.excluir_selecionado),
+            ("Ctrl+Z", self.desfazer),
+            ("Ctrl+Y", self.refazer),
+            ("Ctrl+Shift+Z", self.refazer),
+            ("Ctrl+Return", self._confirmar_texto),
+            ("Escape", self._escapar),
+            ("Ctrl+S", self.salvar),
+            ("Ctrl+=", lambda: self.zoom(1.18)),
+            ("Ctrl+-", lambda: self.zoom(.85)),
+            ("Ctrl+0", self.enquadrar),
+        ):
+            atalho = QShortcut(QKeySequence(seq), self)
+            atalho.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            atalho.activated.connect(destino)
+
+    # ── API pública ─────────────────────────────────────────────────────
+    def carregar(self, plano: Plano) -> None:
+        self._timer.stop()
+        self.cancelar_conexao()
+        self._fechar_sessao_texto()
+        self._plano = plano
+        mapa, avisos = validar_mapa(plano.mapa)
+        self.cena.montar(mapa)
+        self.pilha.clear()
+        camera = mapa.get("camera") or {}
+        self._camera = {
+            "cx": float(camera.get("cx") or 0.0),
+            "cy": float(camera.get("cy") or 0.0),
+            "zoom": float(camera.get("zoom") or 1.0),
+        }
+        self._view.aplicar_camera(
+            self._camera["cx"], self._camera["cy"], self._camera["zoom"])
+        self._selecionado = None
+        self.mudancas_pendentes = False
+        self.status.setText(
+            f"{len(mapa['cards'])} card(s)."
+            + (f" {len(avisos)} aviso(s)." if avisos else ""))
+
+    def plano_atual(self) -> Plano:
+        mapa = self.cena.mapa_atual()
+        return BP.replace(self._plano, mapa={
+            **mapa,
+            "versao_mapa": 1,
+            "inicializado": bool(self._plano.mapa.get("inicializado")),
+            "raiz_id": str(self._plano.mapa.get("raiz_id") or ""),
+            "camera": dict(self._camera),
+        }, formato=FORMATO)
+
+    @property
+    def card_selecionado_id(self) -> str | None:
+        return self._selecionado if self._selecionado_tipo == "card" else None
+
+    def selecionar(self, card_id: str | None) -> None:
+        self._fechar_sessao_texto()
+        self._selecionado = card_id
+        self._selecionado_tipo = "card"
+        self._card_texto_id = card_id
+        # setSelected emite selectionChanged sincronamente; sem bloquear, o
+        # handler reentrante escolhe um item arbitrário do QSet e desfaz a
+        # seleção que acabamos de aplicar (também trocava o alvo do texto).
+        self.cena.blockSignals(True)
+        try:
+            for ident, item in self.cena.itens_cards.items():
+                item.setSelected(ident == card_id)
+            for item in self.cena.itens_conexoes.values():
+                item.setSelected(False)
+        finally:
+            self.cena.blockSignals(False)
+        self._selecionar_dados(self.cena.itens_cards.get(card_id) if card_id else None)
+        self.selecao_mudou.emit()
+
+    def _selecionar_dados(self, item: CardItem | None) -> None:
+        if item is None:
+            self._habilitar_campos(False)
+            return
+        self._habilitar_campos(True)
+        self._carregando_dados = True
+        self.campo_descricao.blockSignals(True)
+        dados = item.dados
+        self.campo_titulo.setText(str(dados.get("titulo") or ""))
+        self.campo_resumo.setText(str(dados.get("resumo") or ""))
+        self.campo_descricao.setPlainText(str(dados.get("descricao") or ""))
+        self.campo_descricao.blockSignals(False)
+        tipo = str(dados.get("tipo") or "ideia")
+        self.combo_tipo.setCurrentText(tipo if tipo in TIPOS_CARD else "ideia")
+        status = str(dados.get("status") or "")
+        self.combo_status.setCurrentText(status if status in STATUS_TAREFA else "pendente")
+        self.rotulo_detalhes.setText(f"Card: {dados.get('titulo') or 'sem título'}")
+        self._carregando_dados = False
+
+    # ── modo de conexão ──────────────────────────────────────────────────
+    def iniciar_conexao(self, card_id: str) -> None:
+        if card_id not in self.cena.itens_cards:
+            self.status.setText("Selecione um card para iniciar a conexão.")
+            return
+        self._fechar_sessao_texto()
+        self.modo_conexao = True
+        self.conexao_origem = card_id
+        self.cena.cancelar_previa()
+        centro = self.cena.itens_cards[card_id].pos() + QPointF(120, 120)
+        self.cena.iniciar_previa(card_id, centro)
+        self.cena.origem_conexao = card_id
+        self.cena.itens_cards[card_id].setSelected(True)
+        self.cena.update()
+        self.status.setText(
+            "Escolha o card de destino · Esc cancela.")
+
+    def concluir_conexao(self, destino_id: str) -> bool:
+        if not self.modo_conexao or not self.conexao_origem:
+            return False
+        origem = self.conexao_origem
+        if origem == destino_id or destino_id not in self.cena.itens_cards:
+            self.status.setText("Destino inválido. Escolha outro card.")
+            return False
+        try:
+            self.conectar(origem, destino_id)
+        except BP.PlanoInvalido as exc:
+            self.status.setText(str(exc))
+            return False
+        self.cancelar_conexao()
+        self.status.setText("Conexão criada.")
+        return True
+
+    def cancelar_conexao(self) -> None:
+        self.modo_conexao = False
+        self.conexao_origem = None
+        if self.cena is not None:
+            self.cena.cancelar_previa()
+            self.cena.update()
+
+    # ── sessão de edição de texto ────────────────────────────────────────
+    def eventFilter(self, objeto, evento):
+        if (objeto is self.campo_descricao
+                and evento.type() == QEvent.Type.FocusIn
+                and self._comando_texto is None):
+            self._card_texto_id = self.card_selecionado_id
+        elif (objeto is self.campo_descricao
+              and evento.type() == QEvent.Type.FocusOut):
+            self._fechar_sessao_texto()
+        return super().eventFilter(objeto, evento)
+
+    def _ao_digitar_texto(self) -> None:
+        if self._carregando_dados or not self._card_texto_id:
+            return
+        if (self._comando_texto is not None
+                and self._comando_texto.card_id != self._card_texto_id):
+            self._fechar_sessao_texto()
+        if self._comando_texto is None:
+            item = self.cena.itens_cards.get(self._card_texto_id)
+            if item is None:
+                return
+            comando = EditarTextoCommand(
+                self, self._card_texto_id, item.dados.get("descricao", ""))
+            comando.depois = self.campo_descricao.toPlainText()
+            self._comando_texto = comando
+            self.pilha.push(comando)
+            self.estado_editado.emit()
+            return
+        self._comando_texto.ao_digitar(self.campo_descricao.toPlainText())
+
+    def _fechar_sessao_texto(self) -> None:
+        self._comando_texto = None
+        self._card_texto_id = None
+
+    def _marcar_texto_vivo(self) -> None:
+        """Texto já está no estado do plano; agenda autosave sem reconstruir."""
+        self.mudancas_pendentes = True
+        self._timer.start(600)
+        self.estado_editado.emit()
+
+    def _escapar(self):
+        self.cancelar_conexao()
+        self.detalhes(False)
+
+    def _foco_em_texto(self) -> bool:
+        foco = QApplication.focusWidget()
+        return isinstance(foco, (QLineEdit, QTextEdit))
+
+    def criar_card(self, titulo: str, resumo: str = "", descricao: str = "",
+                   tipo: str = "ideia", status: str = "",
+                   x: float = 0.0, y: float = 0.0,
+                   modelo: str = "", estado: str = "",
+                   valor=None, acumulado=None,
+                   restrito: bool = False, financeiro: bool = False) -> str:
+        ident = novo_id()
+        if tipo not in TIPOS_CARD:
+            tipo = "ideia"
+        if tipo == "tarefa" and status not in STATUS_TAREFA:
+            status = "pendente"
+        self.pilha.push(CriarCardCommand(self, {
+            "id": ident, "tipo": tipo, "titulo": titulo, "resumo": resumo,
+            "descricao": descricao, "status": status,
+            "x": float(x), "y": float(y),
+            "modelo": str(modelo or ""), "estado": str(estado or ""),
+            "valor": valor, "acumulado": acumulado,
+            "restrito": bool(restrito), "financeiro": bool(financeiro),
+        }))
+        return ident
+
+    def adicionar_conectado(self, origem_id: str, titulo: str = "Novo card") -> str:
+        origem = self.cena.itens_cards.get(origem_id)
+        if origem is None:
+            raise BP.PlanoInvalido("card de origem inexistente")
+        filhos = sum(1 for l in self.cena.itens_conexoes.values()
+                     if l.dados.get("origem") == origem_id)
+        ident = novo_id()
+        x = float(origem.pos().x()) + 250.0
+        y = float(origem.pos().y()) + 40.0 * (filhos + 1)
+        self.pilha.beginMacro("Adicionar card conectado")
+        self.pilha.push(CriarCardCommand(self, {
+            "id": ident, "tipo": "ideia", "titulo": titulo, "resumo": "",
+            "descricao": "", "status": "", "x": x, "y": y,
+        }))
+        self.conectar(origem_id, ident)
+        self.pilha.endMacro()
+        return ident
+
+    def conectar(self, origem_id: str, destino_id: str, rotulo: str = "") -> str:
+        if origem_id == destino_id:
+            raise BP.PlanoInvalido("conexão de um card para ele mesmo")
+        if origem_id not in self.cena.itens_cards or destino_id not in self.cena.itens_cards:
+            raise BP.PlanoInvalido("card inexistente")
+        if any(l.dados.get("origem") == origem_id and l.dados.get("destino") == destino_id
+               for l in self.cena.itens_conexoes.values()):
+            raise BP.PlanoInvalido("conexão já existe")
+        ident = novo_id()
+        self.pilha.push(CriarConexaoCommand(self, {
+            "id": ident, "origem": origem_id, "destino": destino_id,
+            "rotulo": rotulo,
+        }))
+        return ident
+
+    def mover_card(self, card_id: str, x: float, y: float) -> None:
+        item = self.cena.itens_cards.get(card_id)
+        if item is None:
+            return
+        self.pilha.push(MoverCardCommand(
+            self, card_id, (item.pos().x(), item.pos().y()), (float(x), float(y))))
+
+    def editar_card(self, card_id: str, mudancas: dict) -> None:
+        item = self.cena.itens_cards.get(card_id)
+        if item is None:
+            return
+        antes = copy.deepcopy(item.dados)
+        depois = copy.deepcopy(antes)
+        permitidas = (
+            "titulo", "resumo", "descricao", "tipo", "status", "modelo",
+            "estado", "valor", "acumulado", "restrito", "financeiro",
+        )
+        depois.update({k: v for k, v in mudancas.items() if k in permitidas})
+        if depois.get("tipo") == "tarefa" and depois.get("status") not in STATUS_TAREFA:
+            depois["status"] = "pendente"
+        if depois != antes:
+            self.pilha.push(EditarCardCommand(self, card_id, antes, depois))
+
+    def definir_progresso(self, card_id: str, status: str) -> None:
+        if status not in STATUS_TAREFA:
+            raise BP.PlanoInvalido("status desconhecido")
+        self.editar_card(card_id, {"tipo": "tarefa", "status": status})
+
+    def excluir_selecionado(self) -> None:
+        if self._foco_em_texto():
+            return
+        if self._selecionado_tipo == "conexao" and self._selecionado:
+            lig = self.cena.itens_conexoes.get(self._selecionado)
+            if lig is not None:
+                self.pilha.push(ExcluirConexaoCommand(self, copy.deepcopy(lig.dados)))
+            return
+        ident = self.card_selecionado_id
+        if not ident or ident not in self.cena.itens_cards:
+            return
+        raiz = str((self._plano.mapa if self._plano else {}).get("raiz_id") or "")
+        if ident == raiz:
+            self.status.setText("O card central não pode ser excluído.")
+            return
+        self.pilha.push(ExcluirCardCommand(self, ident))
+        self.selecionar(None)
+
+    def desfazer(self) -> None:
+        if self._foco_em_texto():
+            return
+        self._fechar_sessao_texto()
+        if self.pilha.canUndo():
+            self.pilha.undo()
+
+    def refazer(self) -> None:
+        if self._foco_em_texto():
+            return
+        self._fechar_sessao_texto()
+        if self.pilha.canRedo():
+            self.pilha.redo()
+
+    def _confirmar_texto(self) -> None:
+        if self._foco_em_texto():
+            self._fechar_sessao_texto()
+            self.campo_descricao.clearFocus()
+
+    def definir_camera(self, cx: float, cy: float, zoom: float) -> None:
+        self._camera = {"cx": float(cx), "cy": float(cy), "zoom": float(zoom)}
+        self._view.aplicar_camera(cx, cy, zoom)
+        self._apos_mudanca()
+
+    def enquadrar(self) -> None:
+        self._view.enquadrar()
+        cx, cy, zoom = self._view.posicao_central()
+        self._camera = {"cx": cx, "cy": cy, "zoom": zoom}
+        self._apos_mudanca()
+
+    def voltar_ao_central(self) -> None:
+        raiz = str((self._plano.mapa if self._plano else {}).get("raiz_id") or "")
+        item = self.cena.itens_cards.get(raiz)
+        if item is not None:
+            self._view.centerOn(item)
+            cx, cy, zoom = self._view.posicao_central()
+            self._camera = {"cx": cx, "cy": cy, "zoom": zoom}
+            self._apos_mudanca()
+
+    def salvar(self) -> tuple[bool, str]:
+        self._timer.stop()
+        if self._plano is None:
+            return False, "Nenhum plano carregado."
+        self.status.setText("Salvando…")
+        self.estado_salvamento.emit("Salvando…")
+        try:
+            atualizado = atualizar(
+                self._plano.id,
+                {"mapa": self.plano_atual().mapa, "formato": FORMATO,
+                 "titulo": self._plano.titulo, "objetivo": self._plano.objetivo,
+                 "tipo": self._plano.tipo},
+                self._plano.revisao)
+        except ConflitoDeRevisao:
+            self.status.setText("Conflito de revisão.")
+            self.estado_salvamento.emit("Conflito de revisão")
+            return False, "Conflito de revisão"
+        except (OSError, ValueError, BP.ErroPlano):
+            self.status.setText("Falha ao salvar. Tente novamente.")
+            self.estado_salvamento.emit("Falha ao salvar")
+            return False, "Falha ao salvar"
+        self._plano = atualizado
+        self.mudancas_pendentes = False
+        self.status.setText("Salvo.")
+        self.estado_salvamento.emit("Salvo")
+        self.estado_editado.emit()
+        return True, "Salvo"
+
+    def fechar_com_seguranca(self) -> bool:
+        if not self.mudancas_pendentes:
+            return True
+        return self.salvar()[0]
+
+    # ── internos ────────────────────────────────────────────────────────
+    def _apos_mudanca(self) -> None:
+        self.mudancas_pendentes = True
+        self._timer.start(600)
+        self.estado_salvamento.emit("Alterações pendentes")
+        self.estado_editado.emit()
+
+    def _on_selection(self) -> None:
+        itens = [i for i in self.cena.selectedItems()
+                 if isinstance(i, (CardItem, ConexaoItem))]
+        if not itens:
+            self._selecionado = None
+            self._habilitar_campos(False)
+            return
+        item = itens[0]
+        if isinstance(item, CardItem):
+            if item.dados.get("id") != self._selecionado:
+                self.selecionar(item.dados.get("id"))
+        else:
+            self._selecionado = item.dados.get("id")
+            self._fechar_sessao_texto()
+            self._selecionado_tipo = "conexao"
+            self._habilitar_campos(False, True)
+            self.campo_rotulo.setText(str(item.dados.get("rotulo") or ""))
+            self.rotulo_detalhes.setText("Conexão selecionada")
+
+    def _novo_card(self) -> None:
+        x, y, _ = self._view.posicao_central()
+        ident = self.criar_card("Novo card", x=x, y=y)
+        self.selecionar(ident)
+        self.detalhes(True)
+
+    def _adicionar_conectado(self) -> None:
+        if self.card_selecionado_id:
+            self.adicionar_conectado(self.card_selecionado_id)
+
+    def _conectar_selecionados(self) -> None:
+        if self.modo_conexao:
+            self.cancelar_conexao()
+            return
+        ident = self.card_selecionado_id
+        if ident:
+            self.iniciar_conexao(ident)
+        else:
+            self.status.setText("Selecione um card de origem.")
+
+    def _salvar_detalhes(self) -> None:
+        ident = self.card_selecionado_id
+        if ident:
+            if self._comando_texto is not None \
+                    and self._comando_texto.card_id == ident:
+                self._comando_texto.ao_digitar(self.campo_descricao.toPlainText())
+                self._fechar_sessao_texto()
+            mudancas = {
+                "titulo": self.campo_titulo.text(),
+                "resumo": self.campo_resumo.text(),
+                "tipo": self.combo_tipo.currentText(),
+                "status": self.combo_status.currentText(),
+            }
+            item = self.cena.itens_cards.get(ident)
+            if item is not None and self._comando_texto is None:
+                texto = self.campo_descricao.toPlainText()
+                if str(item.dados.get("descricao") or "") != texto:
+                    mudancas["descricao"] = texto
+            self.editar_card(ident, mudancas)
+        elif self._selecionado_tipo == "conexao" and self._selecionado:
+            lig = self.cena.itens_conexoes.get(self._selecionado)
+            if lig is not None:
+                mapa = self.cena.mapa_atual()
+                for dados in mapa['conexoes']:
+                    if dados['id'] == self._selecionado:
+                        dados['rotulo'] = self.campo_rotulo.text()
+                self.aplicar_mapa(mapa, 'Editar rótulo da conexão')
+
+
+    def aplicar_mapa(self, mapa, rotulo):
+        self._fechar_sessao_texto()
+        self.pilha.push(SubstituirMapaCommand(self, self.cena.mapa_atual(), mapa, rotulo))
+
+    def aplicar_estado(self, mapa, campos, rotulo):
+        self._fechar_sessao_texto()
+        self.pilha.push(SubstituirMapaCommand(
+            self, self.cena.mapa_atual(), mapa, rotulo, campos))
+
+
+class SubstituirMapaCommand(_Comando):
+    """A prevalidated snapshot is installed atomically as one reversible edit."""
+    def __init__(self, editor, antes, depois, rotulo, campos=None):
+        super().__init__(editor, rotulo)
+        self.antes, self.depois = copy.deepcopy(antes), copy.deepcopy(depois)
+        self.campos_depois = copy.deepcopy(campos or {})
+        self.campos_antes = {k: getattr(editor._plano, k) for k in self.campos_depois}
+
+    def _aplicar(self, mapa):
+        selected = self.editor.card_selecionado_id
+        antigos = set(self.editor.cena.itens_cards)
+        self.editor.cena.montar(mapa)
+        novos = set(self.editor.cena.itens_cards)
+        for ident in antigos - novos:
+            ExcluirCardCommand(self.editor, ident)._lembretes(True)
+        for ident in novos - antigos:
+            ExcluirCardCommand(self.editor, ident)._lembretes(False)
+        if selected in self.editor.cena.itens_cards:
+            self.editor.selecionar(selected)
+        else:
+            self.editor.selecionar(None)
+        self._sincronizar()
+
+    def redo(self):
+        self.editor._plano = BP.replace(self.editor._plano, **self.campos_depois)
+        self._aplicar(self.depois)
+
+    def undo(self):
+        self.editor._plano = BP.replace(self.editor._plano, **self.campos_antes)
+        self._aplicar(self.antes)

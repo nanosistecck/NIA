@@ -151,6 +151,69 @@ def _qual_dia(quando: str, hoje: date) -> int | None:
     return 0
 
 
+def _qual_turno(texto: str) -> str:
+    """Turno ou hora pedida, para filtrar a previsão horária localmente."""
+    import re
+    q = _sem_acento(texto)
+    # Hora explícita tem prioridade sobre "tarde" em "às 3h da tarde".
+    hora = re.search(r"\b(\d{1,2})\s*(?:h\b|:(\d{2})\b|horas?\b)", q)
+    if hora:
+        h = int(hora.group(1))
+        if h < 12 and re.search(r"\b(tarde|noite|pm)\b", q):
+            h += 12
+        if 0 <= h <= 23 and (hora.group(2) is None or int(hora.group(2)) < 60):
+            return str(h)
+    for padrao, turno in ((r"\b(manha|morning)\b", "manha"),
+                          (r"\b(tarde|afternoon)\b|\bmeio[ -]?dia\b", "tarde"),
+                          (r"\b(noite|night|evening)\b", "noite"),
+                          (r"\b(madrugada|dawn)\b", "madrugada")):
+        if re.search(padrao, q):
+            return turno
+    return ""
+
+
+def _hora_local_atual(dados: dict) -> int | None:
+    """Hora na cidade consultada, vinda do `current=time` do Open-Meteo.
+
+    O Open-Meteo responde com `timezone=auto`, então este horário já está no
+    fuso da cidade — usar o relógio do PC daria hora errada quando ele estiver
+    em outra região. Sem o campo, devolve None e o chamador mantém o turno
+    completo.
+    """
+    atual = (dados or {}).get("current") or {}
+    valor = str(atual.get("time") or "")
+    try:
+        hora = int(valor[11:13])
+    except (TypeError, ValueError, IndexError):
+        return None
+    return hora if 0 <= hora <= 23 else None
+
+
+def _filtrar_horas(horas: list[dict], turno: str, desde: int | None = None) -> list[dict]:
+    """Filtra por turno/hora; `desde` limita às horas restantes do turno."""
+    if not turno:
+        return list(horas or [])
+    resultado = []
+    for item in horas or []:
+        try:
+            hora = int(str(item.get("hora", ""))[:2])
+        except (TypeError, ValueError):
+            continue
+        if desde is not None and not turno.isdigit() and hora < desde:
+            continue
+        if turno == "manha" and 5 <= hora < 12:
+            resultado.append(item)
+        elif turno == "tarde" and 12 <= hora < 18:
+            resultado.append(item)
+        elif turno == "noite" and hora >= 18:
+            resultado.append(item)
+        elif turno == "madrugada" and hora < 5:
+            resultado.append(item)
+        elif turno.isdigit() and hora == int(turno):
+            resultado.append(item)
+    return resultado
+
+
 def _numero_ou_none(valor):
     if valor is None:
         return None
@@ -213,6 +276,59 @@ def _card_do_tempo(dados: dict, nome: str, quando: str, en: bool) -> dict | None
             "umidade": _numero_ou_none(atual.get("relative_humidity_2m")),
             "vento": _numero_ou_none(atual.get("wind_speed_10m")),
         })
+
+    # Campos ricos da prancha (todos locais, derivados da mesma resposta).
+    atual = dados.get("current") or {}
+    diario = dados.get("daily") or {}
+    horario = dados.get("hourly") or {}
+    i_dia = 0 if solicitada.isoformat() == tempos[0] else next(
+        (k for k, iso in enumerate(tempos) if iso[:10] == solicitada.isoformat()), 0)
+
+    def _diario(chave, indice=i_dia):
+        lista = diario.get(chave) or []
+        return lista[indice] if indice < len(lista) else None
+
+    visibilidade = atual.get("visibility")
+    try:
+        visibilidade = round(float(visibilidade) / 1000.0, 1)  # m -> km
+    except (TypeError, ValueError):
+        visibilidade = None
+    destaque.update({
+        "pressao": _numero_ou_none(atual.get("pressure_msl")),
+        "visibilidade": visibilidade,
+        "uv": _numero_ou_none(atual.get("uv_index") or _diario("uv_index_max")),
+        "nascer": _diario("sunrise"),
+        "poente": _diario("sunset"),
+    })
+
+    horas = []
+    tempos_h = list(horario.get("time") or [])
+    def _horario(chave, indice):
+        valores = horario.get(chave) or []
+        return valores[indice] if indice < len(valores) else None
+
+    for k, iso in enumerate(tempos_h):
+        if str(iso)[:10] != solicitada.isoformat():
+            continue
+        horas.append({
+            "hora": str(iso)[11:16],
+            "temp": _numero_ou_none(_horario("temperature_2m", k)),
+            "chuva": _numero_ou_none(_horario("precipitation_probability", k)),
+            "codigo": _horario("weather_code", k),
+        })
+    try:
+        chuva_max = max((h["chuva"] for h in horas if h["chuva"] is not None), default=None)
+    except (TypeError, ValueError):
+        chuva_max = None
+    chance = destaque.get("chuva")
+    if chuva_max is not None and (chance is None or chuva_max > chance):
+        chance = chuva_max
+    destaque["alerta"] = (
+        "Alerta: chuva forte e trovoadas hoje ({}%). Evite áreas abertas.".format(
+            round(chance)) if (chance is not None and chance >= 70
+                               and int(destaque.get("codigo") or 0) in (95, 96, 99))
+        else "")
+
     return {
         "tipo": "clima",
         "cidade": nome,
@@ -220,6 +336,7 @@ def _card_do_tempo(dados: dict, nome: str, quando: str, en: bool) -> dict | None
         "semana": semana,
         "destaque": destaque,
         "dias": dias,
+        "horas": horas,
     }
 
 
@@ -256,6 +373,28 @@ def _frase_do_dia(d: dict, i: int, en: bool) -> str:
     return ', '.join(partes) or ('Forecast unavailable' if en else 'Previsão indisponível')
 
 
+def _frase_do_periodo(horas: list[dict], en: bool) -> str:
+    """Resume apenas o intervalo pedido, sem substituir ausências por dados diários."""
+    temperaturas = [h["temp"] for h in horas if h.get("temp") is not None]
+    chuvas = [h["chuva"] for h in horas if h.get("chuva") is not None]
+    codigos = list(dict.fromkeys(h["codigo"] for h in horas if h.get("codigo") is not None))
+    diario = {
+        "weather_code": [],
+        "temperature_2m_min": [min(temperaturas)] if temperaturas else [],
+        "temperature_2m_max": [max(temperaturas)] if temperaturas else [],
+        "precipitation_probability_max": [max(chuvas)] if chuvas else [],
+    }
+    ceus = (_CEU_EN if en else _CEU_PT)
+    condicoes = list(dict.fromkeys(ceus[c] for c in codigos if c in ceus))
+    resumo = _frase_do_dia(diario, 0, en)
+    if condicoes:
+        condicao = (" / ").join(condicoes)
+        if not temperaturas and not chuvas:
+            return condicao
+        return condicao + ", " + resumo
+    return resumo
+
+
 def weather_action(
     parameters: dict,
     player=None,
@@ -277,9 +416,11 @@ def weather_action(
             "https://api.open-meteo.com/v1/forecast?timezone=auto&forecast_days=7"
             f"&latitude={lat}&longitude={lon}"
             "&current=temperature_2m,weather_code,apparent_temperature,"
-            "relative_humidity_2m,wind_speed_10m"
+            "relative_humidity_2m,wind_speed_10m,pressure_msl,visibility,"
+            "uv_index,time"
+            "&hourly=temperature_2m,precipitation_probability,weather_code"
             "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
-            "precipitation_probability_max")
+            "precipitation_probability_max,sunrise,sunset,uv_index_max")
         d = dados["daily"]
         hoje = date.fromisoformat(d["time"][0])
         i = _qual_dia(quando, hoje)
@@ -309,11 +450,34 @@ def weather_action(
                       ("On " + _DIAS_EN[dia.weekday()].capitalize() if en
                        else "Na " + _DIAS_PT[dia.weekday()] if dia.weekday() < 5
                        else "No " + _DIAS_PT[dia.weekday()]))
-            msg = f"{rotulo} {'in' if en else 'em'} {nome}: {_frase_do_dia(d, i, en)}."
-            agora = (dados.get("current") or {}).get("temperature_2m")
-            if i == 0 and agora is not None:
-                msg += (f" Right now it's {round(agora)} degrees." if en
-                        else f" Agora faz {round(agora)} graus.")
+            turno = _qual_turno(quando)
+            if turno:
+                card_previo = _card_do_tempo(dados, nome, quando, en)
+                horas = _filtrar_horas((card_previo or {}).get("horas") or [], turno)
+                if "agora" in _sem_acento(quando):
+                    # Só as horas que ainda podem acontecer na cidade consultada.
+                    # `current=time` vem com timezone=auto, então não depende do
+                    # fuso do PC. Sem o campo, mantém o turno inteiro.
+                    desde = _hora_local_atual(dados)
+                    if desde is not None:
+                        restantes = _filtrar_horas(
+                            (card_previo or {}).get("horas") or [], turno, desde)
+                        if restantes:
+                            horas = restantes
+                rotulos = ({"manha": "in the morning", "tarde": "in the afternoon",
+                            "noite": "at night", "madrugada": "in the early morning"} if en else
+                           {"manha": "pela manhã", "tarde": "à tarde",
+                            "noite": "à noite", "madrugada": "de madrugada"})
+                periodo = rotulos.get(turno, f"at {int(turno):02d}:00" if turno.isdigit() and en
+                                      else f"às {int(turno):02d}:00" if turno.isdigit() else turno)
+                resumo = _frase_do_periodo(horas, en)
+                msg = f"{rotulo}, {periodo}, {'in' if en else 'em'} {nome}: {resumo}."
+            else:
+                msg = f"{rotulo} {'in' if en else 'em'} {nome}: {_frase_do_dia(d, i, en)}."
+                agora = (dados.get("current") or {}).get("temperature_2m")
+                if i == 0 and agora is not None:
+                    msg += (f" Right now it's {round(agora)} degrees." if en
+                            else f" Agora faz {round(agora)} graus.")
         # O MESMO resultado alimenta a fala e o card. Só há card depois de
         # uma consulta bem-sucedida: erro não reaproveita dado velho.
         card = _card_do_tempo(dados, nome, quando, en)

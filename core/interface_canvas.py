@@ -33,6 +33,7 @@ QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical {background:transpar
 
 # Traços vetoriais independem das fontes de ícones instaladas no computador.
 _ICONS = {
+    'save':'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2z"/><path d="M7 3v6h10V3M7 21v-8h10v8M14 5v2"/>',
     'mute':'<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v3M9 21h6"/>',
     'interrupt':'<rect x="5" y="5" width="14" height="14" rx="2"/>',
     'so_nome':'<rect x="6" y="10" width="12" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>',
@@ -54,6 +55,7 @@ _ICONS = {
     'expand':'<path d="m10 6 6 6-6 6"/>',
     'palette':'<path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1-3.7 1.6 1.6 0 0 1 1-2.8h2a4 4 0 0 0 4-4C21 6 17 3 12 3z"/><circle cx="7" cy="11" r=".7"/><circle cx="10" cy="7" r=".7"/><circle cx="15" cy="7" r=".7"/>',
     'whatsapp':'<path d="M5 19l-2 3 5-2a9 9 0 1 0-3-1zM8 7c0 5 4 9 9 9"/>',
+    'planos':'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/>',
 }
 
 
@@ -200,6 +202,9 @@ class CanvasStage(QWidget):
         self.hud_stack = hud_stack; hud_stack.setParent(self)
         self.cards = []
         self.tools_open = False
+        # Sessão do editor de planos: suspende resultados/HOJE sem tocar em
+        # preferências; nunca gravado em config/interface.json.
+        self._canvas_editor_ativo = False
         self.results = QScrollArea(self)
         self.results.setWidgetResizable(True)
         self.results.setFrameShape(QFrame.Shape.NoFrame)
@@ -431,7 +436,9 @@ class CanvasStage(QWidget):
         self._brief_closing = False
         self.brief_host.hide()
         self._brief_effect.setOpacity(1.0)
-        self.arrange(True)
+        # Volta imediata da geometria: `arrange(True)` compete com o
+        # resizeEvent do relógio e podia deixar a esfera no tamanho do card.
+        self.arrange(False)
 
     def _left_occupied(self, w: int) -> int:
         """Até onde os painéis da esquerda vão. O card não pisa neles."""
@@ -491,6 +498,10 @@ class CanvasStage(QWidget):
 
     def arrange(self,animate=False):
         if not hasattr(self,'motion'): return
+        if self._canvas_editor_ativo and self.hud_stack.parentWidget() is not self:
+            self.motion.stop()
+            self.hud_stack.parentWidget()._reposicionar()
+            return
         w,h = self.width(),self.height()
         bottom = max(160,h - (min(260,h//2) if self.chat_open else 0))
         if self.brief_host.isVisible():
@@ -521,9 +532,10 @@ class CanvasStage(QWidget):
                 self.motion.setStartValue(self.hud_stack.geometry()); self.motion.setEndValue(target); self.motion.start()
             else: self.hud_stack.setGeometry(target)
         self.results.setGeometry(12,8,max(220,int(w*.50)-24),max(80,bottom-16))
-        self.results.setVisible(bool(self.cards) and not self.tools_open)
+        self.results.setVisible(bool(self.cards) and not self.tools_open
+                                and not self._canvas_editor_ativo)
         self.results.raise_()
-        if self.hoje_host.isVisible():
+        if self.hoje_host.isVisible() and not self._canvas_editor_ativo:
             largura = max(220, min(320, int(w * .36)))
             altura = max(150, min(240, bottom - 16))
             self.hoje_host.setGeometry(QRect(12, 8, largura, altura))
@@ -560,11 +572,17 @@ class VerticalDock(QFrame):
     def __init__(self,buttons,config,parent=None):
         super().__init__(parent)
         self.setObjectName('Glass')
-        self.setStyleSheet(GLASS + '\nQFrame#Glass {border-radius:18px;}')
+        # Vidro escuro do dock: borda ciano suave e cantos de ~22 px,
+        # isolado dos demais widgets que compartilham `GLASS`.
+        self.setStyleSheet(
+            GLASS + '\nQFrame#Glass {'
+            ' background: qlineargradient(x1:0,y1:0,x2:0,y2:1,'
+            ' stop:0 rgba(10,34,50,205), stop:1 rgba(5,18,32,215));'
+            ' border:1px solid rgba(25,211,243,55); border-radius:22px; }')
         self.setFixedWidth(70)
         self.buttons = dict(buttons); self.preferences = DockPreferences(config)
         if 'hidden' not in self.preferences.data:
-            defaults = ['mute','cowork','globo','webcam','config']
+            defaults = ['mute','cowork','globo','webcam','config','planos']
             self.preferences.data['hidden'] = [k for k in self.buttons if k not in defaults]
             self.preferences.data.setdefault('order',[k for k in defaults if k in self.buttons]+list(self.buttons))
         elif not self.preferences.data.get('skill_atalhos_v1'):
@@ -576,6 +594,17 @@ class VerticalDock(QFrame):
             if novos:
                 self.preferences.data['hidden'].extend(novos)
             self.preferences.data['skill_atalhos_v1'] = True
+            try:
+                self.preferences.save()
+            except OSError:
+                pass
+        if not self.preferences.data.get('dock_planos_v1'):
+            # Perfis existentes nao mudam de altura/posicoes: o atalho de
+            # Planos entra oculto e o dono o ativa em Ferramentas do dock.
+            if 'planos' in self.buttons and 'hidden' in self.preferences.data \
+                    and 'planos' not in self.preferences.data['hidden']:
+                self.preferences.data['hidden'].append('planos')
+            self.preferences.data['dock_planos_v1'] = True
             try:
                 self.preferences.save()
             except OSError:
@@ -646,7 +675,7 @@ class VerticalDock(QFrame):
     def _apply_appearance(self):
         settings = appearance_settings(self.preferences.data)
         size = settings['icon_size']
-        extent = max(54,size+20)
+        extent = max(46, size + 12)
         self.setFixedWidth(extent+16)
         for button in list(self.buttons.values())+self.shortcuts:
             button.setFixedSize(extent,extent)

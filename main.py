@@ -156,6 +156,11 @@ types = _Preguicoso("google.genai.types")
 from ui import NiaUI
 from core import busca_fontes as BF
 from core import catalogo_habilidades as CH
+from core import comandos_planos as CP
+from core import assistencia_planos as AP
+from core import modelos_planos as MP
+from core import comandos_lembretes as CL
+from core import lembretes as LEM
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
@@ -1667,12 +1672,12 @@ TOOL_DECLARATIONS = [
         # 01/10/2026: a ferramenta passou a DEVOLVER a previsao pronta (ceu,
         # minima/maxima e chance de chuva) em vez de abrir o navegador. Sem
         # cidade ela usa a do dono; o dia sai do `time`.
-        "description": "Previsao do tempo pronta para falar (ceu, minima e maxima, chance de chuva). Use para clima, temperatura, vai chover, frio, calor. Sem cidade dita, NAO pergunte: deixe city vazio que o PC usa a cidade do dono.",
+        "description": "Previsao do tempo pronta para falar (ceu, minima e maxima, chance de chuva). Use para clima, temperatura, vai chover, frio, calor. Preserve em time o dia E o periodo ou horario pedido (ex.: amanha a tarde, hoje a noite, sexta as 15h). Com 'agora' no pedido (ex.: 'agora a tarde'), preserva 'agora' em time: a resposta usa so as horas restantes do periodo na cidade. Sem periodo, retorna o resumo do dia inteiro. Sem cidade dita, NAO pergunte: deixe city vazio que o PC usa a cidade do dono.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "city": {"type": "STRING", "description": "City name (vazio = cidade do dono)"},
-                "time": {"type": "STRING", "description": "hoje | amanha | depois de amanha | semana | um dia da semana (sexta, sabado...)"}
+                "time": {"type": "STRING", "description": "Dia e periodo completos: hoje | amanha | depois de amanha | semana | sexta; acrescente pela manha, a tarde, a noite, de madrugada ou as 15h quando solicitado. Ex.: amanha pela manha. Nao descarte o periodo pedido."}
             },
             "required": []
         }
@@ -2608,6 +2613,12 @@ class NiaLive:
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._interrupted          = False   # True while draining audio after user interrupt
+        # Interrupcao conversacional (rodada 4): por padrao a acao corrente pode
+        # ser interrompida; "faz ate o final" desliga essa permissao.
+        self._interruptivel        = True
+        self._boca_bypass          = False   # proxima fala nao espera a antiga
+        self._fala_seq             = 0       # token para descartar TTS em voo
+        self._ferramenta_futuro    = None
         self._turno_seq            = 0       # resultados atrasados não mudam outra conversa
         self._busca_seq            = 0
         # Card temporário do Canvas: o token sobe no INÍCIO de cada consulta.
@@ -2615,6 +2626,11 @@ class NiaLive:
         self._brief_lock           = threading.Lock()
         self._brief_token          = 0
         self._pendente_sintese     = None    # autorização ligada a destino e trechos
+        # Etapa 3: uma sessão de comandos de planos para chat e voz (local).
+        self._sessao_planos        = CP.SessaoComandosPlanos()
+        # Etapa 4: ponto de chamada injetável (None = respostas/lotes locais).
+        self._provedor_assistido   = self._provedor_assistido_padrao
+        self._sessao_lembrete_pendente = None
         self.ui.on_text_command     = self._on_text_command
         # A janela ja esta de pe: o resto do que demora para carregar vai por tras.
         _aquecer_imports("google.genai", "google.genai.types")
@@ -2631,6 +2647,7 @@ class NiaLive:
         self.ui.on_revoke_devices   = self._revoke_devices
         self.ui.on_whatsapp_clicked = self._open_whatsapp_from_button
         self.ui.on_interrupt        = self.interrupt
+        self.ui.on_atividade        = self.atividade_em_andamento
         self.ui.on_falar_resumo     = self._falar_resumo
         # SKILL 07: catálogo, dock, chat e voz usam o mesmo executor.
         CH.registrar_executor(self._executar_habilidade)
@@ -6957,8 +6974,532 @@ class NiaLive:
             return True, 'Resumo do dia sendo preparado no cartão Hoje.'
         return False, 'Ação da habilidade não implementada.'
 
+    def _contexto_planos(self) -> dict:
+        """Plano/card em contexto, lido da casca Qt sem tocar em widgets."""
+        try:
+            return dict(self.ui.contexto_canvas() or {})
+        except Exception:
+            return {}
+
+    def _falar_resposta_comando(self, texto: str, origem: str) -> None:
+        """Fala respostas locais tanto para pedidos digitados quanto por voz."""
+        if not str(texto or '').strip():
+            return
+        import threading as _threading
+
+        def falar():
+            try:
+                self._falar_local(str(texto))
+            except Exception as exc:
+                _voice_diag('fala_comando_erro', type(exc).__name__)
+
+        _threading.Thread(target=falar, daemon=True).start()
+
+    def _aplicar_resultado_planos(self, resultado, origem: str = 'texto') -> None:
+        """Entrega a resposta e executa as ações pedidas pelo comando local."""
+        def responder(ok=True, erro=''):
+            mensagem = resultado.resposta if ok else erro
+            if mensagem:
+                self.ui.write_log(f'SIS: {mensagem}')
+                self._falar_resposta_comando(mensagem, origem)
+        navegar = getattr(self.ui, 'navegar_planos', None)
+        if resultado.acoes and navegar is not None:
+            navegar(resultado.acoes, responder)
+        else:
+            responder()
+            for acao in resultado.acoes:
+                tipo = acao.get('tipo')
+                if tipo == 'abrir_canvas':
+                    self.ui.abrir_plano(acao.get('plano_id'))
+                elif tipo == 'abrir_manager':
+                    self.ui.abrir_planos()
+                elif tipo == 'fechar_canvas':
+                    self.ui.fechar_plano()
+        _voice_diag('comando_planos', f"acoes={len(resultado.acoes)}")
+
+    def _provedor_assistido_padrao(self, pedido: str, contexto_filtrado: dict) -> str:
+        """Usa o destino já escolhido pela NIA, com o contexto filtrado acima."""
+        from core.controle_canvas import gerar_operacoes
+        return str(gerar_operacoes(pedido, contexto_filtrado) or "")
+
+    def _resolver_alvo_canvas(self, texto: str, contexto_canvas: dict) -> dict:
+        """Resolve plano/card pelo nome ou pela seleção, com IDs estáveis."""
+        n = AP.normalizar(texto)
+        plano = contexto_canvas.get("plano")
+        card_id = contexto_canvas.get("card_id")
+        plano_id = contexto_canvas.get("plano_id")
+
+        planos, _avisos = CP.BP.listar()
+        citados = [p for p in planos if AP.normalizar(p.titulo) in n]
+        if plano is None:
+            if len(citados) > 1:
+                return {"opcoes": citados}
+            if not citados:
+                return {}
+            plano = citados[0]
+            plano_id = plano.id
+            card_id = None
+
+        cartoes = plano.mapa.get("cards", [])
+        por_nome = [c for c in cartoes
+                    if str(c.get("titulo") or "")
+                    and AP.normalizar(c.get("titulo")) in n
+                    and c.get("id") != plano.mapa.get("raiz_id")
+                    or (str(c.get("titulo") or "")
+                        and AP.normalizar(c.get("titulo")) in n
+                        and len(por_nome_cache) == 0)] if False else [
+            c for c in cartoes
+            if str(c.get("titulo") or "")
+            and AP.normalizar(c.get("titulo")) in n
+            and c.get("id") != getattr(plano, "mapa", {}).get("raiz_id")]
+        if len(por_nome) > 1 and card_id:
+            exato = [c for c in por_nome if c.get("id") == card_id]
+            if exato:
+                por_nome = exato
+        alvos = por_nome or ([c for c in cartoes if c.get("id") == card_id])
+        return {"plano": plano, "plano_id": plano_id,
+                "card": alvos[0] if len(alvos) == 1 else None,
+                "opcoes": alvos if len(alvos) > 1 else [],
+                "cartoes": cartoes}
+
+    def _resposta_assistida_local(self, intencao: str, contexto: dict) -> str:
+        """Resposta estrutural sem provedor, usando só dados locais permitidos."""
+        plano = contexto.get("plano") or {}
+        mapa = plano.mapa if hasattr(plano, "mapa") else (plano.get("mapa") or {})
+        card = contexto.get("card") or {}
+        titulo = str(card.get("titulo") or "o card selecionado")
+        if intencao == "SUGERIR":
+            alternativas = [f"Dividir {titulo} em etapas menores",
+                            f"Validar {titulo} com quem vai executar",
+                            f"Reduzir o escopo de {titulo}"]
+            return "Alternativas: " + "; ".join(alternativas) + "."
+        if intencao == "LISTAR_CARDS":
+            cartoes = contexto.get("cartoes") or []
+            if not cartoes:
+                return "Este plano ainda não tem cards."
+            titulos = [str(c.get("titulo") or "sem título") for c in cartoes]
+            return (f"Este plano tem {len(cartoes)} card(s): "
+                    + ", ".join(titulos[:12]) + "."
+                    + (" Há mais cards; posso continuar a lista."
+                       if len(titulos) > 12 else ""))
+        if intencao == "LER_CARD":
+            if not card:
+                return "Selecione um card ou me diga qual card você quer que eu leia."
+            texto = str(card.get("descricao") or card.get("resumo") or "")
+            if not texto.strip():
+                return f"O card {titulo} está sem texto registrado."
+            return f"O que está registrado em {titulo}: {texto}"
+        if intencao == 'DEPENDENCIAS':
+            ids={l.get('destino') for l in mapa.get('conexoes',[]) if l.get('origem')==card.get('id')}
+            nomes=[str(c.get('titulo')) for c in contexto.get('cartoes',[]) if c.get('id') in ids]
+            return ('Dependem de '+titulo+': '+', '.join(nomes)+'.') if nomes else 'Nenhum card depende diretamente de '+titulo+'.'
+        if intencao == "CONEXOES_CARD":
+            if not card:
+                return "Selecione um card ou me diga qual card você quer consultar."
+            ligacoes = []
+            for lig in mapa.get("conexoes", []):
+                if card.get("id") not in (lig.get("origem"), lig.get("destino")):
+                    continue
+                outro_id = (lig.get("destino") if lig.get("origem") == card.get("id")
+                            else lig.get("origem"))
+                outro = next((c for c in contexto.get("cartoes", [])
+                              if c.get("id") == outro_id), {})
+                rotulo = f' ({lig.get("rotulo")})' if lig.get("rotulo") else ""
+                seta = "→" if lig.get("origem") == card.get("id") else "←"
+                ligacoes.append(f"{seta} {outro.get('titulo', outro_id)}{rotulo}")
+            if not ligacoes:
+                return f"O card {titulo} não tem conexões registradas."
+            return f"{titulo} está conectado a: " + ", ".join(ligacoes) + "."
+        resumo = str(card.get("descricao") or card.get("resumo") or "sem descrição")
+        vizinhos = len(contexto.get("vizinhos") or [])
+        return (f"Sobre {titulo}: {resumo}. "
+                f"Objetivo do plano: {contexto.get('objetivo', '')}. "
+                f"Vizinhos no mapa: {vizinhos}.")
+
+    def _responder_conversa_plano(self, texto: str, origem: str) -> bool:
+        """No Canvas, a conversa sobre o plano vem antes de qualquer ferramenta."""
+        contexto = self._contexto_planos()
+        if not AP.conversa_sobre_plano(texto, contexto):
+            return False
+        resposta = AP.resumo_conversa_plano(texto, contexto)
+        self.ui.write_log('SIS: ' + resposta)
+        falar = getattr(self, '_falar_resposta_comando', None)
+        if falar is not None:
+            falar(resposta, origem)
+        return True
+
+    def _processar_pedido_assistido(self, texto: str, origem: str) -> bool:
+        """Explicar, sugerir ou editar o plano aberto, no mesmo fluxo chat/voz."""
+        from core.controle_canvas import pedido_criar_card, pedido_modo, pedido_negado
+        contexto_canvas = self._contexto_planos()
+        plano_aberto = contexto_canvas.get("plano")
+        def responder(mensagem):
+            mensagem = mensagem.removeprefix('SIS: ')
+            self.ui.write_log("SIS: " + mensagem)
+            main_fala = getattr(self, '_falar_resposta_comando', None)
+            if main_fala:
+                main_fala(mensagem, origem)
+        modo = pedido_modo(texto)
+        pendente = getattr(self, '_pedido_canvas_pendente', None)
+        if modo is not None:
+            if plano_aberto is None:
+                responder("Abra um plano antes de ativar Editar com a NIA.")
+                return True
+            if not modo:
+                self._pedido_canvas_pendente = None
+                self.ui.definir_modo_assistido(False, plano_aberto.id, contexto_canvas.get('sessao_id'))
+                responder("Modo NIA desligado. As próximas alterações exigem sua autorização.")
+                return True
+            if pendente and (pendente['plano_id'] != plano_aberto.id
+                             or pendente.get('sessao_id') != contexto_canvas.get('sessao_id')):
+                self._pedido_canvas_pendente = None
+                responder("O Canvas mudou. Peça novamente a alteração para este plano.")
+                return True
+            # O sinal de ativação entra na fila Qt antes do lote; a aplicação
+            # verifica novamente o modo e a geração de autorização.
+            self.ui.definir_modo_assistido(True, plano_aberto.id, contexto_canvas.get('sessao_id'))
+            contexto_canvas = dict(contexto_canvas)
+            if not contexto_canvas.get('modo_assistido'):
+                contexto_canvas['geracao_modo'] = contexto_canvas.get('geracao_modo', 0)+1
+            contexto_canvas['modo_assistido'] = True
+            self._pedido_canvas_pendente = None
+            if pendente:
+                texto = pendente['texto']
+            elif re.search(r'\s+e\s+', texto, re.I):
+                texto = re.split(r'\s+e\s+', texto, maxsplit=1, flags=re.I)[1]
+            elif AP.reconhecer_intencao(texto) not in ('EDITAR','DESFAZER'):
+                responder("Editar com a NIA ativado neste plano.")
+                return True
+        if pedido_negado(texto):
+            self._pedido_canvas_pendente = None
+            return False
+        intencao = AP.reconhecer_intencao(texto)
+        if intencao in ("EDITAR", "DESFAZER") and plano_aberto is not None:
+            self._ultimo_pedido_canvas = {
+                "texto": texto, "plano_id": plano_aberto.id,
+                "sessao_id": contexto_canvas.get("sessao_id"),
+                "em": time.time(),
+            }
+        if intencao == "NENHUMA":
+            return False
+        if intencao == 'PLANO_ATUAL':
+            if plano_aberto is None:
+                responder("Nenhum plano está aberto no Canvas.")
+            else:
+                responder(f"Está aberto: {plano_aberto.titulo} ({plano_aberto.tipo}). "
+                          f"Objetivo: {plano_aberto.objetivo}. "
+                          + ("Editar com a NIA está ligado." if contexto_canvas.get('modo_assistido')
+                             else "Editar com a NIA está desligado."))
+            return True
+        if plano_aberto is not None and intencao in ('EDITAR', 'DESFAZER'):
+            if not contexto_canvas.get('modo_assistido', False):
+                self._pedido_canvas_pendente = dict(
+                    texto=texto, plano_id=plano_aberto.id,
+                    sessao_id=contexto_canvas.get('sessao_id'))
+                responder("Editar com a NIA está desligado. Ligue esse modo no Canvas "
+                          "ou diga ‘pode ligar’ para eu ativar e executar este pedido.")
+                return True
+        if intencao in ("LISTAR_CARDS", "LER_CARD", "CONEXOES_CARD", "DEPENDENCIAS",
+                        "EXPLICAR_CARD", "EXPLICAR"):
+            alvo = self._resolver_alvo_canvas(texto, contexto_canvas)
+            if alvo.get("opcoes"):
+                responder(
+                    "SIS: Encontrei vários alvos: "
+                    + ", ".join(str(c.get("titulo") or c.get("id"))
+                                for c in alvo["opcoes"]))
+                return True
+            plano = alvo.get("plano")
+            if plano is None:
+                if intencao in ("LER_CARD", "CONEXOES_CARD"):
+                    responder(
+                        "SIS: Selecione um card ou me diga o nome do plano e do card.")
+                return intencao in ("LER_CARD", "CONEXOES_CARD")
+            cartoes = alvo.get("cartoes", [])
+            card = alvo.get("card")
+            if card is None and intencao in ("LER_CARD", "CONEXOES_CARD"):
+                responder(
+                    "SIS: Selecione um card ou me diga qual card você quer consultar.")
+                return True
+            contexto = AP.montar_contexto(plano, (card or {}).get("id"))
+            contexto.update({
+                "plano": plano,
+                "cartoes": plano.mapa.get("cards", []),
+                "card": next((c for c in plano.mapa.get("cards", [])
+                              if c.get("id") == (card or {}).get("id")), None)
+                        or card or contexto.get("card"),
+            })
+            if intencao == "EXPLICAR_CARD":
+                seguro = AP.filtrar_contexto(
+                    contexto, AP.Destino(local=False, provedor="externo"))
+                provedor = getattr(self, "_provedor_assistido", None)
+                interpretacao = ""
+                provedor = getattr(self, "_provedor_assistido", None)
+                if provedor is not None:
+                    bruto = str(provedor(texto, seguro) or "").strip()
+                    if bruto:
+                        ops, erros = AP.parse_resposta(bruto, contexto)
+                        if not erros and ops:
+                            primeiro = ops[0]
+                            interpretacao = str(
+                                primeiro.get("titulo", "") if isinstance(primeiro, dict)
+                                else primeiro)
+                        else:
+                            interpretacao = bruto[:300]
+                base = self._resposta_assistida_local("LER_CARD", seguro)
+                responder(f"SIS: {base}")
+                if interpretacao:
+                    responder(
+                        f"SIS: Interpretação (não registrada no mapa): {interpretacao}")
+                return True
+            responder(
+                f"SIS: {self._resposta_assistida_local(intencao, contexto)}")
+            if getattr(self.ui, "destacar_card", None) and card:
+                try:
+                    self.ui.destacar_card(plano.id, card.get("id"))
+                except Exception:
+                    pass
+            return True
+
+        plano = contexto_canvas.get("plano")
+        if plano is None:
+            if intencao in ("EDITAR", "DESFAZER"):
+                if pedido_criar_card(texto):
+                    responder("SIS: Abra um plano no Canvas para eu criar o card. "
+                              "Criar um plano é outro pedido.")
+                else:
+                    responder(
+                        "SIS: Abra um plano e selecione um card para editar com a NIA.")
+                return True
+            return False
+        contexto = AP.montar_contexto(plano, contexto_canvas.get("card_id"))
+        contexto.update({
+            "cartoes": plano.mapa.get("cards", []),
+            "plano": plano,
+        })
+        tipo_modelo = MP.reconhecer_tipo(texto)
+        operacoes_modelo = None
+        if tipo_modelo and re.search(
+                r"monte|adicione ramo|adicionar modelo|modelo de|planejamento completo",
+                AP.normalizar(texto)):
+            card_id = contexto_canvas.get('card_id') or plano.mapa.get('raiz_id')
+            card = next((c for c in plano.mapa.get('cards', []) if c['id'] == card_id), None)
+            if card:
+                operacoes_modelo = MP.ramo_modelo(tipo_modelo, card_id, card)
+        destino = AP.Destino(local=bool(getattr(self, "_modo_local", True)))
+        # O contexto entregue ao provedor ja sai filtrado pelo destino mais
+        # restritivo: um fallback local -> externo nunca recebe sigilo.
+        seguro = AP.filtrar_contexto(
+            contexto, AP.Destino(local=False, provedor="externo"))
+        _voice_diag("assistido_intencao", f"{intencao}:{len(texto)}")
+        if intencao == "DESFAZER":
+            operacoes = [{"tipo": "desfazer"}]
+        else:
+            operacoes = operacoes_modelo
+        if intencao in ("EXPLICAR", "SUGERIR"):
+            resposta = self._resposta_assistida_local(intencao, contexto)
+            responder(f"SIS: {resposta}")
+            return True
+        alvo_id = contexto_canvas.get("card_id")
+        fingerprint = AP.fingerprint(plano)
+        def vivo_atual():
+            """Espelho de sinal primeiro; editor real como fonte de verdade."""
+            pontes = [p for p in (getattr(self.ui, "estado_canvas_vivo", None),
+                                  getattr(self.ui, "plano_canvas_vivo", None))
+                      if p is not None]
+            for ponte in pontes:
+                try:
+                    valor = ponte()
+                except Exception:
+                    valor = None
+                if valor is not None:
+                    return bool(pontes), valor
+            return bool(pontes), None
+
+        tem_ponte, vivo = vivo_atual()
+        if tem_ponte and vivo is not None \
+                and getattr(vivo, "id", None) != plano.id:
+            responder(
+                "SIS: O plano mudou desde o pedido; a resposta não foi aplicada.")
+            return True
+        if contexto_canvas.get("plano_id") is not None \
+                and contexto_canvas.get("plano_id") != plano.id:
+            responder(
+                "SIS: O plano mudou desde o pedido; a resposta não foi aplicada.")
+            return True
+        if operacoes is None:
+            operacoes, erros = AP.intencao_para_lote(texto, contexto)
+        else:
+            erros = []
+        if not operacoes and erros and any(
+                termo in AP.normalizar(' '.join(erros))
+                for termo in ('mesmo titulo', 'varios', 'destinos')):
+            responder(erros[0])
+            return True
+        provedor = getattr(self, "_provedor_assistido", None)
+        if not operacoes and provedor is not None:
+            operacoes, erros = AP.planejar_com_provedor(provedor, texto, seguro, contexto)
+        if erros or not operacoes:
+            responder("SIS: " + (erros[0] if erros
+                                         else "Não entendi a alteração pedida."))
+            return True
+
+        # Reescrita explícita: propor um resumo novo a partir do texto existente.
+        if re.search(r"reescreva|reformule", AP.normalizar(texto)):
+            alvo_atual = next((c for c in plano.mapa.get("cards", [])
+                               if c.get("id") == alvo_id), {})
+            origem = " ".join(str(alvo_atual.get(k) or "") for k in
+                              ("descricao", "titulo"))
+            partes = [p.strip() for p in re.split(r"[.!?]+", origem) if p.strip()]
+            proposto = ". ".join(partes[:2])[:240] or "Resumo a revisar"
+            for op in operacoes:
+                if op.get("tipo") == "editar_campos" \
+                        and "resumo" in (op.get("campos") or {}):
+                    op["campos"]["resumo"] = proposto
+
+        # Read again AFTER the provider returns; the user may have switched maps.
+        tem_ponte, vivo = vivo_atual()
+        if tem_ponte and (vivo is None or vivo.id != plano.id):
+            responder('SIS: O plano mudou desde o pedido; nada foi aplicado.')
+            return True
+        # Não rebasear uma resposta sobre edições manuais ocorridas enquanto
+        # o provedor estava trabalhando, mesmo que outro card fosse o alvo.
+        if vivo is not None and AP.fingerprint(vivo) != fingerprint:
+            responder("O mapa mudou desde o pedido. A edição manual foi preservada; peça novamente a alteração.")
+            return True
+        validas, erros = AP.validar_lote(operacoes, plano, contexto)
+        if erros:
+            responder("SIS: " + erros[0]
+                              + " A edição manual foi preservada.")
+            return True
+        for op in validas:
+            op['_sessao_id'] = contexto_canvas.get('sessao_id')
+            op['_geracao_modo'] = contexto_canvas.get('geracao_modo', 0)
+            op['_plano_id'] = plano.id
+            op['_fingerprint'] = AP.fingerprint(plano)
+            op['_desfazer_apos'] = ' e desfaca' in AP.normalizar(texto)
+        executar = getattr(self.ui, 'executar_canvas', None)
+        if executar is not None:
+            executar(validas, "Edição assistida", lambda mensagem:
+                     self._falar_resposta_comando(mensagem, origem))
+        else:
+            self.ui.aplicar_lote_assistido(validas, "Edição assistida")
+        return True
+
+    def _processar_pedido_lembrete(self, texto: str, origem: str) -> bool:
+        """Cria/consulta lembretes no mesmo fluxo de chat e voz."""
+        pendente = getattr(self, "_sessao_lembrete_pendente", None)
+        try:
+            if pendente:
+                horario, mensagem = LEM.interpretar(
+                    texto, fuso=pendente.get("fuso", "America/Sao_Paulo"))
+                if horario is None:
+                    self.ui.write_log(f"SIS: {mensagem}")
+                    return True
+                LEM.criar(pendente["plano_id"], pendente["assunto"], horario,
+                          pendente["fuso"], pendente.get("card_id"))
+                self._sessao_lembrete_pendente = None
+                self.ui.write_log(f"SIS: {mensagem}")
+                return True
+            resultado = CL.processar(texto, origem, self._contexto_planos())
+            if not resultado.get("tratado"):
+                return False
+            acao = resultado.get("acao")
+            if acao == "criar":
+                LEM.criar(resultado["plano_id"], resultado["assunto"],
+                          resultado["horario"], "America/Sao_Paulo",
+                          resultado.get("card_id"))
+            elif acao == "pendente":
+                self._sessao_lembrete_pendente = {
+                    "plano_id": resultado.get("plano_id"),
+                    "card_id": resultado.get("card_id"),
+                    "assunto": resultado.get("assunto"),
+                    "fuso": "America/Sao_Paulo",
+                }
+            elif acao == "adiar" and resultado.get("horario"):
+                proximos = LEM.vencidos()
+                if proximos:
+                    LEM.adiar(proximos[0]["id"], resultado["horario"])
+            elif acao in ("concluir", "cancelar"):
+                proximos = LEM.vencidos()
+                if proximos:
+                    (LEM.concluir if acao == "concluir" else LEM.cancelar)(
+                        proximos[0]["id"])
+            if resultado.get("resposta"):
+                self.ui.write_log(f"SIS: {resultado['resposta']}")
+        except Exception as exc:
+            _voice_diag("lembrete_erro", type(exc).__name__)
+            self.ui.write_log("SIS: Não foi possível salvar o lembrete.")
+        return True
+
+    def _retomar_pedido_canvas(self, texto: str) -> tuple[str, bool, bool]:
+        """Devolve (texto efetivo, é retomada, existe pedido anterior)."""
+        from core import controle_canvas as CC
+        if not CC.pedido_retomada(texto):
+            return texto, False, False
+        anterior = getattr(self, "_ultimo_pedido_canvas", None)
+        contexto = self._contexto_planos()
+        valido = (anterior is not None
+                  and anterior.get("plano_id") == contexto.get("plano_id")
+                  and anterior.get("sessao_id") == contexto.get("sessao_id")
+                  and time.time() - anterior.get("em", 0.0) <= 300.0)
+        if not valido:
+            return texto, True, False
+        return anterior["texto"], True, True
+
     def _executar_frase_habilidade(self, texto: str, origem: str) -> bool:
-        """Reconhece as frases do catálogo no chat/voz e usa o mesmo executor."""
+        """Reconhece frases do catálogo e comandos de planejamento no chat/voz."""
+        tratar = getattr(self, "_tratar_interrupcao", None)
+        if tratar is not None and tratar(texto, origem):
+            return True
+        retomar = getattr(self, "_retomar_pedido_canvas", None)
+        texto, retomada, tem_anterior = (
+            retomar(texto) if retomar is not None else (texto, False, False))
+        if retomada and not tem_anterior:
+            mensagem = ("Não tenho um pedido anterior neste plano. "
+                        "Diga o que devo criar ou alterar.")
+            self.ui.write_log("SIS: " + mensagem)
+            falar = getattr(self, "_falar_resposta_comando", None)
+            if falar is not None:
+                falar(mensagem, origem)
+            return True
+        canvas_tratado = False
+        try:
+            contexto = self._contexto_planos()
+            navegacao = CP.reconhecer(texto, contexto).tipo in (
+                'ABRIR', 'RETOMAR', 'GERENCIADOR', 'FECHAR', 'CRIAR',
+                'LISTAR_PLANOS')
+            if contexto.get('plano') is not None and not navegacao:
+                canvas_tratado = True
+                if self._processar_pedido_assistido(texto, origem):
+                    return True
+        except Exception as exc:
+            _voice_diag('assistido_erro', type(exc).__name__)
+        try:
+            resultado = self._sessao_planos.processar(
+                texto, origem, self._contexto_planos())
+            if resultado.tratado:
+                self._aplicar_resultado_planos(resultado, origem)
+                return True
+        except Exception as exc:
+            _voice_diag('comando_planos_erro', type(exc).__name__)
+        try:
+            if not canvas_tratado and self._processar_pedido_assistido(texto, origem):
+                return True
+        except Exception as exc:
+            _voice_diag('assistido_erro', type(exc).__name__)
+        try:
+            if self._processar_pedido_lembrete(texto, origem):
+                return True
+        except Exception as exc:
+            _voice_diag('lembrete_rota_erro', type(exc).__name__)
+        # PRIORIDADE DO CANVAS: com plano aberto, falar do plano e respondido
+        # pelo contexto local. Nao pode cair em busca de arquivos, criacao de
+        # arquivos, internet ou qualquer outra ferramenta do cerebro.
+        try:
+            if self._responder_conversa_plano(texto, origem):
+                return True
+        except Exception as exc:
+            _voice_diag('conversa_plano_erro', type(exc).__name__)
         habilidade, termo = CH.reconhecer(texto)
         if habilidade is None:
             return False
@@ -6992,10 +7533,55 @@ class NiaLive:
         except Exception:
             pass
 
-    def interrupt(self) -> None:
-        """Stop NIA mid-speech: drain queued audio and open mic immediately."""
+    def pedido_ate_o_final(self, texto: str) -> bool:
+        """Frase que pede explicitamente para não interromper a ação atual."""
+        import re as _re
+        n = AP.normalizar(texto)
+        return bool(_re.search(
+            r'\b(?:ate o final|ate acabar|ate o fim|deixa terminar|deixe terminar|'
+            r'nao interrompa|sem interrupcao|termina ai|termine ai|'
+            r'continua ate|continue ate|deixa a tarefa ir ate o fim)\b', n))
+
+    def atividade_em_andamento(self) -> bool:
+        """Fala ou ferramenta em curso — usado pelo chat para interromper."""
+        trava = getattr(self, "_speaking_lock", None)
+        if trava is None:
+            falando = bool(getattr(self, "_is_speaking", False))
+        else:
+            with trava:
+                falando = bool(getattr(self, "_is_speaking", False))
+        return falando or bool(getattr(self, "_tool_busy", False))
+
+    def _tratar_interrupcao(self, texto: str, origem: str) -> bool:
+        """Devolve True quando a mensagem foi consumida e não deve seguir."""
+        if self.pedido_ate_o_final(texto):
+            self._interruptivel = False
+            mensagem = "Certo, vou terminar a ação atual antes de continuar."
+            self.ui.write_log("SIS: " + mensagem)
+            falar = getattr(self, "_falar_resposta_comando", None)
+            if falar is not None:
+                falar(mensagem, origem)
+            return True
+        self._interruptivel = True
+        if not getattr(self, "_interrupted", False) \
+                and self.atividade_em_andamento():
+            self.interrupt(silencioso=True)
+        return False
+
+    def interrupt(self, silencioso: bool = False) -> None:
+        """Para fala/tarefa corrente para atender a nova mensagem do dono."""
+        if not getattr(self, "_interruptivel", True):
+            return
         self._interrupted = True
+        self._boca_bypass = True   # proxima fala nao espera a que foi calada
         self._turno_seq += 1   # resultados em voo não alcançam mais esta conversa
+        self._fala_seq = getattr(self, "_fala_seq", 0) + 1
+        futuro = getattr(self, "_ferramenta_futuro", None)
+        if futuro is not None and not futuro.done():
+            try:
+                futuro.cancel()
+            except Exception:
+                pass
         q = self.audio_in_queue
         if q:
             drained = 0
@@ -7014,7 +7600,8 @@ class NiaLive:
         self._mic_fechado_ate = 0.0
         if self._turn_done_event:
             self._turn_done_event.clear()
-        self.ui.write_log("SYS: Interrupted — listening...")
+        if not silencioso:
+            self.ui.write_log("SYS: Interrupted — listening...")
 
     # ── SEGUNDO PLANO (01/11/2026, v1.0.37) ──────────────────────────────────
     #
@@ -7764,8 +8351,16 @@ class NiaLive:
                 return "O motor ainda nao subiu, tente de novo em instantes."
             futuro = asyncio.run_coroutine_threadsafe(
                 self._execute_tool(_Chamada(nome, args)), self._loop)
+            self._ferramenta_futuro = futuro
             # Teto generoso: leads e imagem passam de um minuto de verdade.
-            resposta = futuro.result(timeout=900)
+            try:
+                resposta = futuro.result(timeout=900)
+            except Exception as exc:
+                if type(exc).__name__ == 'CancelledError':
+                    return 'Tarefa interrompida pelo usuário antes de terminar.'
+                raise
+            finally:
+                self._ferramenta_futuro = None
             bruto = getattr(resposta, "response", None) or {}
             if (nome == "whatsapp_bridge" and isinstance(bruto, dict)
                     and bruto.get("literal_confirmation")):
@@ -8193,9 +8788,10 @@ class NiaLive:
         partes = [
             f"Seu nome é {nome}. Você é o assistente pessoal do dono deste computador e está "
             f"FALANDO com ele em voz alta, ao vivo, em português do Brasil.",
-            "A mensagem é o dono falando com você: responda falando, direto e curto — "
-            "conversa: uma ou duas frases; pergunta de conhecimento, dica ou opinião: o conteúdo "
-            "primeiro, até quarenta palavras. Fale como gente, natural. Nunca use lista, título, "
+            "A mensagem é o dono falando com você: responda falando, direto, no tamanho que "
+            "a conversa pede — conversa de rotina: uma ou duas frases; explicação, dica, "
+            "raciocínio ou lista: fale até o fim, sem cortar por cautela, com o conteúdo primeiro. "
+            "Fale como gente, natural. Nunca use lista, título, "
             "emoji nem risada escrita. Nunca repita uma fala sua do mesmo jeito. Não diga o nome "
             "dele a toda frase. Não cumprimente se ele não cumprimentou.",
             "AQUI VOCÊ SÓ CONVERSA: nunca diga que abriu, criou, mandou, pesquisou ou fez qualquer "
@@ -8235,9 +8831,10 @@ class NiaLive:
         t1 = _t.monotonic()
         self._ultimo_ttfs = 0.0
         estado = {"bytes": 0, "t_som": 0.0}
+        seq_fala = getattr(self, "_fala_seq", 0)
 
         def _no_pedaco(raw: bytes) -> None:
-            if not raw:
+            if getattr(self, "_fala_seq", 0) != seq_fala or not raw:
                 return
             if not estado["t_som"]:
                 estado["t_som"] = time.monotonic()
@@ -8254,7 +8851,7 @@ class NiaLive:
                     self.audio_in_queue.put_nowait, raw[pos: pos + 2400])
 
         _trava = self._trava_boca()
-        _pegou = _trava.acquire(timeout=10)
+        _pegou = self._adquirir_boca(10)
         dito = ""
         try:
             dito = motor.speak_para_fila(texto, _no_pedaco, modo="conversar") or ""
@@ -8404,6 +9001,16 @@ class NiaLive:
             return True
         return agora < float(getattr(self, "_fala_inteira_ate", 0.0) or 0.0)
 
+    def _timeout_boca(self, padrao: float) -> float:
+        """Apos interrupcao, a nova fala entra sem esperar a geracao antiga."""
+        return 0.0 if getattr(self, "_boca_bypass", False) else padrao
+
+    def _adquirir_boca(self, timeout: float) -> bool:
+        """Adquire a trava da boca e consome o bypass da interrupcao."""
+        pegou = self._trava_boca().acquire(timeout=self._timeout_boca(timeout))
+        self._boca_bypass = False
+        return pegou
+
     def _trava_boca(self):
         """Uma fala de nuvem por vez na mesma sessao de voz.
 
@@ -8461,8 +9068,8 @@ class NiaLive:
 
     # Uma fala e "inteira" quando tem pelo menos isto do tempo esperado. Para
     # GRAVAR a regua e mais alta: o que vai para o disco toca para sempre.
-    _INTEIRA_PARA_TOCAR = 0.65
-    _INTEIRA_PARA_GRAVAR = 0.80
+    _INTEIRA_PARA_TOCAR = 0.85
+    _INTEIRA_PARA_GRAVAR = 0.90
 
     @staticmethod
     def _fala_esperada_s(texto: str) -> float:
@@ -8492,7 +9099,7 @@ class NiaLive:
                     _p.append(bytes(raw))
 
             trava = self._trava_boca()
-            pegou = trava.acquire(timeout=25)
+            pegou = self._adquirir_boca(25)
             try:
                 motor.speak_para_fila(texto, _junta)
             except Exception as exc:
@@ -8511,7 +9118,13 @@ class NiaLive:
                 _voice_diag("fala_inteira_cortada",
                             f"{dur:.1f}s para {len(str(texto))} letras "
                             f"(esperava ~{self._fala_esperada_s(texto):.1f}s) — gerando de novo")
-        return melhor
+        if melhor and self._fala_completa(
+                texto, len(melhor) / 2 / 24000, self._INTEIRA_PARA_TOCAR):
+            return melhor
+        # Nada foi tocado ainda. Devolver audio cortado faria o dono ouvir a
+        # frase pela metade ("...92%" sem "de chance de chuva"). Melhor cair
+        # no caminho que fala conforme o audio chega.
+        return b""
 
     def _tocar_bruto(self, raw: bytes, ao_primeiro_som=None) -> float:
         """Poe a fala inteira na fila de uma vez. Devolve a duracao."""
@@ -8775,9 +9388,10 @@ class NiaLive:
                 # deixava o microfone fechado tempo demais — era a queixa do
                 # Diego de falar logo depois e ele nao ouvir.
                 estado = {"bytes": 0, "comecou": False, "t_som": 0.0}
+                seq_fala = getattr(self, "_fala_seq", 0)
 
                 def _no_pedaco(raw: bytes) -> None:
-                    if not raw:
+                    if getattr(self, "_fala_seq", 0) != seq_fala or not raw:
                         return
                     if not estado["comecou"]:
                         estado["comecou"] = True
@@ -8817,7 +9431,7 @@ class NiaLive:
                 # que uma gravacao presa deixe o NIA mudo: passado dele,
                 # fala assim mesmo, como era antes.
                 _trava = self._trava_boca()
-                _pegou = _trava.acquire(timeout=25)
+                _pegou = self._adquirir_boca(25)
                 try:
                     _motor.speak_para_fila(texto, _no_pedaco)
                 finally:

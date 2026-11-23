@@ -294,7 +294,7 @@ PRAZO_TURNO_S = 8.0
 # proximo. O defeito conhecido e a sessao emudecer no fim do turno, com a fala
 # ja quase toda entregue; esperar o turno "fechar" nesse caso so atrasa a
 # proxima resposta. 8 s cobre folgado a pausa normal entre frases.
-SILENCIO_MAX_S = 8.0
+SILENCIO_MAX_S = 20.0
 
 
 class GeminiCharonVoice:

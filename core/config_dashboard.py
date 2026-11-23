@@ -2377,6 +2377,19 @@ class ConfigDashboardWindow(QWidget):
         tamanhos.addStretch()
         cartao.body.addLayout(tamanhos)
 
+        from PyQt6.QtWidgets import QCheckBox
+        self.janela_sem_bordas = QCheckBox(
+            "Janela sem bordas do Windows (ainda maximizada, com barra de tarefas)",
+            cartao)
+        self.janela_sem_bordas.setObjectName("janela_sem_bordas")
+        self.janela_sem_bordas.setChecked(
+            self._dock_prefs.data.get("janela_sem_bordas", True))
+        self.janela_sem_bordas.setToolTip(
+            "Sem bordas no topo. Use o botão direito na janela para "
+            "minimizar, maximizar, arrastar ou reduzir.")
+        self.janela_sem_bordas.toggled.connect(self._janela_modo_salvar)
+        cartao.body.addWidget(self.janela_sem_bordas)
+
         cartao.body.addWidget(_rotulo_secao("Ferramentas do dock", cartao))
         self.dock_lista = QListWidget(cartao)
         self.dock_lista.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
@@ -2609,6 +2622,16 @@ class ConfigDashboardWindow(QWidget):
         self._appearance["icon_size"] = int(self.icone_tamanho.value())
         self._appearance["dock_height"] = int(self.dock_altura.value())
         self.fundo_preview.set_appearance(self._appearance)
+
+    def _janela_modo_salvar(self, marcado: bool) -> None:
+        self._aplicar_interface({"janela_sem_bordas": bool(marcado)})
+        janela = self._janela_principal()
+        aplicar = getattr(janela, "aplicar_modo_janela", None) if janela else None
+        if aplicar is not None:
+            try:
+                aplicar(bool(marcado))
+            except Exception:
+                pass
 
     def _dock_salvar(self) -> None:
         self._appearance["icon_size"] = int(self.icone_tamanho.value())

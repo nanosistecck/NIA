@@ -444,6 +444,27 @@ class WeatherBrief(QWidget):
         v.addLayout(topo)
         self._cabecalho = topo
 
+        # Painel rico (prancha N.I.A): alerta, métricas e barras horárias.
+        self._alerta = QLabel("")
+        self._alerta.setWordWrap(True)
+        self._alerta.setFont(QFont("Segoe UI", 10))
+        self._alerta.setStyleSheet(
+            "color:#fde7a6; background:rgba(251,191,36,28);"
+            " border:1px solid rgba(251,191,36,90); border-radius:10px; padding:6px;")
+        v.addWidget(self._alerta)
+        self._alerta.hide()
+
+        self._mets = QLabel("")
+        self._mets.setWordWrap(True)
+        self._mets.setFont(QFont("Segoe UI", 9))
+        self._mets.setStyleSheet("color:#9fb8c8; background:transparent;")
+        v.addWidget(self._mets)
+
+        self._horas_lay = QHBoxLayout()
+        self._horas_lay.setContentsMargins(0, 0, 0, 0)
+        self._horas_lay.setSpacing(4)
+        v.addLayout(self._horas_lay)
+
         self._scroll = QScrollArea(self)
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -500,6 +521,38 @@ class WeatherBrief(QWidget):
         self._chuva.setVisible(chuva is not None)
         self._atuais.setText(_texto_atuais(dest))
         self._atuais.setVisible(bool(self._atuais.text()))
+        self._mets.setText(_texto_atuais(dest))
+
+        alerta = str(dest.get("alerta") or "")
+        self._alerta.setText(alerta)
+        self._alerta.setVisible(bool(alerta))
+
+        while self._horas_lay.count():
+            item = self._horas_lay.takeAt(0)
+            wid = item.widget()
+            if wid is not None:
+                wid.deleteLater()
+        for hora in (dados.get("horas") or [])[:8]:
+            if not isinstance(hora, dict):
+                continue
+            coluna = QVBoxLayout()
+            coluna.setContentsMargins(0, 0, 0, 0)
+            coluna.setSpacing(1)
+            chuva = QLabel(f"{round(hora.get('chuva') or 0)}%")
+            chuva.setStyleSheet("color:#7fe3f5; background:transparent; font-size:9px;")
+            chuva.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            barra = QFrame()
+            barra.setFixedSize(18, 28)
+            barra.setStyleSheet("background:rgba(255,255,255,14); border-radius:4px;")
+            temp = QLabel(f"{round(hora['temp'])}°" if hora.get("temp") is not None else "")
+            temp.setStyleSheet("color:#e8fbff; background:transparent; font-weight:600;")
+            temp.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            hora_lbl = QLabel(str(hora.get("hora") or ""))
+            hora_lbl.setStyleSheet("color:#7089a4; background:transparent; font-size:9px;")
+            hora_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            for w in (chuva, barra, temp, hora_lbl):
+                coluna.addWidget(w)
+            self._horas_lay.addLayout(coluna)
         if self._modo == 'semana':
             for i in range(self._cabecalho.count()):
                 item = self._cabecalho.itemAt(i)
@@ -576,18 +629,28 @@ def _texto_atuais(dest: dict) -> str:
         ("sensacao", "Sensacao", "Feels like", ""),
         ("umidade", "Umidade", "Humidity", "%"),
         ("vento", "Vento", "Wind", " km/h"),
+        ("pressao", "Pressão", "Pressure", " hPa"),
+        ("visibilidade", "Visibilidade", "Visibility", " km"),
+        ("uv", "UV", "UV", ""),
+        ("nascer", "Nascer", "Sunrise", ""),
+        ("poente", "Pôr do sol", "Sunset", ""),
     )
     for chave, pt, ingles, sufixo in campos:
         valor = dest.get(chave)
         if valor is None:
             continue
-        try:
-            numero = round(float(valor))
-        except (TypeError, ValueError):
-            continue
+        if chave in ("nascer", "poente"):
+            numero = None
+        else:
+            try:
+                numero = round(float(valor))
+            except (TypeError, ValueError):
+                continue
         rotulo = ingles if en else pt
         if chave in ("agora", "sensacao"):
             partes.append(f"{rotulo} {numero}°")
+        elif chave in ("nascer", "poente"):
+            partes.append(f"{rotulo} {valor}")
         else:
             partes.append(f"{rotulo} {numero}{sufixo}")
     return "  ·  ".join(partes)

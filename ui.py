@@ -50,7 +50,7 @@ from core import interface_agenda as _interface_agenda
 from core import interface_canvas_planos as _interface_canvas_planos
 from core import assistencia_planos as _assistencia
 from core import lembretes as _lembretes
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # ── CORES DO CLIENTE (08/10/2026) ──────────────────────────────────────────
 # Toda folha de estilo passa pelo `core/tema.py` na hora de ser aplicada. O
@@ -3931,6 +3931,9 @@ class MainWindow(QMainWindow):
         cartoes = self._prefs.data.get('cards')
         visivel = bool(cartoes.get('hoje', True)) if isinstance(cartoes, dict) else True
         self._stage.set_hoje_visible(visivel)
+        agenda_visivel = bool(cartoes.get('agenda', True)) if isinstance(cartoes, dict) else True
+        self._stage.set_agenda_visivel(agenda_visivel)
+        self._atualizar_cartao_agenda()
         corpo.addWidget(self._stage, 1)
         self._left_panel = QScrollArea(self._stage)
         self._left_panel.setWidgetResizable(True)
@@ -4018,6 +4021,7 @@ class MainWindow(QMainWindow):
         self._stage.hoje_ouvir.connect(self._ouvir_resumo)
         self._stage.hoje_rotinas.connect(self._abrir_rotinas_config)
         self._stage.hoje_visibilidade.connect(self._hoje_visibilidade_mudou)
+        self._stage.agenda_visibilidade.connect(self._agenda_visibilidade_mudou)
         QTimer.singleShot(0, self._atualizar_cartao_hoje)
         self._reconfig_sig.connect(self._ao_reconfigurar)
         self._camera_sig.connect(self._show_camera_frame)
@@ -5683,6 +5687,9 @@ class MainWindow(QMainWindow):
         if canvas is not None and canvas.isVisible():
             canvas._reposicionar()
         if not hasattr(self, "_drawer"): return
+        # Os cards fixos (Hoje/Agenda) so recebem geometria quando o stage ja
+        # tem o tamanho final; sem isto eles nascem empilhados em (0,0).
+        self._stage.arrange(False)
         cw = self.centralWidget()
         pos = self._composer.mapTo(cw, self._composer.rect().topLeft())
         height = min(260, max(130, self.height() // 3))
@@ -6220,6 +6227,37 @@ class MainWindow(QMainWindow):
             self._atualizar_cartao_hoje()
         else:
             self._tmr_hoje.stop()
+
+    def _agenda_visibilidade_mudou(self, visivel: bool) -> None:
+        cartoes = self._prefs.data.get('cards')
+        if not isinstance(cartoes, dict):
+            cartoes = {}
+            self._prefs.data['cards'] = cartoes
+        cartoes['agenda'] = bool(visivel)
+        try:
+            self._prefs.save()
+        except Exception:
+            pass
+        if visivel:
+            self._atualizar_cartao_agenda()
+
+    def _atualizar_cartao_agenda(self) -> None:
+        """Preenche o card do Canvas principal com o próximo compromisso."""
+        try:
+            from core import agenda as _agenda
+            item = _agenda.proximo()
+            if item is None:
+                self._stage.set_agenda_texto('Nenhum compromisso próximo.', '', '')
+                return
+            inicio = datetime.fromisoformat(str(item['inicio']))
+            preparo = inicio - timedelta(
+                minutes=int(item.get('preparo_minutos') or 0))
+            self._stage.set_agenda_texto(
+                str(item.get('titulo') or 'Compromisso'),
+                inicio.strftime('%a %d/%m %H:%M'),
+                f'preparar às {preparo:%H:%M}')
+        except Exception:
+            self._stage.set_agenda_texto('Nenhum compromisso próximo.', '', '')
 
     def _mostrar_hoje(self, texto: str, gerado_em: str, status: str) -> None:
         self._stage.set_hoje_texto(texto, gerado_em)
@@ -7039,6 +7077,17 @@ class NiaUI:
     def abrir_planos(self) -> None:
         """Thread-safe: abre o Gerenciador de Planos pelo mesmo caminho do dock."""
         self._win._canvas_action_sig.emit(self._win._abrir_planos)
+
+    def mostrar_agenda(self) -> None:
+        """Thread-safe: reexibe o card do próximo compromisso no Canvas."""
+        def aplicar():
+            self._win._stage.set_agenda_visivel(True)
+            self._win._atualizar_cartao_agenda()
+        self._win._canvas_action_sig.emit(aplicar)
+
+    def abrir_agenda(self) -> None:
+        """Thread-safe: abre a janela da Agenda pelo mesmo caminho do dock."""
+        self._win._canvas_action_sig.emit(self._win._abrir_agenda)
 
     def abrir_plano(self, plano_id: str) -> None:
         """Thread-safe: abre o mapa de um plano pelo mesmo ponto do gerenciador."""

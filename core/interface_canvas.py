@@ -195,6 +195,7 @@ class CanvasStage(QWidget):
     hoje_ouvir = pyqtSignal()
     hoje_rotinas = pyqtSignal()
     hoje_visibilidade = pyqtSignal(bool)
+    agenda_visibilidade = pyqtSignal(bool)
 
     def __init__(self, hud_stack, parent=None):
         super().__init__(parent)
@@ -272,6 +273,41 @@ class CanvasStage(QWidget):
         hoje_layout.addLayout(hoje_botoes)
         self.hoje_host.hide()
 
+        # Cartão do próximo compromisso (Agenda), no mesmo padrão do Hoje.
+        self.agenda_host = QFrame(self)
+        self.agenda_host.setObjectName('Glass')
+        self.agenda_host.setStyleSheet(
+            GLASS + '\nQFrame#Glass {border-radius:18px;}')
+        agenda_layout = QVBoxLayout(self.agenda_host)
+        agenda_layout.setContentsMargins(14, 10, 14, 10)
+        agenda_layout.setSpacing(5)
+        topo_agenda = QHBoxLayout()
+        self.agenda_titulo = QLabel('PRÓXIMO COMPROMISSO', self.agenda_host)
+        self.agenda_titulo.setObjectName('AgendaTitulo')
+        self.agenda_titulo.setStyleSheet('color:#8ceaf0; font-weight:600;')
+        topo_agenda.addWidget(self.agenda_titulo, 1)
+        self.agenda_fechar = QPushButton('×', self.agenda_host)
+        self.agenda_fechar.setObjectName('AgendaFechar')
+        self.agenda_fechar.setAccessibleName('Fechar cartão Agenda')
+        self.agenda_fechar.setToolTip('Fechar cartão Agenda')
+        self.agenda_fechar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.agenda_fechar.setFixedSize(22, 22)
+        self.agenda_fechar.setStyleSheet(
+            'QPushButton {color:#8ceaf0; background:transparent; border:none;'
+            ' border-radius:11px; padding:0; font-size:15px; font-weight:600;}'
+            'QPushButton:hover, QPushButton:focus {color:#ffffff;'
+            ' background:rgba(50,215,232,65); border:none;}')
+        self.agenda_fechar.clicked.connect(lambda: self.set_agenda_visivel(False))
+        topo_agenda.addWidget(self.agenda_fechar, 0, Qt.AlignmentFlag.AlignTop)
+        agenda_layout.addLayout(topo_agenda)
+        self.agenda_texto = QLabel('Nenhum compromisso próximo.', self.agenda_host)
+        self.agenda_texto.setObjectName('AgendaTexto')
+        self.agenda_texto.setWordWrap(True)
+        self.agenda_texto.setTextFormat(Qt.TextFormat.PlainText)
+        self.agenda_texto.setStyleSheet('color:#d8f8ff;')
+        agenda_layout.addWidget(self.agenda_texto, 1)
+        self.agenda_host.hide()
+
         # Card temporário (hora, data ou clima): ciclo próprio, um por vez.
         # Não entra em `self.cards` para não ser fechado por show_content().
         self.brief_host = BriefDeck(self)
@@ -320,6 +356,21 @@ class CanvasStage(QWidget):
 
     def set_hoje_status(self, texto: str) -> None:
         self.hoje_status.setText(str(texto or '')[:160])
+
+    def set_agenda_visivel(self, visivel: bool) -> None:
+        self.agenda_host.setVisible(bool(visivel))
+        self.arrange(True)
+        self.agenda_visibilidade.emit(bool(visivel))
+
+    def agenda_visivel(self) -> bool:
+        return self.agenda_host.isVisible()
+
+    def set_agenda_texto(self, titulo: str, quando: str, preparo: str = '') -> None:
+        texto = str(titulo or 'Nenhum compromisso próximo.')
+        detalhes = ' · '.join(x for x in (quando, preparo) if x)
+        if detalhes:
+            texto += f'\n{detalhes}'
+        self.agenda_texto.setText(texto[:240])
 
     def show_content(self,title,text):
         match = next((c for c in self.cards if c.title == title and not c.pinned),None)
@@ -447,7 +498,7 @@ class CanvasStage(QWidget):
             direita = max(direita, 12 + min(344, max(220, int(w * .5) - 24)))
         if self.results.isVisible():
             direita = max(direita, 12 + max(220, int(w * .50) - 24))
-        if self.hoje_host.isVisible():
+        if self.hoje_host.isVisible() or self.agenda_host.isVisible():
             direita = max(direita, 12 + max(220, min(320, int(w * .36))))
         return direita
 
@@ -540,6 +591,12 @@ class CanvasStage(QWidget):
             altura = max(150, min(240, bottom - 16))
             self.hoje_host.setGeometry(QRect(12, 8, largura, altura))
             self.hoje_host.raise_()
+        if self.agenda_host.isVisible() and not self._canvas_editor_ativo:
+            largura = max(220, min(320, int(w * .36)))
+            y = 8 + (self.hoje_host.height() + 10 if self.hoje_host.isVisible() else 0)
+            altura = max(96, min(170, bottom - y - 16))
+            self.agenda_host.setGeometry(QRect(12, y, largura, altura))
+            self.agenda_host.raise_()
 
 
 class DockPreferences:

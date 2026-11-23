@@ -2420,6 +2420,13 @@ class ConfigDashboardWindow(QWidget):
         self.hoje_visivel_check.setChecked(self._service.hoje_visivel())
         self.hoje_visivel_check.toggled.connect(self._hoje_visibilidade_mudou)
         cartao.body.addWidget(self.hoje_visivel_check)
+        self.agenda_visivel_check = QCheckBox(
+            "Mostrar o cartão de próximo compromisso no Canvas", cartao)
+        cartoes = getattr(self._service.host._prefs, 'data', {}).get('cards')
+        self.agenda_visivel_check.setChecked(
+            bool(cartoes.get('agenda', True)) if isinstance(cartoes, dict) else True)
+        self.agenda_visivel_check.toggled.connect(self._agenda_visibilidade_mudou)
+        cartao.body.addWidget(self.agenda_visivel_check)
         self.resumo_auto_check = QCheckBox(
             "Ler o resumo automaticamente no horário agendado", cartao)
         self.resumo_auto_check.setChecked(
@@ -2740,6 +2747,22 @@ class ConfigDashboardWindow(QWidget):
             alterar = getattr(self._service.host, 'set_hoje_visivel', None)
             if alterar is not None:
                 alterar(ligado)
+        except Exception as exc:
+            self.interface_status.mostrar(
+                f'Não foi possível salvar: {type(exc).__name__}.', 'error')
+            return
+        self.interface_status.mostrar('Salvo', 'success')
+
+    def _agenda_visibilidade_mudou(self, ligado: bool) -> None:
+        try:
+            host = self._service.host
+            cartoes = host._prefs.data.get('cards')
+            if not isinstance(cartoes, dict):
+                cartoes = {}
+                host._prefs.data['cards'] = cartoes
+            cartoes['agenda'] = bool(ligado)
+            host._prefs.save()
+            host._stage.set_agenda_visivel(ligado)
         except Exception as exc:
             self.interface_status.mostrar(
                 f'Não foi possível salvar: {type(exc).__name__}.', 'error')

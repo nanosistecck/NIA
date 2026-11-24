@@ -272,7 +272,26 @@ def interpretar(texto: str, agora=None, fuso: str = "America/Sao_Paulo") -> str 
             return None
     horario, _mensagem = L.interpretar(texto, fuso=fuso, agora=_agora(agora))
     if not horario:
-        return None
+        # Hora sem data: hoje se ainda vai acontecer, amanha se ja passou.
+        hora = re.search(r"\b(?:as\s+)?(\d{1,2})(?::(\d{2})|h(\d{2}))\b", n)
+        if not hora:
+            return None
+        referencia = _agora(agora)
+        horas = int(hora.group(1))
+        minutos = int(hora.group(2) or hora.group(3) or 0)
+        if horas > 23 or minutos > 59:
+            return None
+        try:
+            zona = ZoneInfo(fuso)
+        except Exception:
+            return None
+        local = referencia.astimezone(zona)
+        dia = local.date()
+        momento = datetime(dia.year, dia.month, dia.day, horas, minutos, tzinfo=zona)
+        if momento <= local:
+            dia = dia + timedelta(days=1)
+            momento = datetime(dia.year, dia.month, dia.day, horas, minutos, tzinfo=zona)
+        return momento.isoformat()
     try:
         # O parser de lembretes devolve UTC; a Agenda guarda e fala no fuso
         # local do dono, senao "15h" viraria "18h" no card e na voz.

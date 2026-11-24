@@ -69,6 +69,19 @@ Evidencia visual: `logs/captura_agenda_crud.png` inspecionada — formulario com
 titulo, data, hora, tipo, preparo, notas e estado preenchidos, botoes
 Salvar/Cancelar/Concluir/Reabrir/Excluir e grade com o dia selecionado.
 
+## Rodada 14 — frase real "adicione na agenda"
+
+| Requisito | Teste | Evidencia | Estado |
+|---|---|---|---|
+| "adicione na agenda buscar a maria as 21:06" cria compromisso | `tests/test_agenda_frase_real.py` (6) | `Compromisso salvo: buscar a maria. Proximo compromisso: buscar a maria as 21:06.` | OK |
+| Hora sem data: hoje se futura, amanha se passou | `test_hora_passada_vai_para_amanha` | 21:06 passou → 24/11 | OK |
+| Data explicita respeitada | `test_com_data_explicita_respeita_data` | amanha mantido | OK |
+| Sem hora continua perguntando | `test_sem_hora_continua_perguntando` | mantido | OK |
+| "adicione um card" continua no Canvas | `test_adicionar_card_continua_no_canvas` | `tratado=False` | OK |
+| Rota nao cai no Canvas | `test_rota_cria_sem_cair_no_canvas` | sem "Abra um plano" | OK |
+| Suite final | `pytest -q` | **730 passed, 0 failed, exit 0** (duas execucoes) | OK |
+| Sintaxe | `compileall` / `git diff --check` | limpos | OK |
+
 ## Correcoes encontradas pelo TDD
 
 - `interpretar` devolvia UTC (15h viraria 18h) → convertido para `America/Sao_Paulo`.

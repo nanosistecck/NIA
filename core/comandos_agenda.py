@@ -49,6 +49,8 @@ def _tipo(texto: str) -> str:
 
 def _titulo(texto: str) -> str:
     limpo = _VERBOS_CRIAR.sub("", str(texto or "").strip())
+    limpo = re.sub(r"^(?:na|\u00e0|a)\s+(?:minha\s+)?agenda\s+",
+                   "", limpo, flags=re.I)
     limpo = re.sub(
         r"\s+(?:dia\s+\d{1,2}|amanh[aã]|hoje|depois de amanh[aã]|"
         r"em \d+ dias?|(?:na|no|[aà]s)\s+\d{1,2}(?::\d{2}|h\d{2})?)\b.*$",
@@ -223,10 +225,15 @@ def processar(texto: str, agora=None) -> dict:
         acao = "concluir" if re.search(r"conclua|concluir|finalize", n) else "cancelar"
         return {"tratado": True, "acao": acao}
 
-    if re.search(r"\b(?:agende|agendar|adicione|adicionar|crie|criar|programe|"
-                 r"programar|marque|marcar)\b", n) and re.search(
-                     r"\b(?:compromisso|reuni[aã]o|tarefa|entrega|viagem|"
-                     r"anivers[aá]rio|preparo|prazo)\b", n):
+    direto_na_agenda = bool(re.search(
+        r"\b(?:agende|agendar|adicione|adicionar|crie|criar|programe|programar|"
+        r"marque|marcar)\s+(?:na|\u00e0|a)\s+(?:minha\s+)?agenda\b", n))
+    pedido_criar = bool(re.search(
+        r"\b(?:agende|agendar|adicione|adicionar|crie|criar|programe|"
+        r"programar|marque|marcar)\b", n) and re.search(
+            r"\b(?:compromisso|reuni[aã]o|tarefa|entrega|viagem|"
+            r"anivers[aá]rio|preparo|prazo)\b", n))
+    if direto_na_agenda or pedido_criar:
         if not _tem_data(n):
             return {"tratado": True, "acao": "pendente",
                     "resposta": "Informe a data e a hora do compromisso."}

@@ -135,6 +135,18 @@
      vaza para o teste seguinte.
 - Todas sao corrigiveis sem mudar contratos publicos nem dados do usuario.
 
+## Rodada 14 — frase real "adicione na agenda ..." (23/11/2026)
+- Relato: `adicione na agenda buscar a maria as 21:06` → "Abra um plano e selecione um card".
+- Reproducao: `CA.processar` devolve `tratado=False` porque o ramo de criar exige
+  um termo de tipo (compromisso/reunião/tarefa/...) e "agenda" nao conta;
+  `CP.reconhecer` devolve NENHUMA, entao `AP.reconhecer_intencao` captura
+  "adicione" como EDICAO do Canvas.
+- Segundo defeito: `agenda.interpretar("... as 21:06")` sem data devolve None;
+  com hora sem data o razoavel e hoje se futura, amanha se ja passou.
+- Branch `AGENDA`, suite anterior 724/724, worktree limpo.
+- A preservar: "adicione um card ..." continua no Canvas; criacao sem hora
+  continua perguntando data e hora.
+
 ## Rodada 13 — CRUD completo da Agenda (23/11/2026)
 - Branch `AGENDA`, worktree com mudancas pendentes da rodada 12 (nao commitadas).
 - Suite anterior: 707 passed, 0 failed; `compileall`/`git diff --check` limpos.

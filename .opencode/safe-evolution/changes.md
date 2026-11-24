@@ -270,3 +270,15 @@ Para cada etapa registre: data, tarefa, arquivos, motivo, testes executados, res
   Agenda ao adicionar verbos genericos ao detector; removidos.
 - Suite final 724/724, exit 0; compileall e diff limpos.
 - Evidencia `logs/captura_agenda_crud.png` inspecionada.
+
+## 23/11/2026 — Rodada 14: frase real de criacao na Agenda
+- Relato: `adicione na agenda buscar a maria as 21:06` respondeu "Abra um plano...".
+- Causa: `processar` exigia termo de tipo e nao reconhecia "adicione na agenda";
+  `interpretar` devolvia None para hora sem data.
+- Arquivos: `core/agenda.py`, `core/comandos_agenda.py`,
+  `tests/test_agenda_frase_real.py` (novo, 6 testes).
+- Correcoes: criacao direta na agenda com titulo extrativo; hora sem data
+  infere hoje se futura e amanha se passou.
+- Teste real: frase cria "buscar a maria" as 21:06 e fala do proximo compromisso.
+- Suite 730/730, exit 0 (duas execucoes); compileall e diff limpos.
+- Servidor reiniciou durante a suíte; retomado sem repetir trabalho concluido.

@@ -34,8 +34,11 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent
 NIA = RAIZ.parent
 sys.path.insert(0, str(RAIZ))
+sys.path.insert(0, str(NIA))
 
 import servidor as _srv  # noqa: E402
+from core.frame_nativo import FrameNativoMixin  # noqa: E402
+from PyQt6.QtWidgets import QMainWindow  # noqa: E402
 
 ARQ_ESTADO = NIA / "config" / ".globo.json"
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -122,6 +125,10 @@ def _config_pagina(args, host: str) -> dict:
     return {"idioma": _idioma(), "cor": cor, "host": host, "lugar": args.lugar or ""}
 
 
+class JanelaGlobo(FrameNativoMixin, QMainWindow):
+    pass
+
+
 # ── com o Chromium do Qt ─────────────────────────────────────────────────────
 
 def _abrir_com_qt(args) -> int:
@@ -150,7 +157,7 @@ def _abrir_com_qt(args) -> int:
     from PyQt6.QtGui import QColor, QIcon, QKeySequence, QShortcut  # noqa: PLC0415
     from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings  # noqa: PLC0415
     from PyQt6.QtWebEngineWidgets import QWebEngineView  # noqa: PLC0415
-    from PyQt6.QtWidgets import QApplication, QMainWindow  # noqa: PLC0415
+    from PyQt6.QtWidgets import QApplication  # noqa: PLC0415
 
     if sys.platform == "win32":
         try:
@@ -185,7 +192,7 @@ def _abrir_com_qt(args) -> int:
                     return False
             return super().acceptNavigationRequest(url, tipo, principal)
 
-    janela = QMainWindow()
+    janela = JanelaGlobo()
     janela.setWindowTitle("NIA — Globo")
     icone = NIA / "assets" / "icons" / "nia.ico"
     if not icone.exists():
@@ -194,6 +201,7 @@ def _abrir_com_qt(args) -> int:
     if icone.exists():
         janela.setWindowIcon(QIcon(str(icone)))
     janela.setStyleSheet("QMainWindow { background: #00060a; }")
+    janela._instalar_frame_nativo(cor="#00060a")
     janela.setMinimumSize(960, 600)
 
     perfil_dir = NIA / "cache" / "globo_navegador"

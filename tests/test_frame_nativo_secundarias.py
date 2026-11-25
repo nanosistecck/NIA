@@ -6,7 +6,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import pytest
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget
 
 import core.windows_frame
 from core.config_dashboard import ConfigDashboardWindow
@@ -91,3 +91,15 @@ def test_janelas_secundarias_instalam_frame(monkeypatch, chave, cor, tmp_path):
     esperado = janela._paleta['bg'] if chave == 'config' else cor
     assert chamados == [esperado]
     assert janela.windowTitle()  # rótulo da barra de tarefas preservado
+
+
+def test_globo_usa_mixin_e_cor_propria(monkeypatch):
+    import globo.janela as gj
+    assert issubclass(gj.JanelaGlobo, FrameNativoMixin)
+    chamados = []
+    monkeypatch.setattr('core.frame_nativo.aplicar_frame_nativo',
+                        lambda janela, *, cor=None: chamados.append(cor) or True)
+    janela = gj.JanelaGlobo()
+    janela._instalar_frame_nativo(cor='#00060a')
+    assert chamados == ['#00060a']
+    assert isinstance(janela, QMainWindow)

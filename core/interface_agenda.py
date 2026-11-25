@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core import agenda as AG
+from core.frame_nativo import FrameNativoMixin
 
 COR_FUNDO = "#061524"
 COR_PAINEL = "#0B2236"
@@ -56,7 +57,7 @@ QListWidget::item:selected {{ background:{COR_ATIVO}; color:{COR_FUNDO};
 """
 
 
-class AgendaWindow(QWidget):
+class AgendaWindow(FrameNativoMixin, QWidget):
     """Janela unica da Agenda; sinais avisam fechamento e mudancas."""
 
     fechada = pyqtSignal()
@@ -74,6 +75,7 @@ class AgendaWindow(QWidget):
         self._item_selecionado_id = None
         self._construir()
         self.recarregar()
+        self._instalar_frame_nativo(cor=COR_FUNDO)
 
     @property
     def item_selecionado_id(self):

@@ -9,15 +9,17 @@ apresentação, navegação, busca e o encaminhamento de trabalho bloqueante.
 from __future__ import annotations
 
 import json
+import math
 import queue
 import threading
 import time
 from datetime import date
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PyQt6.QtCore import (QEasingCurve, QEvent, QPoint, QPointF,
                           QPropertyAnimation, QRect, QSize, Qt, QTimer,
-                          pyqtSignal)
+                          pyqtSignal, pyqtSlot)
 from PyQt6.QtGui import (QColor, QFont, QFontDatabase, QKeySequence,
                          QLinearGradient, QPainter, QPen, QRadialGradient,
                          QShortcut)
@@ -32,6 +34,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
 from core import catalogo_habilidades as CH
 from core.config_preferencias import (ConfigService, TEMAS, TEMA_PADRAO,
                                       normalizar_dispositivo)
+from core.frame_nativo import FrameNativoMixin
 from core.interface_canvas import icon
 from core.personas import (PERSONAGENS, PERSONALIDADES, nome_da_ia,
                            nome_original)
@@ -336,62 +339,174 @@ class _TaskBridge(QWidget):
     """Recebe resultados de threads de trabalho na thread Qt (AutoConnection)."""
 
     terminou = pyqtSignal(int, object)
+    progresso = pyqtSignal(int, float, str)
+    despachar = pyqtSignal(int, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.hide()
+        self.despachar.connect(self._entregar, Qt.ConnectionType.QueuedConnection)
+
+    @pyqtSlot(int, object)
+    def _entregar(self, token, resultado):
+        self.terminou.emit(token, resultado)
+
+
+class TarefaCancelada(Exception):
+    pass
+
+
+class TarefaExpirada(Exception):
+    pass
+
+
+@dataclass
+class ContextoTarefa:
+    """Checkpoint cooperativo: sem interrupção insegura de threads Python."""
+    prazo: float | None = None
+    cancelamento: threading.Event = field(default_factory=threading.Event)
+    _progresso: object = None
+    _ultimo_progresso: float = 0.0
+    _ultimo_valor: float | None = None
+
+    def verificar(self) -> None:
+        if self.cancelamento.is_set():
+            raise TarefaCancelada()
+        if self.prazo is not None and time.monotonic() >= self.prazo:
+            raise TarefaExpirada()
+
+    def informar_progresso(self, fracao: float, mensagem: str = '') -> None:
+        self.verificar()
+        if not math.isfinite(fracao) or not 0 <= fracao <= 1:
+            raise ValueError('Progresso deve estar entre zero e um.')
+        agora = time.monotonic()
+        if self._progresso and (agora - self._ultimo_progresso >= 0.1
+                               or (fracao == 1 and self._ultimo_valor != 1)):
+            self._ultimo_progresso = agora
+            self._ultimo_valor = fracao
+            self._progresso(fracao, str(mensagem)[:180])
 
 
 class TaskRunner:
-    """Fila de uma thread daemon para áudio, voz e chamadas do motor.
+    """Fila limitada de uma thread para áudio, voz e chamadas do motor.
 
     A fila preserva a ordem das escolhas. Resultados atrasados são ignorados
     pelos tokens da janela, então trocar de dispositivo durante um teste não
     deixa a resposta velha sobrescrever a nova seleção.
     """
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None, *, max_pendentes: int | None = None):
+        if max_pendentes is None:
+            from core.pc_fraco import e_fraco
+            max_pendentes = 8 if e_fraco() else 32
+        if type(max_pendentes) is not int or not 1 <= max_pendentes <= 256:
+            raise ValueError('Limite de fila inválido.')
         self.bridge = _TaskBridge(parent)
-        self._fila: queue.Queue = queue.Queue()
+        self._fila: queue.Queue = queue.Queue(maxsize=max_pendentes)
         self._token = 0
+        self._trava = threading.RLock()
+        self._tarefas: dict[int, ContextoTarefa] = {}
         self._ativo = threading.Event()
         self._ativo.set()
         self._thread = threading.Thread(target=self._laco, daemon=True,
                                         name="nia-config-dashboard")
         self._thread.start()
 
-    def executar(self, funcao) -> int:
-        self._token += 1
-        token = self._token
+    def executar(self, funcao, *, timeout: float | None = None,
+                 cooperativa: bool = False) -> int:
+        """Callbacks legados seguem sem argumentos; cooperativos recebem contexto.
+
+        O prazo inclui espera na fila. Funções bloqueantes devem definir também
+        timeout próprio de I/O: uma thread arbitrária não pode ser morta com segurança.
+        """
+        if not callable(funcao):
+            raise TypeError('Tarefa deve ser uma função.')
+        if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+                                    or not math.isfinite(timeout) or timeout <= 0):
+            raise ValueError('Timeout deve ser positivo e finito.')
+        with self._trava:
+            self._token += 1
+            token = self._token
+            if not self._ativo.is_set():
+                return token
+            contexto = ContextoTarefa(time.monotonic() + timeout if timeout else None)
+            contexto._progresso = lambda fracao, mensagem: self._informar_progresso(token, fracao, mensagem)
+            self._tarefas[token] = contexto
+            try:
+                self._fila.put_nowait((token, funcao, contexto, cooperativa))
+            except queue.Full:
+                self._tarefas.pop(token, None)
+                # Entrega enfileirada, mesmo quando executar é chamado na thread Qt:
+                # a janela registra o callback somente depois deste retorno.
+                self.bridge.despachar.emit(token, {'__excecao__': 'Fila de tarefas cheia.', 'estado': 'fila_cheia'})
+            return token
+
+    def cancelar(self, token: int) -> bool:
+        with self._trava:
+            contexto = self._tarefas.get(token)
+            if contexto is None:
+                return False
+            contexto.cancelamento.set()
+            return True
+
+    def _informar_progresso(self, token, fracao, mensagem):
         if self._ativo.is_set():
-            self._fila.put((token, funcao))
-        return token
+            try:
+                self.bridge.progresso.emit(token, fracao, mensagem)
+            except RuntimeError:
+                pass
 
     def _laco(self) -> None:
         while True:
             item = self._fila.get()
             if item is None:
                 return
-            token, funcao = item
+            token, funcao, contexto, cooperativa = item
             if not self._ativo.is_set():
                 continue
             try:
-                resultado = funcao()
+                contexto.verificar()
+                resultado = funcao(contexto) if cooperativa else funcao()
+                contexto.verificar()
+            except TarefaCancelada:
+                resultado = {'__excecao__': 'Tarefa cancelada.', 'estado': 'cancelada'}
+            except TarefaExpirada:
+                resultado = {'__excecao__': 'Prazo da tarefa excedido.', 'estado': 'timeout'}
             except Exception as exc:
-                resultado = {"__excecao__": f"{type(exc).__name__}: {str(exc)[:180]}"}
+                resultado = {"__excecao__": f"Falha na tarefa: {type(exc).__name__}.", 'estado': 'erro'}
+            finally:
+                with self._trava:
+                    self._tarefas.pop(token, None)
             if not self._ativo.is_set():
                 continue
             try:
                 self.bridge.terminou.emit(token, resultado)
             except RuntimeError:
+                self.encerrar()
                 return
 
     def encerrar(self) -> None:
-        self._ativo.clear()
-        try:
-            self._fila.put(None)
-        except Exception:
-            pass
+        """Não espera a thread Qt; sinaliza cancelamento e descarta a fila."""
+        with self._trava:
+            if not self._ativo.is_set():
+                return
+            self._ativo.clear()
+            for contexto in self._tarefas.values():
+                contexto.cancelamento.set()
+            while True:
+                try:
+                    self._fila.get_nowait()
+                except queue.Empty:
+                    break
+            self._tarefas.clear()
+            self._fila.put_nowait(None)
+
+    def aguardar_encerramento(self, timeout: float = 1.0) -> bool:
+        """Somente para testes/encerramento fora da thread Qt; não força término."""
+        if threading.current_thread() is self._thread:
+            return False
+        self._thread.join(timeout=max(0.0, min(float(timeout), 5.0)))
+        return not self._thread.is_alive()
 
 
 class StatusLabel(QLabel):
@@ -660,7 +775,7 @@ def _botoes(*botoes: tuple[str, str]) -> QHBoxLayout:
     return linha
 
 
-class ConfigDashboardWindow(QWidget):
+class ConfigDashboardWindow(FrameNativoMixin, QWidget):
     """Janela independente e reutilizável enquanto estiver aberta."""
 
     fechada = pyqtSignal()
@@ -724,6 +839,7 @@ class ConfigDashboardWindow(QWidget):
         atalho_busca.activated.connect(self._focar_busca)
         if refresh_on_open:
             QTimer.singleShot(0, self.atualizar_dispositivos)
+        self._instalar_frame_nativo(cor=self._paleta["bg"])
 
     # ── construção ─────────────────────────────────────────────────────────
     def _construir(self) -> None:
@@ -1012,6 +1128,25 @@ class ConfigDashboardWindow(QWidget):
         cartao2.body.addWidget(self.saudacao_botao)
         cartao2.body.addWidget(self.saudacao_status)
         raiz.addWidget(cartao2)
+
+        cartao_central = GlassCard(
+            "Central de Aplicativos",
+            "Acesso a todas as ferramentas e habilidades da NIA, inclusive as "
+            "que não aparecem no dock.", pagina)
+        botao_central = QPushButton("Abrir Central de Aplicativos", cartao_central)
+        botao_central.setObjectName("Primary")
+        botao_central.setMinimumHeight(38)
+        botao_central.setAccessibleName("Abrir Central de Aplicativos")
+        botao_central.clicked.connect(self._abrir_central_dashboard)
+        cartao_central.body.addWidget(botao_central)
+        botao_manual = QPushButton("Abrir manual de uso", cartao_central)
+        botao_manual.setObjectName("Secondary")
+        botao_manual.setMinimumHeight(38)
+        botao_manual.setAccessibleName("Abrir manual de uso da NIA")
+        botao_manual.clicked.connect(self._abrir_manual_dashboard)
+        cartao_central.body.addWidget(botao_manual)
+        raiz.addWidget(cartao_central)
+
         raiz.addWidget(self._construir_cartao_rotinas(pagina))
         raiz.addStretch(1)
 
@@ -1020,6 +1155,24 @@ class ConfigDashboardWindow(QWidget):
         self._pintar_saudacao()
         self._consultar_inicio()
         return pagina
+
+    def _abrir_central_dashboard(self) -> None:
+        host = getattr(self._service, "host", None)
+        abrir = getattr(host, "abrir_central", None) if host is not None else None
+        if callable(abrir):
+            try:
+                abrir(True)
+            except Exception:
+                pass
+
+    def _abrir_manual_dashboard(self) -> None:
+        host = getattr(self._service, "host", None)
+        abrir = getattr(host, "abrir_manual", None) if host is not None else None
+        if callable(abrir):
+            try:
+                abrir()
+            except Exception:
+                pass
 
     # ── Rotinas locais (Skill 04) ──────────────────────────────────────────
     def _construir_cartao_rotinas(self, pai) -> GlassCard:
@@ -1509,8 +1662,9 @@ class ConfigDashboardWindow(QWidget):
         return area
 
     def mostrar_integracao(self, nome: str = "conexoes") -> str:
-        area = "secretaria" if str(nome or "").strip().lower() in (
-            "secretaria", "secretária", "calls", "ligacoes") else "conexoes"
+        pedido = str(nome or "").strip().lower()
+        area = ("secretaria" if pedido in
+                ("secretaria", "secretária", "calls", "ligacoes") else "conexoes")
         if area == "secretaria":
             self._garantir_secretaria()
         self._stack_integracoes.setCurrentWidget(

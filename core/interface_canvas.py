@@ -42,6 +42,8 @@ _ICONS = {
     'cowork':'<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
     'computer_use':'<rect x="3" y="3" width="18" height="13" rx="2"/><path d="M7 21h10M12 16v5M9 7l6 3-3 1-1 3z"/>',
     'globo':'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 7h14M5 17h14"/>',
+    'canvas':'<rect x="3" y="4" width="18" height="14" rx="2"/><circle cx="8" cy="9" r="2"/><circle cx="16" cy="13" r="2"/><path d="M10 10l4 2M4 21h16"/>',
+    'agenda':'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M8 14h3M8 18h7"/>',
     'segundo_plano':'<path d="M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11z"/>',
     'config':'<path d="m9.6 3-.5 2.1-1.6.9-2.1-.6-2.4 4.2 1.6 1.5v1.8L3 14.4l2.4 4.2 2.1-.6 1.6.9.5 2.1h4.8l.5-2.1 1.6-.9 2.1.6 2.4-4.2-1.6-1.5v-1.8L21 9.6l-2.4-4.2-2.1.6-1.6-.9L14.4 3z"/><circle cx="12" cy="12" r="3.4"/>',
     'mic':'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
@@ -659,7 +661,7 @@ class VerticalDock(QFrame):
         self.setFixedWidth(70)
         self.buttons = dict(buttons); self.preferences = DockPreferences(config)
         if 'hidden' not in self.preferences.data:
-            defaults = ['mute','cowork','globo','webcam','config','planos']
+            defaults = ['central','mute','cowork','globo','webcam','config','planos']
             self.preferences.data['hidden'] = [k for k in self.buttons if k not in defaults]
             self.preferences.data.setdefault('order',[k for k in defaults if k in self.buttons]+list(self.buttons))
         elif not self.preferences.data.get('skill_atalhos_v1'):

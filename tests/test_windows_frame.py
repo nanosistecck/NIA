@@ -130,3 +130,34 @@ def test_falha_de_composicao_restaura_margens_e_moldura(app, caplog):
     assert layout.contentsMargins().top() == 16
     assert 'moldura padrão mantida' in caplog.text
     window.deleteLater()
+
+
+def test_layout_sem_central_widget(app):
+    from PyQt6.QtWidgets import QWidget, QVBoxLayout
+    w = QWidget()
+    layout = QVBoxLayout(w)
+    frame = WindowsFrame(w)
+    assert frame._layout() is layout
+
+
+@pytest.mark.parametrize('cor', ['#061524', '#081527', '#00060a'])
+def test_caption_preenchida_com_cor_da_janela(app, cor):
+    from PyQt6.QtGui import QColor, QImage
+    window = QMainWindow()
+    layout = QVBoxLayout(window)
+    frame = WindowsFrame(window, cor=cor)
+    frame.active, frame.hwnd, frame.caption_height = True, 1, 31
+    frame._base_margins = layout.contentsMargins()
+    copied = []
+    frame.user = SimpleNamespace(GetDC=lambda _: 1, ReleaseDC=lambda *a: 1)
+    frame.gdi = SimpleNamespace(SetDIBitsToDevice=lambda *a: copied.append(bytes(a[9])) or 31)
+    frame.paint_caption()
+    largura = max(1, int(window.width() * window.devicePixelRatioF()))
+    referencia = QImage(largura, 31, QImage.Format.Format_RGB32)
+    referencia.fill(QColor(cor))
+    esperado = bytearray(referencia.constBits().asstring(referencia.sizeInBytes()))
+    esperado[3::4] = bytes(len(esperado) // 4)  # alpha zero: esconde DWM
+    assert copied[0] == bytes(esperado)
+    # QVBoxLayout(window) não fica instalado no QMainWindow; verifica-se a
+    # margem reservada no layout gerenciado pelo frame (base + extra).
+    assert frame._layout().contentsMargins().top() == frame._base_margins.top() + math.ceil(31 / window.devicePixelRatioF())

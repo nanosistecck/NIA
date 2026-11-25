@@ -9,7 +9,7 @@ import logging
 import math
 
 from PyQt6.QtCore import QCoreApplication, QEvent
-from PyQt6.QtGui import QImage
+from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtWidgets import QApplication
 
 # Posted after WM_PAINT, so Qt has finished flushing its opaque backing store.
@@ -33,13 +33,23 @@ class BitmapHeader(c.Structure):
 
 
 class WindowsFrame:
-    def __init__(self, window):
+    def __init__(self, window, *, cor=None):
         self.window = window
         self.active = False
         self.hwnd = None
         self.failed = False
         self._paint_pending = False
         self._dib_key = None
+        # cor=None mantém o caminho do cache da CanvasBackground do main window.
+        self.cor = QColor(cor) if cor is not None else None
+
+    def _layout(self):
+        """Layout do conteúdo da janela: centralWidget() quando houver."""
+        if hasattr(self.window, 'centralWidget'):
+            central = self.window.centralWidget()
+            if central is not None:
+                return central.layout()
+        return self.window.layout()
 
     def install(self):
         if self.failed or QApplication.platformName() != "windows":
@@ -97,7 +107,9 @@ class WindowsFrame:
             if not self.user.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0037):
                 raise c.WinError(c.get_last_error())
             if not hasattr(self, "_base_margins"):
-                self._base_margins = self.window.centralWidget().layout().contentsMargins()
+                layout = self._layout()
+                if layout is not None:
+                    self._base_margins = layout.contentsMargins()
             self._dib_key = None
             self.reserve_caption()
             return True
@@ -117,8 +129,8 @@ class WindowsFrame:
     def reserve_caption(self):
         base = self._base_margins
         extra = math.ceil(self.caption_height / self.window.devicePixelRatioF())
-        layout = self.window.centralWidget().layout()
-        if layout.contentsMargins().top() != base.top() + extra:
+        layout = self._layout()
+        if layout is not None and layout.contentsMargins().top() != base.top() + extra:
             layout.setContentsMargins(base.left(), base.top() + extra,
                                       base.right(), base.bottom())
 
@@ -140,18 +152,29 @@ class WindowsFrame:
             return
         try:
             self.reserve_caption()
-            canvas = self.window.centralWidget()
-            canvas._ensure_cache()
-            height = min(self.caption_height, canvas._cache.height())
-            key = (canvas._key, height)
-            if key != self._dib_key:
-                image = canvas._cache.copy(0, 0, canvas._cache.width(), height).toImage()
-                image = image.convertToFormat(QImage.Format.Format_RGB32)
+            if self.cor is not None:
+                # Janela sem CanvasBackground: pinta uma faixa só com a cor dada.
+                largura = max(1, int(self.window.width() * self.window.devicePixelRatioF()))
+                image = QImage(largura, self.caption_height, QImage.Format.Format_RGB32)
+                image.fill(self.cor)
+                height = self.caption_height
                 self._dib = bytearray(image.constBits().asstring(image.sizeInBytes()))
                 self._dib[3::4] = bytes(len(self._dib) // 4)
                 self._header = BitmapHeader(40, image.width(), -image.height(), 1, 32,
                                             0, 0, 0, 0, 0, 0)
-                self._dib_key = key
+            else:
+                canvas = self.window.centralWidget()
+                canvas._ensure_cache()
+                height = min(self.caption_height, canvas._cache.height())
+                key = (canvas._key, height)
+                if key != self._dib_key:
+                    image = canvas._cache.copy(0, 0, canvas._cache.width(), height).toImage()
+                    image = image.convertToFormat(QImage.Format.Format_RGB32)
+                    self._dib = bytearray(image.constBits().asstring(image.sizeInBytes()))
+                    self._dib[3::4] = bytes(len(self._dib) // 4)
+                    self._header = BitmapHeader(40, image.width(), -image.height(), 1, 32,
+                                                0, 0, 0, 0, 0, 0)
+                    self._dib_key = key
             dc = self.user.GetDC(self.hwnd)
             if not dc:
                 raise c.WinError(c.get_last_error())

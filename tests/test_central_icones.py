@@ -18,7 +18,8 @@ def test_nativos_usam_icone_da_propria_ferramenta(monkeypatch):
     monkeypatch.setattr(RA, '_DESCRITORS', {})
     from core.registro_nativo import registrar_nativos
     registrar_nativos()
-    assert RA.por_id('canvas').icone == 'canvas'
+    assert RA.por_id('canvas') is None
+    assert RA.por_id('planos').icone == 'planos'
     assert RA.por_id('agenda').icone == 'agenda'
 
 

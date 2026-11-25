@@ -222,3 +222,42 @@ def test_favoritos_e_dock_persistem(janela_real, app):
     w._central_acao_interface('favorito_remover', 'pesquisa')
     assert 'pesquisa' not in w._prefs_central().data['central_favoritos']
 
+
+def test_clique_mapeado_nao_abre_janela_pela_via_antiga(central):
+    w, ger = central
+    w.definir_acoes_dock({'mute', 'central'})
+    dock_acao, ferramentas, abertos = [], [], []
+    w.dock_acao_solicitada.connect(dock_acao.append)
+    w.ferramenta_solicitada.connect(lambda *a: ferramentas.append(a))
+    w.app_aberto.connect(abertos.append)
+    w.abrir_app('mute')
+    assert dock_acao == ['mute']
+    assert ferramentas == [] and abertos == [] and ger.abertos == []
+
+
+def test_bloco_nao_tem_indicador_verde(central):
+    w, _ = central
+    from PyQt6.QtWidgets import QLabel
+    tiles = list(w._tiles.values())
+    assert tiles
+    for tile in tiles:
+        assert not [l for l in tile.findChildren(QLabel)
+                    if l.text() in ('●', '○')]
+
+
+def test_ponte_clica_botao_oculto_do_dock(janela_real, app):
+    from PyQt6.QtWidgets import QPushButton
+    w = janela_real
+    assert {'central', 'mute', 'webcam'}.issubset(w._central._acoes_dock)
+    botao = QPushButton()
+    cliques = []
+    botao.clicked.connect(lambda _=False: cliques.append(True))
+    w._right_panel.buttons['fake_teste'] = botao
+    try:
+        w._executar_dock_pela_central('fake_teste')
+        app.processEvents()
+        assert len(cliques) == 1
+    finally:
+        del w._right_panel.buttons['fake_teste']
+        botao.deleteLater()
+

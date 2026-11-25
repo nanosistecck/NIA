@@ -193,3 +193,24 @@
   abertura de plano. O regex especifico da linha 113 ja cobre "abra o plano/projeto/produto".
 - A preservar: "abra o plano X", "Abre o projeto Y", retomar estudo, gerenciador.
 - Rotas corretas existentes: `_rede_de_abrir`, `_rede_do_site`, `CH.reconhecer`.
+
+
+## 2026-11-23T22:29:56.762125-03:00 — Programa EVOLUCAO-NIA
+
+Nova auditoria do programa EVOLUCAO-NIA. Estado inicial: whatsapp_bridge/last_disconnect.json modificado, EVOLUCAO-NIA nao rastreado. Python local 3.12.14. Baseline seguro em copia temporaria, sem rede nem dados reais; evidencia em EVOLUCAO-NIA/registros/. Numeros historicos nao reutilizados como resultado novo.
+
+
+## 2026-11-23T22:50:56.900283-03:00 — checkpoint EVOLUCAO-NIA
+
+Resultado desta execução: baseline corrigido 729 passed/1 failed (Canvas); reprodução isolada passou; regressão combinada final 167 passed/0 failed. Não houve nova suíte integral final. Ver logs específicos em EVOLUCAO-NIA/registros/.
+
+## Rodada 15 — limpeza de código morto (25/11/2026)
+
+- Ideia: análise geral do projeto para remover código morto, funções sem uso e chamadas sem função, sem prejudicar a NIA.
+- Branch `AGENDA`, HEAD `a846c36` (inclui o fix da barra nativa). Upstream `origin/AGENDA`.
+- `.opencode/autonomous-builder/` não existe; não há `AGENTS.md` no repositório; instruções lidas em `.opencode/safe-evolution/*.md`.
+- Git: 43 entradas locais (modificados + untracked), incluindo `tests/test_interface_canvas.py`, `whatsapp_bridge/last_disconnect.json`, módulos novos em `core/`, `docs/manual-nia/`, spec/plans e testes novos. Tudo preservado; nada foi descartado.
+- Baseline seguro executado **antes de qualquer edição**: `.venv-apis\Scripts\python.exe -m pytest -q` → **862 passed, 0 failed** (10min29s, saída do shell `sh_2128c4ffb0010Ofw0EbixxoSD9`). Nenhuma falha preexistente registrada nesta rodada.
+- Ambiente: Windows, Python do `.venv-apis`, PyQt6, testes offscreen. Sem `ruff`/`vulture`/`pyflakes`/`radon` instalados — a varredura será feita com AST da stdlib, sem instalar dependências.
+- Nenhuma linha de produto alterada até aqui; nenhum commit, push, branch, stash ou limpeza de arquivos.
+

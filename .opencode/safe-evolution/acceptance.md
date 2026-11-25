@@ -89,3 +89,55 @@ Salvar/Cancelar/Concluir/Reabrir/Excluir e grade com o dia selecionado.
 - `QDateEdit`/`QTimeEdit` ausentes no import da janela → corrigido.
 - Cards Hoje/Agenda nasciam sobrepostos em (0,0) → `arrange()` ao posicionar painéis.
 - Dashboard quebrava com `host=None` → acesso protegido.
+
+
+## 2026-11-23T22:29:56.762125-03:00 — Programa EVOLUCAO-NIA
+
+Etapa 01: inventario com caminhos/contratos, baseline reproduzivel, riscos e lacunas. Etapa 02: fontes de testes preservadas, dados locais preservados apos git rm --cached, ignore verificado, falhas anteriores diferenciadas. Evidencias e resultados novos em EVOLUCAO-NIA/registros/TESTES.md.
+
+
+## 2026-11-23T22:50:56.900283-03:00 — checkpoint EVOLUCAO-NIA
+
+Checkpoint final: higiene comprovada por hashes; registro por ponte real; TaskRunner com nove testes focados + dashboard; permissões novas testadas. 199 fontes AST válidas. Etapa 05 não aceita integralmente: faltam consentimentos e validações legadas. Não avançar para 06.
+
+## 2026-11-24 — Avaliação da Central (aceite)
+
+| Requisito | Evidência | Estado |
+|---|---|---|
+| Suíte completa sem falhas | 905 passed, exit 0, 217,48 s | OK |
+| Falha intermitente do Canvas | reproduzida deterministicamente e corrigida no helper de espera; passa com animação 1500 ms | OK |
+| Timers órfãos | `_lembrete_timer` filho da janela; teste verifica rearmamento sem novos timers | OK |
+| Configuração de integrações | página "Serviços externos" com Penpot/Plane/Nextcloud, links oficiais, Salvar/Limpar | OK |
+| Segredo fora de JSON/log | token no cofre do Windows; 5 testes com store falso confirmam | OK |
+| Evidência visual | `EVOLUCAO-NIA/registros/captura_integracoes.png` inspecionada (texto legível) | OK |
+| Sintaxe/diff | 239 fontes AST, 0 erros; `git diff --check` limpo | OK |
+
+Pendente: homologação real com URLs/tokens fornecidos pelo dono, dispositivos
+pareados e DPI físico — não reivindicados como validados.
+
+## 2026-11-24 — Estado final (zero falhas)
+
+| Requisito | Evidência | Estado |
+|---|---|---|
+| Remoção dos conectores com limites | `registros/18-REMOCAO-CONECTORES.md` | OK |
+| Nenhuma referência órfã no código | varredura: apenas teste que afirma ausência | OK |
+| Falhas de data da Agenda | relógio congelado no fixture; 18/18 | OK |
+| Suíte completa sem erros | **879 passed, exit 0, 223,39 s** | OK |
+| Sintaxe/diff | 230 fontes AST, 0 erros; `git diff --check` limpo | OK |
+
+Nenhuma pendência de erro em aberto. Itens externos (dispositivo pareado, DPI
+físico) dependem de hardware/autorização, não de defeito de código.
+
+## Rodada 15 — exclusão de `EVOLUCAO-NIA/`
+
+| Requisito | Evidência | Estado |
+|---|---|---|
+| Diretório não existe mais | `Test-Path EVOLUCAO-NIA` → False | OK |
+| Nenhuma referência de código/teste ao diretório | grep `EVOLUCAO-NIA` em `*.py` → 0 | OK |
+| Nenhum arquivo versionado afetado | `git ls-files EVOLUCAO-NIA` → 0 linhas | OK |
+| Suíte de sanidade após exclusão | `pytest tests/test_homologacao_evolucao.py tests/test_windows_frame.py tests/test_frame_nativo_secundarias.py -q` → **22 passed** | OK |
+| Decisão irreversível registrada | `changes.md` + aviso prévio aceito pelo dono | OK |
+
+Nota: as referências antigas a `EVOLUCAO-NIA/registros/*` neste arquivo e nos
+demais state files são históricas; os caminhos não existem mais após esta rodada.
+

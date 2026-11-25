@@ -282,3 +282,154 @@ Para cada etapa registre: data, tarefa, arquivos, motivo, testes executados, res
 - Teste real: frase cria "buscar a maria" as 21:06 e fala do proximo compromisso.
 - Suite 730/730, exit 0 (duas execucoes); compileall e diff limpos.
 - Servidor reiniciou durante a suíte; retomado sem repetir trabalho concluido.
+
+
+## 2026-11-23T22:50:56.900283-03:00 — checkpoint EVOLUCAO-NIA
+
+Programa EVOLUCAO-NIA: etapas 01–04 completas; 05 parcial. Produto e arquivos alterados descritos em EVOLUCAO-NIA/registros/RELATORIO.md. Nenhum commit ou publicação. 167 testes combinados passaram; baseline integral anterior tinha 1 falha Canvas que não foi reproduzida isoladamente.
+
+## 2026-11-24 — Avaliação da Central, causa do Canvas e credenciais nas Configurações
+
+- Diagnóstico antes de editar: lidas instruções `.opencode/safe-evolution/*`,
+  comparados Git/código/estado persistente e executada suíte baseline de
+  **895 passed** (`EVOLUCAO-NIA/registros/avaliacao-01-baseline-pytest.log`).
+- Causa raiz do Canvas reproduzida de forma determinística: criar outra
+  `MainWindow` antes do teste deixa o driver de animação Qt offscreen sem
+  avançar (`state=Running`, geometria intacta após 1 s). O `settle` media
+  quadros transitórios. Correção apenas no helper de teste: entrega sinais
+  enfileirados, espera a animação e aplica `arrange(False)` se o driver não
+  progredir. Asserções inalteradas; teste passa com animação de 1500 ms.
+- `ui.py`: timer de lembretes passou a ser timer filho da janela, sem
+  `QTimer.singleShot` órfão (teste novo `test_timers_interface.py`).
+- Novo `core/credenciais_integracoes.py`: URL/workspace/usuário em
+  `config/integracoes.json` (atômico) e token no Windows Credential Manager
+  (`win32cred`, sem nova dependência); sem credencial em texto puro nem
+  migração de banco. Injeção de store para testes.
+- `core/config_dashboard.py`: terceiro segmento "Serviços externos" em
+  Configurações → Integrações, com Penpot/Plane/Nextcloud, botão "Abrir site"
+  (links oficiais), Salvar/Limpar e status sem segredo. Construção lazy.
+- Testes novos: 5 de credenciais + 4 de UI + 1 de timer; uma falha de
+  poluição de `os.environ` no teste de credenciais foi corrigida.
+- Suíte final: **905 passed, exit 0** (`avaliacao-09-integral-final-pytest.log`).
+  `git diff --check` limpo e 239 fontes AST sem erros.
+- Evidência visual inspecionada: `captura_integracoes.png` (página legível,
+  cartões e botões visíveis).
+- Decisão: nenhum commit, branch, publicação ou acesso a serviço externo.
+- Próximo: quando o dono configurar URLs/tokens na nova página, homologar
+  leituras reais; dispositivos e DPI físico seguem pendentes.
+
+## 2026-11-24 — Remoção dos conectores com limites de uso
+
+- Decisão do dono: só ferramentas totalmente gratuitas e de código aberto.
+  Penpot/Plane/Nextcloud foram removidos (planos gratuitos com limites).
+- Removidos os 3 conectores, o módulo de credenciais, 5 arquivos de teste, a
+  página "Serviços externos" e todas as referências em registro/descrições.
+- Preservados: laboratório HTTP local, dispositivos pareados, pesquisa,
+  biblioteca, diagrama, janelas, contexto e registro central.
+- Não tocados: Agenda e suas 4 falhas dependentes de data (fora do escopo).
+- Validação: 118 testes da área verdes; suíte integral com 875 verdes e as
+  4 falhas pré-existentes da Agenda; AST e diff limpos.
+- Detalhes em `EVOLUCAO-NIA/registros/18-REMOCAO-CONECTORES.md`.
+
+## 2026-11-24 — Correção das últimas 4 falhas (Agenda)
+
+- Causa: `tests/test_agenda_correcoes.py` usava datas relativas a 23/11/2026
+  mas dependia do relógio real para "próximo" e saudações; após a meia-noite
+  os eventos de "amanhã" passaram a estar no passado.
+- Correção apenas no fixture do teste: congelar `core.agenda._agora` em
+  2026-11-23T13:00Z (10:00 em -03), preservando o comportamento quando um
+  `agora` explícito é passado. Produto não alterado.
+- Resultado: 18/18 testes da Agenda e **879 passed, exit 0** na suíte completa
+  (`correcao-final-integral-pytest.log`). `git diff --check` limpo; 230 fontes
+  AST sem erros. Nenhum commit/publicação.
+
+## 2026-11-24 — Acesso completo às ferramentas restantes
+
+- Auditoria confirmou que pesquisa/biblioteca/diagrama/integrador e globo
+  estavam na Central, mas sem janela registrada; o clique gerava ação `usar`
+  rejeitada. Corrigido:
+  - `core/painel_ferramenta.py` (novo): painel leve sob demanda com metadados,
+    ações reais e campo de argumentos JSON; emite a ação pela ponte existente.
+  - `ui.py`: registro de janelas para os 4 domínios + globo; habilidades sem
+    interface mostram o exemplo de uso em vez de ação inválida.
+  - `core/central_aplicativos.py`: fundo da grade corrigido (antes branco com
+    nomes ilegíveis) — evidência visual recapturada.
+  - `core/config_dashboard.py`: botão "Abrir Central de Aplicativos" na página
+    Geral (funciona quando a ponte da NIA está disponível).
+- Validação: 881 passed, exit 0; AST 232 fontes sem erros; diff limpo.
+- Evidências: `EVOLUCAO-NIA/registros/captura_configuracoes_geral.png`,
+  `captura_integracoes.png`, `captura_central_aplicativos.png`,
+  `captura_painel_biblioteca.png` (inspecionadas).
+
+## 2026-11-24 — Manual de uso local
+
+- Criado `docs/manual-nia/index.html`: exemplos de todas as ferramentas,
+  busca, filtros e botão copiar, sem rede/CDN/WebEngine.
+- Abertura por voz ("abra o manual", "quais comandos você entende?"), por
+  sinal Qt e por botão em Configurações → Geral.
+- 885 testes verdes; 234 fontes AST; diff limpo. Detalhes em
+  `EVOLUCAO-NIA/registros/19-MANUAL-USO.md`. Sem inspeção visual do HTML em
+  navegador (ferramenta indisponível nesta sessão).
+
+## 2026-11-24 — Revisão da bandeja e formulários sem JSON
+
+- Diagnóstico: 2 blocos não acionáveis (`microfone`, `interromper`) e, no app
+  real, 44 atalhos `tool_*` inúteis apareceriam na Central; painéis exigiam JSON.
+- Correções:
+  - `core/registro_aplicativos.py`: `tool_*` com `visivel_na_central=False`.
+  - `core/registro_nativo.py`: controles do dock removidos do registro da Central.
+  - `core/ferramentas_agrupadas.py`: `CAMPOS_ACAO` + `preparar_argumentos`
+    convertem campos de formulário em argumentos tipados (sem JSON do usuário).
+  - `core/painel_ferramenta.py`: combo de ações e campos dinâmicos (texto,
+    opções, número, confirmação), com rótulos acessíveis.
+  - `ui.py`: habilidade sem interface agora preenche o exemplo no chat e foca
+    o campo, em vez de apenas registrar log.
+  - Manual HTML e imports mortos atualizados.
+- Evidência: bandeja com 12 blocos, todos acionáveis (probe), capturas
+  `captura_central_aplicativos.png` e `captura_painel_biblioteca.png`.
+- Validação: 886 testes verdes, 234 fontes AST, diff limpo. Sem commit.
+
+## 2026-11-24 — Correção final: pesquisa local por termo simples
+
+- Simulação de ponta a ponta das 4 ferramentas revelou que `pesquisa.local`
+  exigia a frase "procure nos meus arquivos por ..."; o painel pede só um termo.
+- Corrigido em `core/executor_agrupado.py`: extrai o termo quando a frase é
+  reconhecida e usa o texto direto quando não é, com motivo honesto quando o
+  índice está vazio. Teste novo adicionado.
+- Suíte final: **887 passed, exit 0**; 234 fontes AST; `git diff --check` limpo.
+- Nenhuma nova arquitetura, nenhum repositório baixado, nenhum commit.
+
+## 2026-11-24 — Remoção das 4 ferramentas insatisfatórias
+
+- Usuário escolheu remover pesquisa nova, biblioteca, diagrama e integrador
+  após diagnóstico: saídas em JSON, sem editor visual e integrador sem adaptador.
+- Removidos 8 módulos, 7 arquivos de teste e todas as referências em catálogo,
+  permissões, registro nativo, ui.py, main.py, frases locais e manual HTML.
+- Mantidos: busca local antiga (FTS5/citações), Canvas/Planos, Agenda, dock,
+  Central enxuta, gerenciador de janelas, contexto e permissões.
+- Suíte: 840 passed, exit 0; 219 fontes AST; diff limpo. Sem commit.
+- Detalhes em `EVOLUCAO-NIA/registros/20-REMOCAO-FERRAMENTAS.md`.
+
+## 25/11/2026 — Rodada 15: exclusão de `EVOLUCAO-NIA/`
+
+- Tarefa: limpeza geral de código morto; primeiro passo autorizado foi apagar o
+  diretório de diagnóstico/relatórios `EVOLUCAO-NIA/`.
+- Antes de apagar: 201 arquivos, ~984 KB, `.gitignore:53`, `git ls-files` vazio,
+  nenhuma referência em qualquer `.py`. Avisado ao dono de que não havia backup
+  no Git e que a exclusão seria irreversível; ele confirmou "Apagar agora, sem
+  backup".
+- Arquivos alterados até aqui: somente `.opencode/safe-evolution/*.md`
+  (baseline, scope, impact-map, acceptance, changes). Nenhum arquivo de produto
+  ou teste tocado; nenhum commit, push, branch ou stash.
+- Motivo: o dono considera o diretório descartável e ele não participa do produto.
+- Risco: perda irreversível dos relatórios históricos; aceito explicitamente.
+  Referências antigas nos state files permanecem como registro histórico.
+- Execução: `Remove-Item -Recurse -Force EVOLUCAO-NIA` → `exists=False`,
+  `git ls-files` continua com 0 linhas. Suíte de sanidade: 22 passed em
+  `test_homologacao_evolucao.py` + `test_windows_frame.py` +
+  `test_frame_nativo_secundarias.py`. Nenhuma falha; nenhum arquivo de produto
+  alterado; `git status` inalterado fora dos state files.
+- Decisão/proxima etapa: triagem individual dos demais candidatos de código
+  morto; nada será removido em bloco. Aguardando decisão sobre os outros 5
+  módulos órfãos.
+

@@ -5876,6 +5876,10 @@ class MainWindow(QMainWindow):
     def _executar_dock_pela_central(self, chave: str) -> None:
         """Bandeja aciona o botão real do dock, oculto ou não."""
         self._central_sig.emit(False)
+        # O bloco da própria Central já a fechou; clicar no botão do dock
+        # em seguida faria toggle e a reabriria no mesmo evento.
+        if chave == 'central':
+            return
         painel = getattr(self, '_right_panel', None)
         botao = painel.buttons.get(chave) if painel is not None else None
         if botao is None:

@@ -245,6 +245,17 @@ def test_bloco_nao_tem_indicador_verde(central):
                     if l.text() in ('●', '○')]
 
 
+def test_bloco_central_fecha_a_bandeja(janela_real, app):
+    w = janela_real
+    w._toggle_central()
+    app.processEvents()
+    assert w._central.aberta
+    w._executar_dock_pela_central('central')
+    app.processEvents()
+    assert not w._central.aberta
+    assert not w._central_btn.isDown()
+
+
 def test_ponte_clica_botao_oculto_do_dock(janela_real, app):
     from PyQt6.QtWidgets import QPushButton
     w = janela_real

@@ -140,6 +140,21 @@ def test_layout_sem_central_widget(app):
     assert frame._layout() is layout
 
 
+def test_disable_restaura_margens_em_widget_sem_centralWidget(app):
+    from PyQt6.QtWidgets import QWidget
+    w = QWidget()
+    layout = QVBoxLayout(w)
+    layout.setContentsMargins(11, 22, 33, 44)
+    base = layout.contentsMargins()
+    frame = WindowsFrame(w)
+    frame.active, frame.failed, frame.hwnd = True, False, None
+    frame._base_margins = base
+    frame.disable(Exception('x'))
+    assert frame.active is False
+    assert frame.failed is True
+    assert layout.contentsMargins() == base
+
+
 @pytest.mark.parametrize('cor', ['#061524', '#081527', '#00060a'])
 def test_caption_preenchida_com_cor_da_janela(app, cor):
     from PyQt6.QtGui import QColor, QImage

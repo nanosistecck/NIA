@@ -193,7 +193,9 @@ class WindowsFrame:
         self.active = False
         self.failed = True
         if hasattr(self, '_base_margins'):
-            self.window.centralWidget().layout().setContentsMargins(self._base_margins)
+            layout = self._layout()
+            if layout is not None:
+                layout.setContentsMargins(self._base_margins)
         if self.hwnd:
             self.dwm.DwmExtendFrameIntoClientArea(self.hwnd, c.byref(Margins()))
             if hasattr(self, '_original_policy'):

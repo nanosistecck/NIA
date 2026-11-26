@@ -120,9 +120,31 @@ def filtrar_contexto(contexto: dict, destino: Destino) -> dict:
     return filtrado
 
 
+# Pedido que fala do computador, da área de trabalho ou de arquivos reais não
+# pode ser classificado como edição do Canvas: o assistente de planos atendia
+# "crie um arquivo txt" com "Abra um plano e selecione um card...".
+_PEDIDO_FORA_DO_CANVAS = re.compile(
+    r"\b(controle|controlar|controla|ativa|ativar|ativa|usa|usar|use|assum[ei]r?|"
+    r"assuma|toma|tome)\s+(?:o\s+|meu\s+|esse\s+|este\s+)?"
+    r"(computador|pc|maquina|tela)\b"
+    r"|\b(area\s+de\s+trabalho|desktop)\b"
+    r"|\b(?:crie|criar|cria|escreva|escrever|salve|salvar)\s+"
+    r"(?:um|uma|o|a|os|as)?\s*(?:novo\s+|nova\s+)?"
+    r"(arquivo|txt|pasta|documento)\b"
+    r"|\b(explorador\s+de\s+arquivos|bloco\s+de\s+notas|paint|chrome|youtube|spotify)\b",
+    re.I)
+
+
+def pedido_fora_do_canvas(texto: str) -> bool:
+    """True quando o pedido é de ação no PC, não de card/plano do Canvas."""
+    return bool(_PEDIDO_FORA_DO_CANVAS.search(normalizar(texto)))
+
+
 def reconhecer_intencao(texto: str) -> str:
     """EXPLICAR | SUGERIR | EDITAR | DESFAZER | NENHUMA."""
     n = normalizar(texto)
+    if pedido_fora_do_canvas(texto):
+        return "NENHUMA"
     from core.comandos_planos import consulta_plano_atual
     if consulta_plano_atual(texto):
         return "PLANO_ATUAL"

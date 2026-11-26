@@ -4553,11 +4553,12 @@ class NiaLive:
         r"(comp[uú]t\w*|pc)(\s+us\w*)?\W*$", re.I)
 
     _ATIVAR_PC = re.compile(
-        r"\b(ativa|ative|ativar|ativado|liga|ligue|ligar)\s+"
+        r"\b(ativa|ative|ativar|ativado|liga|ligue|ligar|controle|controlar|"
+        r"controla|assum[ei]r?|assuma|toma|tome)\s+"
         r"(o\s+|no\s+|meu\s+|esse\s+|este\s+)?"
         r"(comp[uú]t\w*(\s*us\w*)?|pc)\b"
         # Em ingles (24/09/2026): "activate computer", "turn on computer use".
-        r"|\b(activate|enable|turn\s+on|start)\s+(the\s+|my\s+)?"
+        r"|\b(activate|enable|turn\s+on|start|control|take)\s+(the\s+|my\s+)?"
         r"(computer(\s*us\w*)?|pc)\b", re.I)
 
     # ── FALAR SOBRE O COMPUTER USE NAO PODE LIGAR O COMPUTER USE ─────────
@@ -4588,7 +4589,8 @@ class NiaLive:
     # que separa os dois.
     _ATIVAR_NEGADO = re.compile(
         r"\b(nao|não|nunca|jamais|sem|nem)\b[^.!?]{0,45}?"
-        r"\b(ativa|ative|ativar|ativado|liga|ligue|ligar|mexe|mexer|usa|usar|use)\b"
+        r"\b(ativa|ative|ativar|ativado|liga|ligue|ligar|mexe|mexer|usa|usar|use|"
+        r"controle|controlar|controla)\b"
         r"[^.!?]{0,30}?\b(computador|computer|conputer|compute|pc|maquina|máquina|"
         r"tela|mouse|teclado|meu pc)\b"
         r"|\b(don'?t|do not|never|without)\b[^.!?]{0,45}?"
@@ -6649,6 +6651,15 @@ class NiaLive:
         """Monta o plano do desenho e desenha, fora do modelo."""
         self._parar_pc = False
         self._usando_pc = True
+        _sessao_ov, _token_ov = self._abrir_sessao_overlay("desenhar_na_tela")
+        if _token_ov is None:
+            self._usando_pc = False
+            try:
+                self._falar_local("Nao consegui mostrar o indicador de controle, "
+                                  "entao nao mexi em nada.")
+            except Exception:
+                pass
+            return
         try:
             # SEM AVISO AQUI: quem abre falando e o narrador, la dentro, e
             # so DEPOIS do plano pronto — assim ele ja diz O QUE vai desenhar.
@@ -6665,11 +6676,12 @@ class NiaLive:
                                  gerar=self._openrouter.escrever_em_camadas,
                                  falar=self._falar_local,
                                  olhar=self._olhar_o_desenho,
-                                 deve_parar=lambda: self._parar_pc)
+                                 deve_parar=self._freio_do_controle)
         except Exception as exc:
             r = f"Nao consegui desenhar: {str(exc)[:80]}"
         finally:
             self._usando_pc = False
+            self._fechar_sessao_overlay(_sessao_ov, _token_ov)
             # A PORTA FICA ABERTA MAIS 2 MINUTOS depois do desenho. "Ficou
             # ruim, melhora essa casa" vem logo em seguida e e a continuacao do
             # mesmo pedido — mandar ele dizer "ativar computador" de novo ali
@@ -6684,6 +6696,15 @@ class NiaLive:
         """Gera o conteudo e digita na janela aberta, fora do modelo."""
         self._parar_pc = False
         self._usando_pc = True
+        _sessao_ov, _token_ov = self._abrir_sessao_overlay("digitar_na_tela")
+        if _token_ov is None:
+            self._usando_pc = False
+            try:
+                self._falar_local("Nao consegui mostrar o indicador de controle, "
+                                  "entao nao mexi em nada.")
+            except Exception:
+                pass
+            return
         try:
             try:
                 self._falar_local("Deixa comigo, vou digitar ai.")
@@ -6696,11 +6717,12 @@ class NiaLive:
             self._openrouter.falar = self._falar_local
             r = digitar_na_tela({"pedido": pedido}, player=self.ui,
                                 gerar=self._openrouter.escrever_texto_em_camadas,
-                                deve_parar=lambda: self._parar_pc)
+                                deve_parar=self._freio_do_controle)
         except Exception as exc:
             r = f"Nao consegui digitar: {str(exc)[:80]}"
         finally:
             self._usando_pc = False
+            self._fechar_sessao_overlay(_sessao_ov, _token_ov)
         try:
             self._falar_local(str(r), ao_primeiro_som=lambda: self.ui.write_log(f"{_nome_falante(self.ui)}: {r}"))
         except Exception:
@@ -6805,6 +6827,48 @@ class NiaLive:
                     pass
 
         threading.Thread(target=_dizer, daemon=True).start()
+
+    def _abrir_sessao_overlay(self, motivo: str):
+        """Abre a sessão de controle; (None, None) quando o indicador falha."""
+        try:
+            from core import controle_sessao as _cs  # noqa: PLC0415
+            s = _cs.sessao
+            token = s.iniciar(motivo, monitorar_esc=False,
+                              ao_parar=lambda: setattr(self, "_parar_pc", True))
+            return s, token
+        except Exception as exc:
+            _voice_diag("overlay_indisponivel", f"{motivo}: {str(exc)[:120]}")
+            return None, None
+
+    @staticmethod
+    def _fechar_sessao_overlay(sessao, token) -> None:
+        if sessao is None or token is None:
+            return
+        try:
+            sessao.encerrar(token, 'tarefa encerrada')
+        except Exception:
+            pass
+
+    def _freio_do_controle(self) -> bool:
+        """`deve_parar` das ferramentas de desktop: ESC, parada e pausa.
+
+        Enquanto o overlay estiver pausado, a ferramenta fica bloqueada aqui —
+        sem digitar, desenhar ou clicar. Se o usuário encerrar, devolve True e
+        a ferramenta para no próximo ponto de checagem.
+        """
+        if getattr(self, "_parar_pc", False):
+            return True
+        try:
+            from core import controle_sessao as _cs  # noqa: PLC0415
+            s = _cs.sessao
+            if s.ativo():
+                while not s.permitido():
+                    if s.parada_solicitada():
+                        return True
+                    time.sleep(0.08)
+        except Exception:
+            pass
+        return False
 
     def _olhar_e_clicar(self, tarefa: str) -> None:
         """Roda o olhar-e-clicar fora do modelo, com os mesmos freios."""
@@ -11164,6 +11228,34 @@ class NiaLive:
         loop   = asyncio.get_event_loop()
         result = "Done."
 
+        # FERRAMENTAS QUE TOMAM O DESKTOP: o indicador entra antes da ação e
+        # sai depois. `usar_computador` cuida da própria sessão (inclusive
+        # receitas e chamadas diretas de `_olhar_e_clicar`), então fica fora.
+        _sessao_overlay = None
+        _token_overlay = None
+        if name in ("computer_control", "digitar_na_tela", "desenhar_na_tela"):
+            try:
+                from core import controle_sessao as _cs_overlay  # noqa: PLC0415
+                _sessao_overlay = _cs_overlay.sessao
+                self._parar_pc = False
+                _token_overlay = _sessao_overlay.iniciar(
+                    f"ferramenta: {name}", monitorar_esc=False,
+                    ao_parar=lambda: setattr(self, "_parar_pc", True))
+            except Exception as _exc_overlay:
+                _voice_diag("overlay_indisponivel", f"{name}: {str(_exc_overlay)[:120]}")
+                try:
+                    self._ctx_concluir(False, 'indicador de controle indisponivel')
+                except Exception:
+                    pass
+                self._ctx_iniciada = False
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+                return types.FunctionResponse(
+                    id=fc.id, name=fc.name,
+                    response={"result": ("Não consegui mostrar o indicador de controle "
+                                         "na tela; nada foi executado."),
+                              "permitido": False})
+
         try:
             if name == "open_app":
                 r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
@@ -11482,7 +11574,7 @@ class NiaLive:
                     r = await loop.run_in_executor(None, lambda: digitar_na_tela(
                         parameters=args, player=self.ui,
                         gerar=self._openrouter.escrever_texto_em_camadas,
-                        deve_parar=lambda: self._parar_pc))
+                        deve_parar=self._freio_do_controle))
                 finally:
                     self._usando_pc = False
                 result = r or "Feito."
@@ -11506,7 +11598,7 @@ class NiaLive:
                             gerar=self._openrouter.escrever_em_camadas,
                             falar=self._falar_local,
                             olhar=self._olhar_o_desenho,
-                            deve_parar=lambda: self._parar_pc))
+                            deve_parar=self._freio_do_controle))
                     finally:
                         self._usando_pc = False
                         self._pc_liberado_ate = time.monotonic() + 120
@@ -11706,6 +11798,13 @@ class NiaLive:
             result = f"Tool '{name}' failed: {e}"
             traceback.print_exc()
             self.speak_error(name, e)
+
+        finally:
+            if _sessao_overlay is not None and _token_overlay is not None:
+                try:
+                    _sessao_overlay.encerrar(_token_overlay, 'ferramenta concluida')
+                except Exception:
+                    pass
 
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
@@ -14636,6 +14735,15 @@ def main():
     _rastrear_cameras()
     ui = NiaUI("face.png")
 
+    # NIA CONTROL OVERLAY: criado uma vez, na thread da interface. Nenhuma
+    # janela nasce aqui — elas só aparecem quando uma sessão de controle
+    # realmente começa, e morrem com o programa.
+    try:
+        from core.overlay_controle.gerenciador import GerenciadorOverlay  # noqa: PLC0415
+        ui._overlay_controle = GerenciadorOverlay()
+    except Exception as exc:
+        print(f"[NIA] Overlay de controle indisponível: {exc}")
+
     # Rotinas persistentes vivem fora do loop de voz: reconexões e F9 não
     # podem cancelar o agendador. Um único daemon espera a próxima ocorrência.
     try:
@@ -15075,6 +15183,16 @@ def _encerrar_tudo(motivo: str = "") -> None:
     except Exception:
         pass
     _voice_diag("programa_encerrou", f"fechando tudo ({motivo or 'pedido'})")
+
+    # Controle de tela: cancela a sessão e fecha as janelas do overlay antes
+    # de qualquer limpeza longa. Nenhuma ação pode seguir depois disso.
+    try:
+        from core import controle_sessao as _cs_fim  # noqa: PLC0415
+        _cs_fim.sessao.solicitar_parada('programa encerrando')
+        from core.overlay_controle.gerenciador import encerrar_global  # noqa: PLC0415
+        encerrar_global()
+    except Exception:
+        pass
 
     def _rede_de_seguranca() -> None:
         time.sleep(10.0)

@@ -33,7 +33,36 @@ def window(app,tmp_path,monkeypatch):
     w.hide(); w.deleteLater(); app.processEvents()
 
 
-def settle(app):
+def settle(app, stage=None):
+    """Espera a animação do núcleo terminar antes de medir geometria.
+
+    O `settle` antigo usava apenas 260 ms de espera fixa contra uma animação
+    de 220 ms; sob carga o event loop pode não processar todos os quadros e o
+    teste media uma posição transitória (causa da falha intermitente de
+    `test_results_thread_pin_update_copy_close_and_scroll`). A asserção
+    continua a mesma: apenas a sincronização com o estado real do Qt mudou.
+
+    Em processos de teste com várias MainWindow, o driver de animação do Qt
+    offscreen pode não avançar para janelas criadas depois da primeira. Nesse
+    caso (comprovado por instrumentação: `state=Running`, geometria intacta
+    mesmo após 1 s), aplicamos o layout final com `arrange(False)` — o mesmo
+    estado que a animação produziria. A asserção continua comparando a
+    geometria final calculada pelo produto, não quadros intermediários.
+    """
+    # Entrega sinais enfileirados (ex.: _content_sig emitido por outra thread)
+    # ANTES de consultar o estado da animação; caso contrário a espera vê
+    # "Stopped" anterior e termina antes de a nova animação começar.
+    app.processEvents()
+    QTest.qWait(0)
+    app.processEvents()
+    if stage is not None:
+        limite = time.monotonic() + 1.0
+        while (stage.motion.state() != stage.motion.State.Stopped
+               and time.monotonic() < limite):
+            QTest.qWait(20); app.processEvents()
+        if stage.motion.state() != stage.motion.State.Stopped:
+            stage.motion.stop()
+            stage.arrange(False)
     QTest.qWait(260); app.processEvents()
 
 
@@ -81,10 +110,10 @@ def test_results_thread_pin_update_copy_close_and_scroll(window,app):
     # Hoje e Agenda são cartões fixos; esconda-os para testar só os de resultado.
     w._stage.set_hoje_visible(False)
     w._stage.set_agenda_visivel(False)
-    settle(app)
+    settle(app, w._stage)
     center=w._hud_cam_stack.geometry().center().x()
     worker=threading.Thread(target=lambda:w._content_sig.emit('<b>Pesquisa</b>','<script>texto é dado</script>'))
-    worker.start(); worker.join(); settle(app)
+    worker.start(); worker.join(); settle(app, w._stage)
     first=w._stage.cards[0]
     assert first.label.textFormat()==Qt.TextFormat.PlainText
     assert first.text.toPlainText()=='<script>texto é dado</script>'
@@ -97,10 +126,10 @@ def test_results_thread_pin_update_copy_close_and_scroll(window,app):
     for i in range(6):
         w._show_content(str(i),str(i)); w._stage.cards[-1]._pin(True)
     assert first in w._stage.cards
-    w.resize(820,580); settle(app)
+    w.resize(820,580); settle(app, w._stage)
     assert w._stage.results.verticalScrollBar().maximum()>0
     for card in list(w._stage.cards): w._stage.close_card(card)
-    settle(app)
+    settle(app, w._stage)
     assert not w._stage.results.isVisible()
     assert abs(w._hud_cam_stack.geometry().center().x()-w._stage.width()/2)<2
 

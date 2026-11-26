@@ -96,17 +96,8 @@ def _get_cpu_temp() -> float:
     except Exception:
         pass
 
-    # Windows: wmi module (pure Python COM, zero subprocess)
-    if _OS == "Windows":
-        try:
-            import wmi  # type: ignore
-            w = wmi.WMI(namespace="root/wmi")
-            tz = w.MSAcpi_ThermalZoneTemperature()
-            if tz:
-                return (tz[0].CurrentTemperature / 10.0) - 273.15
-        except Exception:
-            pass
-
+    # Sem WMI: `wmi.WMI()` usa COM e esta função roda em thread de monitoramento
+    # sem CoInitialize. Isso causava 0x800401f0 e abortava o processo.
     return -1.0
 
 

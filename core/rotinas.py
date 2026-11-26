@@ -12,6 +12,7 @@ A separação tarefas/execuções e o log de resultados foram inspirados em
 """
 from __future__ import annotations
 
+from calendar import monthrange
 import os
 import sqlite3
 import threading
@@ -20,7 +21,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-TIPOS = ('unica', 'diaria', 'dias_uteis')
+TIPOS = ('unica', 'diaria', 'dias_uteis', 'semanal', 'mensal', 'intervalo')
 ACOES = ('lembrete', 'resumo')
 ESTADOS = ('ativo', 'pausado')
 ORIGENS = ('agendada', 'manual')
@@ -44,7 +45,9 @@ def fuso_padrao() -> str:
         return 'America/Sao_Paulo'
 
 
-def _iso(instante: datetime) -> str:
+def _iso(instante: datetime | None) -> str | None:
+    if instante is None:
+        return None
     return instante.astimezone(timezone.utc).isoformat()
 
 
@@ -83,19 +86,61 @@ def resolver_hora(dia: date, hora: time, fuso: str) -> datetime:
 def proxima_ocorrencia(rotina: dict, agora: datetime | None = None) -> datetime | None:
     """Próxima ocorrência futura, calculada no horário local da rotina."""
     agora = agora or datetime.now(timezone.utc)
-    local = agora.astimezone(_fuso(rotina.get('fuso') or fuso_padrao()))
+    fuso = rotina.get('fuso') or fuso_padrao()
+    local = agora.astimezone(_fuso(fuso))
     hora = time.fromisoformat(rotina['hora'])
     tipo = rotina.get('repeticao') or 'unica'
     if tipo == 'unica':
         dia = date.fromisoformat(rotina['data']) if rotina.get('data') else local.date()
-        candidata = resolver_hora(dia, hora, rotina.get('fuso') or fuso_padrao())
+        candidata = resolver_hora(dia, hora, fuso)
         return candidata if candidata > agora else None
+    if tipo == 'intervalo':
+        try:
+            minutos = int(rotina.get('intervalo_minutos') or 0)
+        except (TypeError, ValueError):
+            return None
+        if minutos <= 0:
+            return None
+        if not rotina.get('data'):
+            return None
+        ancora = resolver_hora(date.fromisoformat(rotina['data']), hora, fuso)
+        if ancora <= agora:
+            decorridos = (agora - ancora).total_seconds() // 60
+            saltos = int(decorridos // minutos) + 1
+            ancora += timedelta(minutes=minutos * saltos)
+        return ancora if ancora > agora else None
+    if tipo == 'semanal':
+        if not rotina.get('data'):
+            return None
+        alvo = date.fromisoformat(rotina['data']).weekday()
+        dia = local.date()
+        for _ in range(10):
+            if dia.weekday() == alvo:
+                candidata = resolver_hora(dia, hora, fuso)
+                if candidata > agora:
+                    return candidata
+            dia += timedelta(days=1)
+        return None
+    if tipo == 'mensal':
+        if not rotina.get('data'):
+            return None
+        dia_alvo = date.fromisoformat(rotina['data']).day
+        ano, mes = local.year, local.month
+        for _ in range(14):
+            ultimo = monthrange(ano, mes)[1]
+            candidata = resolver_hora(date(ano, mes, min(dia_alvo, ultimo)), hora, fuso)
+            if candidata > agora:
+                return candidata
+            mes += 1
+            if mes > 12:
+                ano, mes = ano + 1, 1
+        return None
     dia = local.date()
     for _ in range(10):
         if tipo == 'dias_uteis' and dia.weekday() > 4:
             dia += timedelta(days=1)
             continue
-        candidata = resolver_hora(dia, hora, rotina.get('fuso') or fuso_padrao())
+        candidata = resolver_hora(dia, hora, fuso)
         if candidata > agora:
             return candidata
         dia += timedelta(days=1)
@@ -126,6 +171,7 @@ class ArmazemRotinas:
                 estado TEXT NOT NULL DEFAULT 'ativo',
                 repeticao TEXT NOT NULL DEFAULT 'unica',
                 data TEXT,
+                intervalo_minutos INTEGER,
                 hora TEXT NOT NULL,
                 fuso TEXT NOT NULL,
                 proxima_execucao TEXT,
@@ -150,6 +196,8 @@ class ArmazemRotinas:
         if 'acao' not in colunas:
             conexao.execute(
                 "ALTER TABLE rotinas ADD COLUMN acao TEXT NOT NULL DEFAULT 'lembrete'")
+        if 'intervalo_minutos' not in colunas:
+            conexao.execute('ALTER TABLE rotinas ADD COLUMN intervalo_minutos INTEGER')
         return conexao
 
     @staticmethod
@@ -184,23 +232,30 @@ class ArmazemRotinas:
             'estado': 'ativo',
             'repeticao': dados.get('repeticao') if dados.get('repeticao') in TIPOS else 'unica',
             'data': str(dados.get('data') or '') or None,
+            'intervalo_minutos': None,
             'hora': str(dados.get('hora') or '09:00'),
             'fuso': str(dados.get('fuso') or fuso_padrao()),
             'criada_em': agora,
             'atualizada_em': agora,
         }
+        if rotina['repeticao'] == 'intervalo':
+            try:
+                minutos = int(dados.get('intervalo_minutos') or 0)
+            except (TypeError, ValueError):
+                minutos = 0
+            rotina['intervalo_minutos'] = minutos if minutos > 0 else None
         rotina['proxima_execucao'] = (
             _iso(proxima_ocorrencia(rotina)) if rotina['estado'] == 'ativo' else None)
         with self._trava, self._conectar() as conexao:
             conexao.execute("""
                 INSERT INTO rotinas
-                (id, titulo, mensagem, acao, estado, repeticao, data, hora, fuso,
-                 proxima_execucao, ultima_execucao, criada_em, atualizada_em)
-                VALUES (?,?,?,?,?,?,?,?,?,?,NULL,?,?)""",
+                (id, titulo, mensagem, acao, estado, repeticao, data, intervalo_minutos,
+                 hora, fuso, proxima_execucao, ultima_execucao, criada_em, atualizada_em)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)""",
                 (rotina['id'], rotina['titulo'], rotina['mensagem'], rotina['acao'],
                  rotina['estado'], rotina['repeticao'], rotina['data'],
-                 rotina['hora'], rotina['fuso'], rotina['proxima_execucao'],
-                 rotina['criada_em'], rotina['atualizada_em']))
+                 rotina['intervalo_minutos'], rotina['hora'], rotina['fuso'],
+                 rotina['proxima_execucao'], rotina['criada_em'], rotina['atualizada_em']))
         return rotina
 
     def atualizar(self, rotina_id: str, mudancas: dict) -> dict | None:
@@ -210,7 +265,13 @@ class ArmazemRotinas:
                 return None
             atual.update({k: v for k, v in mudancas.items()
                           if k in ('titulo', 'mensagem', 'acao', 'repeticao',
-                                   'data', 'hora', 'fuso')})
+                                   'data', 'hora', 'fuso', 'intervalo_minutos')})
+            if atual['repeticao'] == 'intervalo':
+                try:
+                    minutos = int(atual.get('intervalo_minutos') or 0)
+                except (TypeError, ValueError):
+                    minutos = 0
+                atual['intervalo_minutos'] = minutos if minutos > 0 else None
             if atual['repeticao'] == 'unica' and not atual.get('data'):
                 atual['data'] = date.today().isoformat()
             atual['atualizada_em'] = _iso(datetime.now(timezone.utc))
@@ -220,10 +281,12 @@ class ArmazemRotinas:
             with self._conectar() as conexao:
                 conexao.execute("""
                     UPDATE rotinas SET titulo=?, mensagem=?, acao=?, repeticao=?, data=?,
-                    hora=?, fuso=?, proxima_execucao=?, atualizada_em=? WHERE id=?""",
+                    intervalo_minutos=?, hora=?, fuso=?, proxima_execucao=?,
+                    atualizada_em=? WHERE id=?""",
                     (atual['titulo'], atual['mensagem'], atual.get('acao', 'lembrete'),
-                     atual['repeticao'], atual['data'], atual['hora'], atual['fuso'],
-                     atual['proxima_execucao'], atual['atualizada_em'], rotina_id))
+                     atual['repeticao'], atual['data'], atual.get('intervalo_minutos'),
+                     atual['hora'], atual['fuso'], atual['proxima_execucao'],
+                     atual['atualizada_em'], rotina_id))
         return atual
 
     def pausar(self, rotina_id: str) -> bool:
@@ -377,6 +440,13 @@ class Agendador:
         self._parar = threading.Event()
         self._thread: threading.Thread | None = None
         self._trava = threading.Lock()
+
+    def definir_notificador(self, notificador) -> None:
+        """Troca o canal de avisos sem recriar o agendador nem o armazem."""
+        if notificador is not None and not callable(notificador):
+            raise TypeError('Notificador deve ser chamável.')
+        with self._trava:
+            self._notificador = notificador
 
     @staticmethod
     def _leitura_automatica_padrao() -> bool:

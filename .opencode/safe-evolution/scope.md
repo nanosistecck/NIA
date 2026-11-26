@@ -84,3 +84,65 @@ todas as funções usadas por testes e todas as mudanças locais preexistentes.
 - [ ] Triagem individual dos candidatos restantes
 - [ ] Remoções em lotes pequenos, com testes e registro
 
+
+## 2026-11-25 — Programa NIA CORE EVOLUTION (20 fases)
+
+### Solicitado
+Executar os prompts 01–20 em ordem de dependência, preservando motor,
+provedores, interface, agenda, Canvas, ferramentas, configurações e dados.
+Usar modo Safe Evolution; não reiniciar planejamento se houver progresso.
+
+### Estado lido
+`NIA_CORE_EVOLUTION/state/CHECKPOINT.json` está `pending`, sem baseline:
+iniciar Prompt 01. Git: `NiaSDK` @ `29ed677` com 40 entradas locais
+preservadas. Nenhum commit/branch/push criado.
+
+### Abordagem escolhida (reuso antes de criação)
+1. **Fases 01–06 (fundação):** usar `catalogo_habilidades`,
+   `registro_aplicativos`, `contexto_ferramentas`, `permissoes_ferramentas`
+   e o executor único de `main.py`. Acrescentar campos opcionais e módulos
+   novos, sem alterar assinaturas públicas nem duplicar serviços.
+2. **Fases 07–10 (conhecimento):** adaptar `memory_manager`, `diario`,
+   `indice_local` e `busca_fontes` com persistência SQLite por perfil,
+   backup e migração idempotente; nunca apagar originais.
+3. **Fases 11–15 (automação):** estender `core/rotinas.py` (já existe
+   agendador único, SQLite e DST), `whatsapp_bridge` e `segundo_plano`
+   com eventos/outbox locais, sem segundo agendador residente.
+4. **Fases 16–20 (consolidação):** endurecer política de confiança e
+   isolamento; reutilizar `tema`, `frame_nativo` e dock para o UI Kit;
+   plugin factory, atualização e homologação dependem de código local/
+   autorização e ficam marcadas como `blocked`/`pending` quando aplicável.
+
+### Preservado (gate em toda unidade)
+- `TOOL_DECLARATIONS`, roteamento multiprovedor e executor único.
+- Aliases e assinaturas antigas de catálogo/registros.
+- Agenda, planos/Canvas, dock, Central, clima, voz e dados de perfil.
+- Tema/identidade visual, janelas nativas e atalho F9.
+- Nenhuma instalação externa, rede com dados privados, credencial em log,
+  commit/push ou ação de produção sem autorização explícita.
+
+### Fora de escopo até autorização/presença de recursos
+- Pilotos Casa Inteligente/TinyTuya, AirMouse e Central de Leitura (Fase 20).
+- Download/execução de código upstream ou plugins desconhecidos (Fases 05, 18, 19).
+- Testes reais de WhatsApp, microfone, câmera, DPI físico e dispositivos.
+
+### Plano de execução
+- [x] Diagnóstico: protocolos, skills, state, Git e código real
+- [x] Fase 01: baseline de testes e desempenho; inventário; fechar gate
+- [x] Fases 02–06: contrato, SDK, formato e gerenciador
+- [x] Fase 03: gateway integrado à porta real de ferramentas
+- [x] Fases 07–10: aprendizado, memória, consolidação, conhecimento
+- [x] Fases 11–14: planos, recorrência, eventos e outbox
+- [x] Fases 15–16: segundo plano e política de confiança + threat model
+- [x] Fases 17–19: UI Kit, factory local e atualizador local
+- [x] Fase 20: homologação automática (relatório parcial entregue)
+
+### Resultado final (26/11/2026)
+Fases **01–20 `passed`**. Suíte final: **1005 passed, 0 failed** com
+`pytest tests -q`. Revisão de hardware/provedores entregue em
+`REVIEW_EXISTING.md`; prontidão `.niateck`, migração SQLite, boot NiaLive e
+dashboard Tab/compacto finalizados com evidências. Pilotos TinyTuya/AirMouse/
+Central de Leitura e upstream licenciado são trabalho futuro com plugins,
+conforme esclarecido pelo dono. Commit/push continuam proibidos.
+`NIA_PLUGIN_FACTORY/` preservado. Detalhes em `NIA_CORE_EVOLUTION/state/HANDOFF.md`.
+

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Correcoes apontadas pelos testes reais do dono na Agenda."""
 import os
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +14,12 @@ from core import agenda, comandos_agenda as CA, comandos_planos as CP
 def nia(tmp_path, monkeypatch):
     monkeypatch.setenv("NIA_AGENDA", str(tmp_path / "agenda.json"))
     monkeypatch.setenv("NIA_PERFIL", "correcoes")
+    # Relógio congelado: os testes usam datas relativas a 23/11/2026 10:00 (-03).
+    # Sem isto, "próximo" e saudações mudam de resultado após a meia-noite.
+    agora_original = agenda._agora
+    agora_fixo = datetime(2026, 11, 23, 13, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(agenda, "_agora",
+        lambda agora=None: agora_fixo if agora is None else agora_original(agora))
     registros = []
     obj = object.__new__(main.NiaLive)
     obj.ui = SimpleNamespace(

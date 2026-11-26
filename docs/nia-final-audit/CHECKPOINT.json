@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "stage": "homologacao_final",
+  "requirement": "auditoria global + modo livre + correções relatadas",
+  "issue": "concluído; dependências externas em PENDING.md",
+  "files": [
+    "core/autonomia_total.py",
+    "core/preflight.py",
+    "main.py",
+    "core/frame_nativo.py",
+    "core/windows_frame.py",
+    "ui.py",
+    "actions/web_search.py",
+    "actions/weather_report.py",
+    "actions/system_monitor.py",
+    "docs/nia-final-audit/*"
+  ],
+  "tests": [
+    "pytest tests -q → 1036 passed, 0 failed, exit 0",
+    "compileall → 0",
+    "git diff --check → 0"
+  ],
+  "next_action": "Nenhuma ação interna pendente; commit/push aguardam autorização",
+  "classification": "HOMOLOGADO PARCIALMENTE",
+  "updated_at": "2026-11-26"
+}

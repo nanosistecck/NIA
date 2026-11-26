@@ -207,6 +207,10 @@ def processar(texto: str, agora=None) -> dict:
         return {"tratado": True, "acao": "editar",
                 "campos": {"estado": "pendente"}}
 
+    if re.search(r"\b(?:me\s+)?avis[ae](?:-me)?\s+antes\s+(?:de|da|do)\b", n):
+        return {"tratado": True, "acao": "editar",
+                "campos": {"preparo_minutos": 30}}
+
     if re.search(r"mude o preparo|altere o preparo|preparo.*para \d+", n):
         encontrado = re.search(r"(\d+)\s*(?:minutos?|min)\b", n)
         minutos = int(encontrado.group(1)) if encontrado else 30
@@ -215,6 +219,11 @@ def processar(texto: str, agora=None) -> dict:
 
     if re.search(r"\b(?:mude|mover|reagende|reagendar|adiar)\b", n) and _tem_data(n):
         inicio = AG.interpretar(texto, agora=agora)
+        if inicio is None and re.search(r"\d{1,2}\s*(?:h|:)", n) \
+                and not re.search(r"\b(?:amanh[aã]|hoje|depois de amanh[aã]|"
+                                  r"\d{1,2}/\d{1,2})\b", n):
+            # Só hora dita: usar hoje como âncora, como em "mude para as 15h".
+            inicio = AG.interpretar(texto + " hoje", agora=agora)
         if inicio:
             return {"tratado": True, "acao": "mover", "inicio": inicio}
 

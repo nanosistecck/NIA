@@ -51,12 +51,15 @@ class FrameNativoMixin:
         return result
 
     def nativeEvent(self, event_type, message):
+        # PyQt6: chamar super().nativeEvent() dentro de um override quebra
+        # ao criar o HWND (access violation em winId). Mensagens não tratadas
+        # pelo quadro são devolvidas ao DefWindowProc pelo próprio Qt.
         try:
             frame = getattr(self, '_frame_nativo', None)
         except RuntimeError:
-            return super().nativeEvent(event_type, message)
+            return False, 0
         if frame is not None:
             result = frame.native_event(message)
             if result is not None:
                 return True, result
-        return super().nativeEvent(event_type, message)
+        return False, 0

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextvars
 import re
+import threading
 import unicodedata
 from dataclasses import dataclass
 from typing import Callable
@@ -47,12 +48,148 @@ class Habilidade:
     exemplo: str
     acao: str
     config: str = ''
+    versao: str = '1.0.0'
+    api: int = 1
+    capacidades: tuple[str, ...] = ()
+    permissoes: tuple[str, ...] = ()
+    # Campos opcionais do contrato universal (Fase 02). Valores padrão
+    # preservam todos os manifestos e chamadas existentes.
+    esquema_entrada: dict | None = None
+    esquema_saida: dict | None = None
+    agendavel: bool = False
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class Disponibilidade:
     pronta: bool
     motivo: str
+
+
+@dataclass(frozen=True)
+class Resultado:
+    ok: bool
+    mensagem: str
+    codigo: str = 'ok'
+
+    def como_tupla(self) -> tuple[bool, str]:
+        return self.ok, self.mensagem
+
+
+@dataclass(frozen=True)
+class _Modulo:
+    habilidade: Habilidade
+    executar: Callable[[str], Resultado]
+    disponibilidade: Callable[[], Disponibilidade] | None = None
+    encerrar: Callable[[], None] | None = None
+    ativo: bool = True
+
+
+_MODULOS: dict[str, _Modulo] = {}
+_TRAVA_MODULOS = threading.RLock()
+
+
+def registrar_modulo(habilidade: Habilidade, executar: Callable[[str], Resultado],
+                     *, disponibilidade: Callable[[], Disponibilidade] | None = None,
+                     encerrar: Callable[[], None] | None = None) -> None:
+    """Registro explícito pelo código local confiável, sem import ou descoberta.
+
+    Permissões são declarações de escopo; autorização em execução é uma política
+    separada. Não registrar conteúdo de páginas, respostas de modelos ou JSON remoto.
+    O callback roda pela ponte única de NiaLive, nunca durante o registro.
+    """
+    if not isinstance(habilidade, Habilidade):
+        raise TypeError('Manifesto deve ser uma Habilidade.')
+    if (type(habilidade.api) is not int or habilidade.api != 1
+            or not re.fullmatch(r'\d+\.\d+\.\d+', habilidade.versao)):
+        raise ValueError('Versão de manifesto incompatível.')
+    if not re.fullmatch(r'[a-z][a-z0-9_]{0,63}', habilidade.id):
+        raise ValueError('Identificador de habilidade inválido.')
+    for campo in (habilidade.nome, habilidade.descricao, habilidade.exemplo, habilidade.acao):
+        if not isinstance(campo, str) or not campo.strip():
+            raise ValueError('Manifesto incompleto.')
+    for escopos in (habilidade.capacidades, habilidade.permissoes):
+        if (not isinstance(escopos, tuple)
+                or any(not isinstance(s, str) or not s.strip() for s in escopos)):
+            raise ValueError('Capacidades e permissões devem ser tuplas de nomes.')
+    if not callable(executar) or any(f is not None and not callable(f)
+                                     for f in (disponibilidade, encerrar)):
+        raise TypeError('Callbacks locais inválidos.')
+    if type(habilidade.agendavel) is not bool:
+        raise ValueError('Agendabilidade deve ser booleana.')
+    if (not isinstance(habilidade.aliases, tuple)
+            or any(not isinstance(a, str) or not a.strip() for a in habilidade.aliases)):
+        raise ValueError('Aliases devem ser tuplas de nomes.')
+    if habilidade.esquema_entrada is not None or habilidade.esquema_saida is not None:
+        from core.contrato_universal import validar_esquema  # importação local
+        validar_esquema(habilidade.esquema_entrada)
+        validar_esquema(habilidade.esquema_saida)
+    with _TRAVA_MODULOS:
+        if por_id(habilidade.id) is not None:
+            raise ValueError('Identificador já registrado.')
+        _MODULOS[habilidade.id] = _Modulo(habilidade, executar, disponibilidade, encerrar)
+
+
+def ativar_modulo(identificador: str, ativo: bool) -> bool:
+    """Desativa novas chamadas sem descarregar serviços ou executar código."""
+    from dataclasses import replace
+    if type(ativo) is not bool:
+        raise TypeError('Estado deve ser booleano.')
+    with _TRAVA_MODULOS:
+        modulo = _MODULOS.get(identificador)
+        if modulo is None:
+            return False
+        _MODULOS[identificador] = replace(modulo, ativo=ativo)
+        return True
+
+
+def modulo_registrado(identificador: str) -> bool:
+    with _TRAVA_MODULOS:
+        return identificador in _MODULOS
+
+
+def desregistrar_modulo(identificador: str) -> Resultado:
+    """Retira o módulo antes de seu fechamento; módulos nativos são preservados."""
+    with _TRAVA_MODULOS:
+        modulo = _MODULOS.pop(identificador, None)
+    if modulo is None:
+        return Resultado(False, 'Módulo não registrado.', 'ausente')
+    try:
+        if modulo.encerrar is not None:
+            modulo.encerrar()
+    except Exception:
+        return Resultado(False, 'Falha ao encerrar o módulo.', 'erro_encerramento')
+    return Resultado(True, 'Módulo encerrado.')
+
+
+def executar_modulo(identificador: str, termo: str = '') -> Resultado:
+    """Adaptador chamado exclusivamente pela ponte de execução existente."""
+    if not isinstance(termo, str):
+        return Resultado(False, 'Argumento da ferramenta inválido.', 'argumento_invalido')
+    with _TRAVA_MODULOS:
+        modulo = _MODULOS.get(identificador)
+    if modulo is None:
+        return Resultado(False, 'Módulo não registrado.', 'ausente')
+    if not modulo.ativo:
+        return Resultado(False, 'Módulo desativado.', 'desativado')
+    try:
+        estado = modulo.disponibilidade() if modulo.disponibilidade else Disponibilidade(True, 'Pronta.')
+        if not isinstance(estado, Disponibilidade):
+            return Resultado(False, 'Estado do módulo inválido.', 'contrato_invalido')
+        if not estado.pronta:
+            return Resultado(False, estado.motivo, 'indisponivel')
+        from core.permissoes_ferramentas import verificar
+        try:
+            verificar(identificador, {'termo': termo}, modulo.habilidade.permissoes)
+        except (PermissionError, ValueError):
+            return Resultado(False, 'Esta ferramenta exige confirmação da ação.', 'permissao_negada')
+        resultado = modulo.executar(termo)
+        if not isinstance(resultado, Resultado) or type(resultado.ok) is not bool or not isinstance(resultado.mensagem, str):
+            return Resultado(False, 'Resultado do módulo inválido.', 'contrato_invalido')
+        return resultado
+    except Exception:
+        # O texto de uma exceção de integração pode conter credenciais.
+        return Resultado(False, 'Não foi possível executar o módulo.', 'erro')
 
 
 CATALOGO: tuple[Habilidade, ...] = (
@@ -84,11 +221,12 @@ CATALOGO: tuple[Habilidade, ...] = (
 
 
 def todas() -> tuple[Habilidade, ...]:
-    return CATALOGO
+    with _TRAVA_MODULOS:
+        return CATALOGO + tuple(m.habilidade for m in _MODULOS.values())
 
 
 def por_id(identificador: str) -> Habilidade | None:
-    return next((h for h in CATALOGO if h.id == identificador), None)
+    return next((h for h in todas() if h.id == identificador), None)
 
 
 def registrar_executor(funcao: Callable[[str, str], tuple[bool, str]]) -> None:
@@ -106,11 +244,36 @@ def executar(identificador: str, termo: str = '') -> tuple[bool, str]:
     return _EXECUTOR(identificador, termo or '')
 
 
+def executar_resultado(identificador: str, termo: str = '') -> Resultado:
+    """Resultado tipado com a mesma execução de chat/voz, sem executor paralelo."""
+    if por_id(identificador) is None:
+        return Resultado(False, 'Habilidade desconhecida.', 'ausente')
+    if _EXECUTOR is None:
+        return Resultado(False, 'A ponte da NIA ainda não foi inicializada.', 'nao_inicializado')
+    try:
+        ok, mensagem = executar(identificador, termo)
+        if type(ok) is not bool or not isinstance(mensagem, str):
+            return Resultado(False, 'Resultado da ponte inválido.', 'contrato_invalido')
+        return Resultado(ok, mensagem, 'ok' if ok else 'falha')
+    except Exception:
+        return Resultado(False, 'Não foi possível executar a habilidade.', 'erro')
+
+
 def disponibilidade(identificador: str) -> Disponibilidade:
     """Estado local da habilidade, sem rede, modelo ou varredura."""
     habilidade = por_id(identificador)
     if habilidade is None:
         return Disponibilidade(False, 'Habilidade desconhecida.')
+    with _TRAVA_MODULOS:
+        modulo = _MODULOS.get(identificador)
+    if modulo is not None:
+        if not modulo.ativo:
+            return Disponibilidade(False, 'Módulo desativado.')
+        try:
+            estado = modulo.disponibilidade() if modulo.disponibilidade else Disponibilidade(True, 'Módulo pronto.')
+            return estado if isinstance(estado, Disponibilidade) else Disponibilidade(False, 'Estado do módulo inválido.')
+        except Exception:
+            return Disponibilidade(False, 'Módulo indisponível.')
     if habilidade.id == 'secretaria':
         try:
             from core import secretaria  # noqa: PLC0415

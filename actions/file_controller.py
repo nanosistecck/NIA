@@ -403,6 +403,8 @@ def _find_files_windows_dir_fast(query_name: str, ext: str, roots: list[Path],
 def _is_safe_path(target: Path) -> bool:
     """Permite a pasta do usuário e discos de dados, mas protege o disco do sistema."""
     try:
+        from core.permissoes_ferramentas import validar_caminho_operacao
+        validar_caminho_operacao(str(target))
         resolved = target.resolve()
         if any(
             resolved == root.resolve() or resolved.is_relative_to(root.resolve())
@@ -606,6 +608,14 @@ def _conserta_usuario_inventado(caminho: Path) -> Path:
 
 
 def _resolve_path(raw: str) -> Path:
+    from core.permissoes_ferramentas import validar_caminho_operacao
+    validar_caminho_operacao(str(raw or ''))
+    destino = _resolve_path_original(raw)
+    validar_caminho_operacao(str(destino))
+    return destino
+
+
+def _resolve_path_original(raw: str) -> Path:
     raw_text = str(raw or "").strip().strip('"').strip("'")
     normalized = _normalize_shortcut(raw_text)
 
@@ -1862,6 +1872,13 @@ def file_controller(
     session_memory=None,
 ) -> str:
     params = parameters or {}
+    from core.permissoes_ferramentas import validar_caminho_operacao
+    try:
+        for campo in ('path', 'destination', 'name', 'new_name', 'output_name'):
+            if params.get(campo):
+                validar_caminho_operacao(params[campo])
+    except (PermissionError, ValueError, TypeError, OSError):
+        return 'Operação recusada: caminho inválido ou protegido.'
     action = params.get("action", "").lower().strip().replace(" ", "_").replace("-", "_")
     action_aliases = {
         "zip": "compress",

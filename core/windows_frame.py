@@ -54,10 +54,13 @@ class WindowsFrame:
     def install(self):
         if self.failed or QApplication.platformName() != "windows":
             return False
-        hwnd = int(self.window.winId())
-        if self.active and self.hwnd == hwnd:
-            return True
         try:
+            # winId() pode falhar na janela que ainda está sendo construída.
+            # Nunca deixe essa exceção chegar ao clique do dock: a janela
+            # continua com a moldura padrão do Windows.
+            hwnd = int(self.window.winId())
+            if self.active and self.hwnd == hwnd:
+                return True
             self.user = c.WinDLL('user32', use_last_error=True)
             self.dwm = c.WinDLL('dwmapi')
             self.gdi = c.WinDLL('gdi32', use_last_error=True)

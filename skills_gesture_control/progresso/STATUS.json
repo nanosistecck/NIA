@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "estado": "pendente",
+  "fase_atual": 1,
+  "tarefa_atual": "Auditoria inicial",
+  "fases": [
+    {
+      "id": 1,
+      "estado": "pendente"
+    },
+    {
+      "id": 2,
+      "estado": "pendente"
+    },
+    {
+      "id": 3,
+      "estado": "pendente"
+    },
+    {
+      "id": 4,
+      "estado": "pendente"
+    },
+    {
+      "id": 5,
+      "estado": "pendente"
+    },
+    {
+      "id": 6,
+      "estado": "pendente"
+    },
+    {
+      "id": 7,
+      "estado": "pendente"
+    },
+    {
+      "id": 8,
+      "estado": "pendente"
+    },
+    {
+      "id": 9,
+      "estado": "pendente"
+    },
+    {
+      "id": 10,
+      "estado": "pendente"
+    },
+    {
+      "id": 11,
+      "estado": "pendente"
+    },
+    {
+      "id": 12,
+      "estado": "pendente"
+    },
+    {
+      "id": 13,
+      "estado": "pendente"
+    },
+    {
+      "id": 14,
+      "estado": "pendente"
+    },
+    {
+      "id": 15,
+      "estado": "pendente"
+    },
+    {
+      "id": 16,
+      "estado": "pendente"
+    }
+  ],
+  "arquivos_relevantes": [],
+  "ultimo_teste": null,
+  "bloqueios": []
+}

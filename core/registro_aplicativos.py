@@ -65,6 +65,13 @@ class DescritorApp:
     carregador: str = ''
     janela: str = ''
     origem: str = 'interno'
+    # Contrato universal (Fase 02): opcionais por compatibilidade.
+    versao: str = '1.0.0'
+    api: int = 1
+    esquema_entrada: dict | None = None
+    esquema_saida: dict | None = None
+    agendavel: bool = False
+    aliases: tuple[str, ...] = ()
 
     def como_dict(self) -> dict:
         return {
@@ -82,6 +89,10 @@ class DescritorApp:
             'exigir_config': self.exigir_config, 'chave_config': self.chave_config,
             'multiplas_instancias': self.multiplas_instancias,
             'janela': self.janela, 'origem': self.origem,
+            'versao': self.versao, 'api': self.api,
+            'esquema_entrada': self.esquema_entrada,
+            'esquema_saida': self.esquema_saida,
+            'agendavel': self.agendavel, 'aliases': list(self.aliases),
         }
 
 
@@ -140,6 +151,19 @@ def validar(descritor: DescritorApp) -> None:
         raise ValueError('Janela inválida.')
     if descritor.dominio_ferramenta and not _ID.fullmatch(descritor.dominio_ferramenta):
         raise ValueError('Domínio inválido.')
+    if type(descritor.api) is not int or descritor.api != 1:
+        raise ValueError('Versão de API incompatível.')
+    if not isinstance(descritor.versao, str) or not re.fullmatch(r'\d+\.\d+\.\d+', descritor.versao):
+        raise ValueError('Versão de manifesto inválida.')
+    if type(descritor.agendavel) is not bool:
+        raise ValueError('Agendabilidade deve ser booleana.')
+    if (not isinstance(descritor.aliases, tuple)
+            or any(not isinstance(a, str) or not a.strip() for a in descritor.aliases)):
+        raise ValueError('Aliases devem ser tuplas de nomes.')
+    if descritor.esquema_entrada is not None or descritor.esquema_saida is not None:
+        from core.contrato_universal import validar_esquema  # importação local
+        validar_esquema(descritor.esquema_entrada)
+        validar_esquema(descritor.esquema_saida)
 
 
 def registrar(descritor: DescritorApp, *, substituir: bool = False) -> None:
@@ -198,6 +222,12 @@ def sincronizar_habilidades() -> int:
             palavras_chave=tuple(p for p in habilidade.exemplo.split() if len(p) > 3),
             carregamento_sob_demanda=True,
             origem='catalogo',
+            versao=habilidade.versao,
+            api=habilidade.api,
+            esquema_entrada=habilidade.esquema_entrada,
+            esquema_saida=habilidade.esquema_saida,
+            agendavel=habilidade.agendavel,
+            aliases=habilidade.aliases,
         )
         try:
             registrar(descritor, substituir=True)

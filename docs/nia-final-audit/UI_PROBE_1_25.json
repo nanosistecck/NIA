@@ -1,0 +1,40 @@
+﻿{
+  "resultados": [
+    {
+      "resolucao": "1280x720",
+      "escala": "1.25",
+      "captura": "geral-1280x720-escala1_25.png",
+      "ok": true,
+      "bytes": 179166,
+      "minimum_width": 864,
+      "overflow": false
+    },
+    {
+      "resolucao": "1366x768",
+      "escala": "1.25",
+      "captura": "geral-1366x768-escala1_25.png",
+      "ok": true,
+      "bytes": 185251,
+      "minimum_width": 864,
+      "overflow": false
+    },
+    {
+      "resolucao": "1920x1080",
+      "escala": "1.25",
+      "captura": "geral-1920x1080-escala1_25.png",
+      "ok": true,
+      "bytes": 231359,
+      "minimum_width": 864,
+      "overflow": false
+    },
+    {
+      "resolucao": "2560x1440",
+      "escala": "1.25",
+      "captura": "geral-2560x1440-escala1_25.png",
+      "ok": true,
+      "bytes": 289100,
+      "minimum_width": 864,
+      "overflow": false
+    }
+  ]
+}

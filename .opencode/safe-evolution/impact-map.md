@@ -40,3 +40,23 @@ núcleo visual, provedores de IA e dados locais do usuário.
 
 Fora de impacto nesta rodada: produto, dados de perfil, credenciais, testes e
 todas as mudanças locais preexistentes fora de `EVOLUCAO-NIA/`.
+
+
+## 2026-11-25 — Programa NIA CORE EVOLUTION (mapa de impacto)
+
+| Área / arquivo | Contrato existente | Mudança prevista | Risco | Validação |
+|---|---|---|---|---|
+| `main.py` (`TOOL_DECLARATIONS`, `_execute_tool`, `_executar_ferramenta_local`, `interrupt`) | Executor único, 44+ ferramentas, voice/chat/canvas/remoto | **Nenhuma substituição**; apenas adaptador fino de gateway quando necessário | Alto: duplicar execução ou quebrar voz | testes de paridade de origem e autorização negada |
+| `core/catalogo_habilidades.py` | `Habilidade`, `Disponibilidade`, `Resultado`, `registrar_modulo`, `executar_modulo` | Campos opcionais: `esquema_entrada`, `esquema_saida`, `agendavel`, `aliases` (default compatível) | Médio: validação pode rejeitar manifestos antigos | testes de compatibilidade/colisão/schema |
+| `core/registro_aplicativos.py` | `DescritorApp` declarativo, `validar`, `carregar` sob demanda | Reutilizar como descoberta; sem importação antecipada | Médio: Central/dock | testes de registro sem importar plugins |
+| `core/contexto_ferramentas.py` + `core/permissoes_ferramentas.py` | Ação tipada, TTL, consentimento por hash, caminhos protegidos | Gateway reusa; sem nova política paralela | Alto: burla de autorização | testes negativos e de redação de logs |
+| `core/rotinas.py` | SQLite, UTC/DST, reserva atômica, um agendador | Acrescentar recorrência semanal/mensal/intervalo **sem segundo agendador** | Médio: duplicidade de efeitos | relógio falso, DST, concorrência |
+| `memory/memory_manager.py`, `memory/diario.py` | APIs `load_memory`, `update_memory`, `anotar`, `ler` | Adaptador SQLite opcional com backup; original preservado | Alto: perda de dados | migração idempotente, rollback, contagem |
+| `core/indice_local.py`, `core/busca_fontes.py` | FTS5 + fallback, citações | Camada de conhecimento por IDs; sem indexar fonte não autorizada | Médio: fontes e privacidade | busca local sem rede, exclusão |
+| `ui.py`, `core/tema.py`, `core/frame_nativo.py`, `core/windows_frame.py`, `core/central_aplicativos.py` | Tema NIA, dock, Central, janelas nativas | UI Kit reutiliza componentes; nada de design genérico | Médio: layout/DPI/foco | capturas offscreen e testes Qt |
+| `NIA_CORE_EVOLUTION/state/*` | Estado próprio do programa | Atualizar por unidade, de forma atômica | Nenhum | leitura e validação do JSON |
+| `.opencode/safe-evolution/*.md` | Estado do Safe Evolution | Registrar escopo, impacto, aceite e mudanças | Nenhum | revisão manual |
+
+Fora de impacto imediato: credenciais reais, dispositivos, produção,
+repositórios externos e dados privados de perfil. Nenhum módulo será apagado
+sem comprovação de ausência de consumidores e autorização.

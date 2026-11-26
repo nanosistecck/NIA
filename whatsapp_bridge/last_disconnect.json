@@ -1,8 +1,21 @@
 {
-  "code": 428,
+  "code": 500,
   "reason": "connection_lost",
-  "message": "Connection Terminated by Server",
-  "data": null,
-  "at": "2026-11-19T09:57:30.522Z",
+  "message": "Stream Errored (ack)",
+  "data": {
+    "tag": "stream:error",
+    "attrs": {},
+    "content": [
+      {
+        "tag": "ack",
+        "attrs": {
+          "class": "message",
+          "type": "reaction",
+          "id": "3AD73DB67439F3EC6C17"
+        }
+      }
+    ]
+  },
+  "at": "2026-11-26T18:38:34.377Z",
   "logged_out": false
 }

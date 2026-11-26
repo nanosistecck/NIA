@@ -1102,6 +1102,17 @@ class ConfigDashboardWindow(FrameNativoMixin, QWidget):
         raiz.setContentsMargins(0, 0, 0, 0)
         raiz.setSpacing(14)
 
+        # UI Kit integrado: indicador de estado reutilizando os tokens do tema.
+        from core import nia_ui_kit as _UK  # noqa: PLC0415
+        cartao_estado = GlassCard(
+            "Estado da NIA",
+            "Indicador compartilhado do UI Kit, com os mesmos tokens do tema.",
+            pagina)
+        self.indicador_estado_ui = _UK.IndicadorEstado('NIA pronta')
+        self.indicador_estado_ui.definir_estado('normal')
+        cartao_estado.body.addWidget(self.indicador_estado_ui)
+        raiz.addWidget(cartao_estado)
+
         cartao = GlassCard("Iniciar com o sistema",
                            "Consultamos o estado real do sistema operacional; "
                            "a consulta roda fora da thread da interface.", pagina)
@@ -1147,6 +1158,20 @@ class ConfigDashboardWindow(FrameNativoMixin, QWidget):
         cartao_central.body.addWidget(botao_manual)
         raiz.addWidget(cartao_central)
 
+        # Diagnóstico do laboratório: carregado somente quando solicitado.
+        cartao_lab = GlassCard(
+            "Diagnóstico de inteligência",
+            "Executa cenários comportamentais reais em perfil isolado.", pagina)
+        self.botabrir_laboratorio = QPushButton("Abrir diagnóstico", cartao_lab)
+        self.botabrir_laboratorio.setObjectName("Secondary")
+        self.botabrir_laboratorio.setMinimumHeight(38)
+        self.botabrir_laboratorio.setAccessibleName(
+            "Abrir painel de diagnóstico de inteligência")
+        self.botabrir_laboratorio.clicked.connect(self._abrir_painel_laboratorio)
+        cartao_lab.body.addWidget(self.botabrir_laboratorio)
+        self._cartao_laboratorio = cartao_lab
+        raiz.addWidget(cartao_lab)
+
         raiz.addWidget(self._construir_cartao_rotinas(pagina))
         raiz.addStretch(1)
 
@@ -1164,6 +1189,15 @@ class ConfigDashboardWindow(FrameNativoMixin, QWidget):
                 abrir(True)
             except Exception:
                 pass
+
+    def _abrir_painel_laboratorio(self) -> None:
+        """Cria o painel só no clique; nada é importado na abertura normal."""
+        if getattr(self, '_painel_laboratorio', None) is not None:
+            return
+        from core.painel_laboratorio import PainelLaboratorio  # noqa: PLC0415
+        self._painel_laboratorio = PainelLaboratorio(self._cartao_laboratorio)
+        self._cartao_laboratorio.body.addWidget(self._painel_laboratorio)
+        self.botabrir_laboratorio.hide()
 
     def _abrir_manual_dashboard(self) -> None:
         host = getattr(self._service, "host", None)

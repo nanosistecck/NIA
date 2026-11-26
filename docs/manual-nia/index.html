@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual da NIA — ferramentas e exemplos</title>
+<style>
+  :root{
+    --bg:#0B101A; --surface:#141C2A; --surface2:#101827; --border:rgba(255,255,255,.10);
+    --text:#F1F5F9; --muted:#94A3B8; --cyan:#00d4ff; --green:#00ff88;
+    --amber:#ffcc00; --red:#ff3355; --blue:#3478C5;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.6 "Segoe UI",Bahnschrift,Arial,sans-serif}
+  a{color:var(--cyan)}
+  header{padding:42px 24px 26px;text-align:center;
+    background:radial-gradient(circle at 50% 0%,rgba(0,212,255,.12),transparent 62%);
+    border-bottom:1px solid var(--border)}
+  h1{margin:0 0 8px;font-size:30px;letter-spacing:.2px}
+  header p{margin:0 auto;max-width:720px;color:var(--muted)}
+  .wrap{max-width:1120px;margin:0 auto;padding:24px}
+  .busca{display:block;width:min(520px,100%);margin:0 auto 18px;padding:12px 16px;
+    background:var(--surface);color:var(--text);border:1px solid var(--border);
+    border-radius:14px;font-size:15px}
+  .busca:focus{outline:2px solid var(--cyan);outline-offset:2px}
+  .tabs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 0 24px}
+  .tab{background:rgba(255,255,255,.03);color:var(--muted);border:1px solid transparent;
+    border-radius:12px;padding:8px 14px;cursor:pointer;font:inherit}
+  .tab[aria-selected="true"]{background:rgba(0,212,255,.16);color:var(--text);
+    border-color:rgba(0,212,255,.45)}
+  .tab:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  section{margin:0 0 34px}
+  h2{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 14px}
+  .grade{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  article{background:linear-gradient(180deg,var(--surface),var(--surface2));
+    border:1px solid var(--border);border-radius:16px;padding:16px}
+  article h3{margin:0 0 8px;font-size:16px;color:var(--cyan)}
+  .frase{display:flex;gap:8px;align-items:flex-start;margin:8px 0}
+  code{flex:1;display:block;background:#0a1422;border:1px solid var(--border);
+    border-radius:8px;padding:8px 10px;color:var(--text);white-space:pre-wrap;
+    word-break:break-word;font:13px/1.5 Consolas,monospace}
+  button.copiar{background:rgba(0,212,255,.12);color:var(--text);
+    border:1px solid rgba(0,212,255,.35);border-radius:8px;padding:7px 10px;
+    cursor:pointer;font:inherit;white-space:nowrap}
+  button.copiar:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .nota{color:var(--muted);font-size:13px;margin:6px 0 0}
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;
+    background:rgba(0,255,136,.12);color:var(--green);margin-left:8px}
+  .tag.modelo{background:rgba(255,204,0,.12);color:var(--amber)}
+  .vazio{display:none;text-align:center;color:var(--muted);padding:40px 0}
+  footer{border-top:1px solid var(--border);color:var(--muted);text-align:center;
+    padding:22px;font-size:13px}
+  @media (max-width:520px){h1{font-size:24px}.frase{flex-direction:column}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Manual da NIA</h1>
+  <p>Tudo o que ficou no projeto, como pedir por voz/texto e como usar pelo painel.
+     Digite para filtrar, escolha uma categoria e copie a frase que quiser.</p>
+</header>
+<div class="wrap">
+  <label for="filtro" class="sub">Buscar exemplos</label>
+  <input id="filtro" class="busca" type="search" autocomplete="off"
+         placeholder="Ex.: biblioteca, SVG, dock, manual...">
+  <nav class="tabs" id="tabs" aria-label="Categorias do manual"></nav>
+  <main id="conteudo"></main>
+  <p class="vazio" id="vazio">Nenhum exemplo corresponde à busca.</p>
+</div>
+<footer>Manual local da NIA · sem rede, sem trackers, sem dependências externas</footer>
+<script>
+const DADOS = [
+ {cat:"Central", titulo:"Abrir e fechar a Central", sub:"Reconhecimento local: funciona sem modelo.",
+  itens:[
+   ["NIA, abra a Central de Aplicativos.","Abre a Central"],
+   ["abra a central","Abre a Central"],
+   ["feche a central","Fecha a Central"],
+   ["mostre todas as suas ferramentas","Lista aplicativos e habilidades"],
+   ["quais aplicativos você possui?","Lista aplicativos"],
+   ["quais habilidades você tem?","Lista habilidades"],
+   ["quais ferramentas de pesquisa você possui?","Lista só ferramentas de pesquisa"],
+   ["quais aplicativos precisam ser configurados?","Mostra os que exigem configuração"],
+    ["procure nos meus arquivos por garantia","Busca local com citações [F1], fontes em Configurações → Documentos"],
+  ]},
+ {cat:"Central", titulo:"Abrir aplicativos por voz", sub:"Os aplicativos com janela própria abrem direto.",
+  itens:[
+   ["abra a biblioteca","Abre o painel da Biblioteca"],
+   ["abra a pesquisa","Abre o painel de Pesquisa"],
+   ["abra o diagrama","Abre o painel de Diagramas"],
+   ["abra o integrador","Abre o painel do Integrador"],
+   ["abra o globo","Abre o Globo"],
+   ["abra a agenda","Abre a Agenda"],
+   ["abra configurações","Abre Configurações"],
+   ["abra o Canvas Infinito","Abre Planos/Canvas"],
+  ]},
+ {cat:"Central", titulo:"Fixar no dock", sub:"Ocultar no dock não remove da Central.",
+  itens:[
+   ["fixe a biblioteca no dock","Fixa a Biblioteca"],
+   ["adicione a pesquisa ao dock","Fixa a Pesquisa"],
+   ["remova a biblioteca do dock","Remove do dock"],
+   ["fixe o diagrama no dock","Fixa Diagramas"],
+  ]},
+ {cat:"Manual", titulo:"Abrir este manual", sub:"Abra o manual por voz ou pelo botão em Configurações → Geral.",
+  itens:[
+   ["abra o manual","Abre este arquivo no navegador padrão"],
+   ["mostre o manual da NIA","Abre este arquivo no navegador padrão"],
+   ["quais comandos você entende?","Abre o manual com todos os exemplos"],
+  ]},
+ {cat:"Interface", titulo:"Pelo painel e pelo dock", sub:"Caminhos que não dependem de voz.",
+  itens:[
+   ["Botão ▦ no dock","Abre/fecha a Central"],
+   ["Configurações → Geral → Abrir Central de Aplicativos","Abre a Central"],
+   ["Configurações → Geral → Abrir manual de uso","Abre este manual"],
+   ["Clique com o botão direito num ícone da Central","Fixar no dock, favoritar, informações, usar com a NIA"],
+    ["A Central mostra só o que é clicável","Atalhos de modelo e controles do dock ficam fora dela"],
+  ]},
+];
+const conteudo = document.getElementById('conteudo');
+const tabs = document.getElementById('tabs');
+const filtro = document.getElementById('filtro');
+const vazio = document.getElementById('vazio');
+let categoria = 'Todos';
+function normalizar(s){return s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
+function render(){
+  const termo = normalizar(filtro.value.trim());
+  conteudo.innerHTML = '';
+  let visiveis = 0;
+  DADOS.filter(g => categoria === 'Todos' || g.cat === categoria).forEach(g => {
+    const itens = g.itens.filter(i => !termo || normalizar(i[0]+' '+i[1]+' '+g.titulo+' '+g.sub).includes(termo));
+    if(!itens.length) return;
+    visiveis += itens.length;
+    const sec = document.createElement('section');
+    sec.innerHTML = '<h2>'+g.titulo+'</h2><p class="sub">'+g.sub+'</p>';
+    const grade = document.createElement('div'); grade.className='grade';
+    itens.forEach(([frase,efeito,modelo]) => {
+      const art = document.createElement('article');
+      const h = document.createElement('h3');
+      h.textContent = g.cat;
+      const tag = document.createElement('span');
+      tag.className = 'tag' + (modelo ? ' modelo' : '');
+      tag.textContent = modelo ? 'modelo' : 'local/painel';
+      h.appendChild(tag);
+      const linha = document.createElement('div'); linha.className='frase';
+      const code = document.createElement('code'); code.textContent = frase;
+      const copiar = document.createElement('button'); copiar.className='copiar';
+      copiar.type='button'; copiar.textContent='Copiar';
+      copiar.setAttribute('aria-label','Copiar: '+frase);
+      copiar.addEventListener('click', () => {
+        navigator.clipboard.writeText(frase).then(() => {
+          copiar.textContent='Copiado'; setTimeout(()=>copiar.textContent='Copiar',1200);
+        }).catch(() => { copiar.textContent='Selecione e copie'; });
+      });
+      linha.append(code, copiar);
+      const nota = document.createElement('p'); nota.className='nota'; nota.textContent = '→ '+efeito;
+      art.append(h, linha, nota); grade.appendChild(art);
+    });
+    sec.appendChild(grade); conteudo.appendChild(sec);
+  });
+  vazio.style.display = visiveis ? 'none' : 'block';
+}
+['Todos', ...new Set(DADOS.map(g=>g.cat))].forEach(c => {
+  const b=document.createElement('button'); b.className='tab'; b.type='button';
+  b.textContent=c; b.setAttribute('aria-selected', String(c===categoria));
+  b.addEventListener('click',()=>{categoria=c;
+    [...tabs.children].forEach(x=>x.setAttribute('aria-selected',String(x===b)));render();});
+  tabs.appendChild(b);
+});
+filtro.addEventListener('input', render);
+render();
+</script>
+</body>
+</html>

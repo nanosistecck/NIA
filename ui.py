@@ -393,18 +393,10 @@ class _SysMetrics:
         except Exception:
             pass
 
-        # Windows: wmi module (pure Python COM, zero subprocess)
-        if _OS == "Windows":
-            try:
-                import wmi  # type: ignore
-                w = wmi.WMI(namespace="root/wmi")
-                tz = w.MSAcpi_ThermalZoneTemperature()
-                if tz:
-                    return (tz[0].CurrentTemperature / 10.0) - 273.15
-            except Exception:
-                pass
-
-        return -1.0   # N/A — zero subprocess on all platforms
+        # Windows: sem WMI. `wmi.WMI()` usa COM e esta função roda na thread
+        # de métricas, sem CoInitialize: isso causava 0x800401f0 e abortava
+        # o processo (vide logs/queda_nativa.log). Temperatura fica N/A.
+        return -1.0   # N/A — zero subprocess e zero COM em worker thread
 
     def snapshot(self) -> dict:
         with self._lock:

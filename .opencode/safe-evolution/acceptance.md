@@ -141,3 +141,141 @@ físico) dependem de hardware/autorização, não de defeito de código.
 Nota: as referências antigas a `EVOLUCAO-NIA/registros/*` neste arquivo e nos
 demais state files são históricas; os caminhos não existem mais após esta rodada.
 
+
+
+## 2026-11-25 — Fases 02 a 06 (aceite)
+
+| Fase | Criterio do prompt | Evidencia | Estado |
+|---|---|---|---|
+| 02 | compatibilidade, colisoes, schemas invalidos, descoberta sem importar plugins | 9 testes novos + 57 de area; `git diff --check` | OK |
+| 03 | autorizacao negada, paridade entre origens, resultado real, roteamento intacto | 6 testes; autorizacao/cancelamento/duplicata/resumo OK; resultado real e integracao ao executor pendentes | **partial** |
+| 04 | contrato, versoes incompativeis, timeout/cancelamento, falha de worker | 8 testes; contrato, versao, cancel/shutdown e falha convertida em DTO | OK |
+| 05 | fixtures validas e maliciosas, nenhuma execucao na inspecao | 7 testes: traversal, colisao Windows, expansao, hash, licenca, assinatura pendente | OK |
+| 06 | install/remocao simuladas, recuperacao, isolamento, registro sem import | 6 testes; pacote vai para quarentena, staging recuperado, adapter nunca importado | OK |
+| Regressao | suite completa | 898 passed, exit 0 | OK |
+
+
+## 2026-11-25 — Fases 07 a 10 e resumo do programa
+
+| Fase | Criterio | Evidencia | Estado |
+|---|---|---|---|
+| 07 | persistencia, correcao, exclusao, colisoes, plugin ausente, autorizacao reavaliada | 7 testes; frases de permissao recusadas | OK |
+| 08 | migracao idempotente, corrompidos, rollback, perfis, historico, contexto | 6 testes; originais e backups intactos | OK |
+| 09 | retencao, exclusao com indices, contradicao, orcamento, sem LLM continuo | 5 testes; PROTECTED preservados | OK |
+| 10 | fontes verificaveis, retomada, dedup, exclusao, busca local sem rede, FTS5/fallback | 6 testes; fonte nao autorizada nem consultada | OK |
+| 11-20 | varios | nao executados nesta sessao | **pending** |
+| Homologacao | regressao, desempenho, evidencias | 922 passed; CPU/RAM estaveis; screenshots nao gerados | **parcial** |
+
+Nao ha aprovacao ficticia: itens fisicos, externos e de GUI permanecem pendentes.
+
+
+## 2026-11-25 (continuacao) — aceite
+
+| Fase | Criterio | Evidencia | Estado |
+|---|---|---|---|
+| 03 | autorizacao negada, paridade entre origens, resultado real, roteamento intacto | 3 testes no runtime + 22 de area; integracao em `_execute_tool` | OK (resultado real com credenciais segue pendente) |
+| 11 | DAG/ciclos, retomada, falhas parciais, idempotencia, orcamento, cancelamento | 7 testes | OK |
+| 12 | relogio falso, DST, reinicio, concorrencia, atraso, revogacao e historico | 6 novos + 7 de rotinas; sem segundo agendador | OK para recorrencias; concorrencia/DST ja cobertos na suite antiga |
+| 13 | duplicacao, ordem, reinicio, falha de consumidor, fila cheia | 5 testes | OK |
+| 14 | mocks de canais, perda, retry, dedupe, recuperacao | 5 testes | OK (envio real pendente) |
+| 15–19 | varios | nao executados | pending |
+| 20 | relatorio por requisito, CPU/RAM/boot, fisicos separados, rollback | este handoff + 948 passed | partial |
+
+
+## 2026-11-25 (final) — aceite
+
+| Fase | Criterio | Evidencia | Estado |
+|---|---|---|---|
+| 15 | suspensao, retomada, encerramento, notificacoes, revogacao, sem orfaos | 6 testes; microfone sempre False | OK |
+| 16 | threat model, segredos, traversal, permissoes, IPC e logs redigidos | 6 testes negativos + `THREAT_MODEL.md` | OK |
+| 17 | Qt, capturas, telas pequenas/grandes, teclado, nao bloqueante | nao executado | pending |
+| 18 | build determinístico, manifesto/hashes, proveniencia | nao executado | pending |
+| 19 | atualizacao, patch incompativel, interrupcao, rollback | nao executado | pending |
+| 20 | relatorio por requisito, CPU/RAM/boot, fisicos separados, uso/recuperacao | 960 passed + este handoff; fisicos explicitamente pendentes | partial |
+
+Nao ha aprovacao ficticia: itens de GUI, hardware, provedores, rede e codigo
+externo permanecem pendentes e estao listados acima.
+
+
+## 2026-11-25 — Aceite final automatico
+
+| Fase | Criterio | Evidencia | Estado |
+|---|---|---|---|
+| 17 | Qt, capturas, viewport compacto, foco/estados, nao bloqueante | 5 testes + `logs/captura_ui_kit.png` inspecionado | OK para componente isolado |
+| 18 | build determinístico, manifesto/hashes, proveniencia, sem execucao | 5 testes; ZIP identico entre builds | OK para fixture local |
+| 19 | atualizacao valida, patch incompativel, interrupcao, rollback, sem git pull | 6 testes | OK para ambiente local |
+| 20 | relatorio por requisito, CPU/RAM, fisicos separados, uso/recuperacao | 976 passed + este handoff; fisicos listados como pendentes | partial |
+
+A homologacao automatica esta concluida. A homologacao fisica/externa nao
+foi realizada e nao deve ser considerada aprovada.
+
+
+## 2026-11-25 — Fechamento das integracoes
+
+| Item | Evidencia | Estado |
+|---|---|---|
+| Ponte agendador→outbox | 3 testes; nenhum envio real | OK, injeção no host pendente |
+| Boot parcial da UI | 2 execucoes offscreen; logs/core-evolution-boot-probe-*.json | OK para `MainWindow` |
+| Mapa de integracoes pendentes | `INTEGRATION_MAP.md` com pontos, riscos e gates | entregue |
+| Suíte final | 979 passed, exit 0 | OK |
+| Fisicos, externos e boot completo | nao executados | pending |
+
+
+## 2026-11-25 — Aceite final
+
+| Item | Evidencia | Estado |
+|---|---|---|
+| Contrato universal propagado ao registro | 2 testes novos + 28 de area | OK |
+| Suíte completa | 981 passed, exit 0 | OK |
+| Integrações que exigem decisão/autorização | `INTEGRATION_MAP.md` | pending |
+| Testes físicos/externos | nao executados | pending |
+
+
+## 2026-11-26 — Revalidação
+
+| Item | Evidência | Estado |
+|---|---|---|
+| Suíte fresca sem alterações de código | 981 passed, exit 0 | OK |
+| Estado/Git/código coerentes | checkpoint válido, 87 entradas locais, sem commit | OK |
+| Segredos em registros | 0 correspondências | OK |
+| Processos residuais | 0 | OK |
+| Itens físicos/externos e decisões de produto | pendentes | pending |
+
+
+## 2026-11-26 — Integrações reais
+
+| Item | Evidência | Estado |
+|---|---|---|
+| Agendador com outbox | 4 testes; canal existente preservado | OK |
+| Aprendizado no roteamento | 4 testes; inerte sem associação | OK |
+| UI Kit no dashboard | 2 testes + captura inspecionada | OK para página Geral |
+| Contrato no registro | 2 testes + 28 de área | OK |
+| Suíte final | 991 passed, exit 0 | OK |
+| Hardware, provedores, migração real e boot completo | não executados | pending |
+
+
+## 2026-11-26 — Gates da rodada final
+
+| Gate | Evidência exigida | Estado |
+|---|---|---|
+| Baseline | 991 passed antes de editar | OK |
+| Revisão de integrações existentes | documento com arquivos/símbolos e testes | pendente |
+| Recebimento `.niateck` | fluxo completo com fixture e pacote malicioso recusado | pendente |
+| Migração SQLite pronta | adapter compatível, backup/idempotência/exclusão | pendente |
+| Boot NiaLive | sonda com perfil temporário e mocks | pendente |
+| Dashboard Tab/compacto | testes Qt + capturas inspecionadas | pendente |
+| Commit/push | **proibido pelo dono** | não executar |
+
+
+## 2026-11-26 — Aceite final
+
+| Requisito do dono | Evidência | Estado |
+|---|---|---|
+| Revisar WhatsApp/voz/câmera/tray/DPI/provedores | `REVIEW_EXISTING.md` + testes existentes | OK |
+| NIA pronta para receber .niateck real | 3 testes ponta a ponta com fixture | OK |
+| Migração SQLite totalmente pronta | 7 testes + adaptador compatível | OK |
+| Boot completo NiaLive pronto | 2 testes + `nia_live_boot_probe.py` | OK |
+| Dashboard Tab/foco e telas pequenas finalizado | 2 testes + 2 capturas inspecionadas | OK |
+| Suíte completa | 1005 passed, exit 0 | OK |
+| Commit/push | restrição do dono | não executado |
+| Pilotos/upstream (futuros) |trabalho futuro com plugins | fora do escopo atual |

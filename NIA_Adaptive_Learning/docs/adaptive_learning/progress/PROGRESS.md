@@ -44,3 +44,12 @@
 - Integração real: `main.py` registra capacidades no catálogo na inicialização; `ui.py` abre a Central pelo GerenciadorJanelas; janela 1120×740, mínimo 760×520.
 - Suíte integral final: **1185 passed, exit 0** em 488,51 s (`full_regression_final.log`); baseline 1123 passed.
 - `compileall` e `git diff --check`: limpos. Nenhum commit/push/branch/stash/exclusão.
+
+## 2026-11-26 — Autorização posterior (comitado e publicado)
+
+- Usuário autorizou seguir com os itens seguros: commit/push, validação de rede e split visual.
+- Workspace do painel implementado com documento à esquerda e navegador à direita, ajustável 25–65% (`f10_split.txt`, 3 passed).
+- Adaptador de pesquisa real validado com consulta pública inofensiva: DDG retornou 5 fontes; Gemini 429 por cota (limite externo registrado).
+- Commit `babbed5` (131 arquivos) enviado para `origin/superInteligenciaNIA-NiaSDK`.
+- PR #7 aberto: https://github.com/nanosistecck/NIA/pull/7 (base `main`).
+- Itens físicos Windows/DPI/OTP e medição com app completo seguem PENDENTE.

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "revision": 5,
+  "phase": "F14",
+  "task": "recovery-and-acceptance",
+  "status": "complete_local",
+  "completed_phases": ["F00", "F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08", "F09", "F10", "F11", "F12", "F13", "F14"],
+  "relevant_files": [
+    "core/aprendizado_adaptativo/",
+    "tests/test_learning_f01_contratos.py",
+    "tests/test_learning_f01_adaptadores.py",
+    "tests/test_learning_f02_memoria.py",
+    "tests/test_learning_f03_pesquisa.py",
+    "tests/test_learning_f04_observacao.py",
+    "tests/test_learning_f05_workflows.py",
+    "tests/test_learning_f06_colaboracao.py",
+    "tests/test_learning_f07_documentos.py",
+    "tests/test_learning_f08_orquestrador.py",
+    "tests/test_learning_f09_consolidacao.py",
+    "tests/test_learning_f10_ui.py",
+    "tests/test_learning_f11_integracao.py",
+    "tests/test_learning_f12_seguranca.py",
+    "tests/test_learning_f14_recuperacao.py",
+    "tests/test_learning_e2e_fluxo.py",
+    "ui.py",
+    "main.py",
+    "core/registro_nativo.py",
+    "tests/test_catalogo_dock.py"
+  ],
+  "test_results": [
+    {
+      "command": "pytest tests -q (baseline)",
+      "status": "pass",
+      "evidence": "NIA_Adaptive_Learning/docs/adaptive_learning/progress/baseline_pytest.log",
+      "summary": "1123 passed, exit 0"
+    },
+    {
+      "command": "pytest tests -q (final)",
+      "status": "pass",
+      "evidence": "NIA_Adaptive_Learning/docs/adaptive_learning/progress/full_regression_final.log",
+      "summary": "1185 passed, exit 0, 488.51s"
+    },
+    {
+      "command": "python NIA_Adaptive_Learning/medir_desempenho.py",
+      "status": "pass",
+      "evidence": "NIA_Adaptive_Learning/docs/adaptive_learning/progress/performance.json",
+      "summary": "CPU 0%, RSS +~1.1MB, p95 0.078ms"
+    }
+  ],
+  "blockers": [
+    "Testes físicos Windows interativo, DPI, multi-monitor, ESC real, campos OTP e rede com credenciais autorizadas não executados"
+  ],
+  "next_action": "Executar homologação física/externa em perfil isolado conforme FINAL_REPORT.md; somente então reclassificar para status complete",
+  "note": "Nenhum commit, push, branch, stash ou exclusão realizada nesta rodada."
+}

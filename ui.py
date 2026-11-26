@@ -4053,6 +4053,9 @@ class MainWindow(QMainWindow):
             'planos', self._abrir_planos, titulo='Planos')
         self._janelas_ferramentas.registrar(
             'globo', self._abrir_globo, titulo='Globo Terra 3D')
+        self._janelas_ferramentas.registrar(
+            'aprendizado', self._abrir_aprendizado,
+            titulo='Aprendizado Adaptativo')
         # CENTRAL DE APLICATIVOS: registro único + widget leve, sem importar
         # módulos de pesquisa/diagrama/integrações nesta inicialização.
         from core import registro_aplicativos as RA
@@ -6051,6 +6054,22 @@ class MainWindow(QMainWindow):
                 self._log.append_log("ERR: o globo nao esta nesta instalacao.")
         except Exception as exc:
             self._log.append_log(f"ERR: globo — {str(exc)[:100]}")
+
+    def _abrir_aprendizado(self):
+        """Abre a Central de Aprendizado sob demanda, sempre na thread da UI."""
+        try:
+            from core.aprendizado_adaptativo.memoria import MemoriaProcedural
+            from core.aprendizado_adaptativo.ui import PainelAprendizado
+            memoria = getattr(self, '_memoria_aprendizado', None)
+            if memoria is None:
+                memoria = MemoriaProcedural()
+                self._memoria_aprendizado = memoria
+            tema = ('light' if str(getattr(self, '_tema_preferido', lambda: 'escuro')())
+                    in ('claro', 'light') else 'dark')
+            return PainelAprendizado(memoria=memoria, tema=tema)
+        except Exception as exc:
+            self._log.append_log(f"ERR: aprendizado — {str(exc)[:100]}")
+            return None
 
     # ── COMPUTER USE (08/10/2026) ─────────────────────────────────────────
     _CU_VISUAL = {

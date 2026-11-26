@@ -1,0 +1,45 @@
+{
+  "ambiente": {
+    "plataforma": "win32",
+    "python": "3.12.14",
+    "cpu_logicos": 4,
+    "modo": "offscreen"
+  },
+  "amostras": {
+    "repouso": {
+      "segundos": 2.0,
+      "cpu_percent": 0.0,
+      "rss_inicial_bytes": 22966272,
+      "rss_final_bytes": 22970368,
+      "rss_delta_bytes": 4096,
+      "threads": 4
+    },
+    "com_memoria_e_avaliacao": {
+      "segundos": 2.0,
+      "cpu_percent": 0.0,
+      "rss_inicial_bytes": 24076288,
+      "rss_final_bytes": 24076288,
+      "rss_delta_bytes": 0,
+      "threads": 4
+    },
+    "depois": {
+      "segundos": 2.0,
+      "cpu_percent": 0.0,
+      "rss_inicial_bytes": 23945216,
+      "rss_final_bytes": 23945216,
+      "rss_delta_bytes": 0,
+      "threads": 4
+    }
+  },
+  "avaliacao_ms": {
+    "p50": 0.057,
+    "p95": 0.078,
+    "max": 0.161,
+    "chamadas": 100
+  },
+  "registros": {
+    "knowledge": 1,
+    "procedures": 1,
+    "experiences": 1
+  }
+}

@@ -15219,6 +15219,14 @@ def main():
     except Exception as exc:
         print(f"[NIA] Overlay de controle indisponível: {exc}")
 
+    # APRENDIZADO ADAPTATIVO: capacidades declarativas no catálogo único.
+    # Nenhuma janela, rede ou serviço é iniciado neste ponto.
+    try:
+        from core.aprendizado_adaptativo.integracao import registrar_no_catalogo  # noqa: PLC0415
+        registrar_no_catalogo()
+    except Exception as exc:
+        print(f"[NIA] Aprendizado adaptativo indisponível: {exc}")
+
     # Rotinas persistentes vivem fora do loop de voz: reconexões e F9 não
     # podem cancelar o agendador. Um único daemon espera a próxima ocorrência.
     try:

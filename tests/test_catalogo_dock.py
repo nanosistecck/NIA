@@ -12,7 +12,7 @@ ESPERADOS = {
     'mute', 'so_nome', 'interrupt', 'whatsapp', 'remote', 'webcam',
     'cowork', 'computer_use', 'segundo_plano', 'globo', 'planos', 'agenda',
     'central', 'config', 'system', 'skill_secretaria',
-    'skill_buscar_arquivos', 'skill_resumo_dia',
+    'skill_buscar_arquivos', 'skill_resumo_dia', 'aprendizado',
 }
 
 
@@ -23,12 +23,12 @@ def registro_isolado(monkeypatch):
     monkeypatch.setattr(RA, '_PROVEDOR_DISPONIBILIDADE', None)
 
 
-def test_bandeja_tem_as_18_entradas_do_dock_sem_duplicatas():
+def test_bandeja_tem_as_19_entradas_do_dock_sem_duplicatas():
     from core.registro_nativo import registrar_nativos
     registrar_nativos()
     ids = [i.id for i in RA.buscar()]
     assert set(ids) == ESPERADOS
-    assert len(ids) == 18
+    assert len(ids) == 19
     assert 'canvas' not in ids
 
 

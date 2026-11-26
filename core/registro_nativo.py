@@ -67,6 +67,12 @@ def registrar_nativos(*, substituir=True) -> int:
             descricao='Terra 3D com ruas e mapas (janela própria).', categoria='conhecimento',
             icone='globo', cor='#00d4ff', possui_interface=True,
             janela='globo', dominio_ferramenta='globo'),
+        RA.DescritorApp(id='aprendizado', nome='Aprendizado Adaptativo',
+            descricao='Conhecimentos, procedimentos e experiências aprendidas.',
+            categoria='conhecimento', icone='aprendizado', cor='#A78BFA',
+            possui_interface=True, janela='aprendizado',
+            dominio_ferramenta='aprendizado',
+            palavras_chave=('aprendizado', 'central de aprendizado')),
     ]
     # Canvas Infinito não entra: a janela é a mesma de Planos.
     for chave, nome, descricao, icone, cor in _DOCK:

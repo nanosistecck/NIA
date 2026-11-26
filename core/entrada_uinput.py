@@ -13,7 +13,10 @@ programa (computer use, digitar) continua chamando pyautogui como sempre.
 """
 from __future__ import annotations
 
-import fcntl
+try:
+    import fcntl  # disponível apenas no Linux; o módulo precisa importar em qualquer SO
+except ImportError:  # pragma: no cover - Windows/macOS
+    fcntl = None
 import os
 import struct
 import threading
@@ -210,7 +213,7 @@ def entrada() -> Entrada:
 
 
 def disponivel() -> bool:
-    return os.access("/dev/uinput", os.W_OK)
+    return fcntl is not None and os.access("/dev/uinput", os.W_OK)
 
 
 def instalar_no_pyautogui() -> bool:

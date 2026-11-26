@@ -2,7 +2,10 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+*.zip
 .venv/
+.venv-*/
+.pytest_cache/
 venv/
 env/
 
@@ -44,3 +47,11 @@ whatsapp_bridge/mark_xlviii_pending_schedule.json
 .DS_Store
 Thumbs.db
 memory/long_term.json
+
+
+# NIA PLUGIN FACTORY
+NIA_PLUGIN_FACTORY/
+
+# pastas temporarias de evolucao do NIA (nao versionar)
+EVOLUCAO-NIA/
+NIA_CORE_EVOLUTION/

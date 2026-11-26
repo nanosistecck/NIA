@@ -18,7 +18,7 @@ import unicodedata
 import urllib.parse
 import urllib.request
 import webbrowser
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -172,20 +172,32 @@ def _qual_turno(texto: str) -> str:
     return ""
 
 
-def _hora_local_atual(dados: dict) -> int | None:
-    """Hora na cidade consultada, vinda do `current=time` do Open-Meteo.
+def _hora_local_atual(dados: dict, agora=None) -> int | None:
+    """Hora local da cidade consultada.
 
-    O Open-Meteo responde com `timezone=auto`, então este horário já está no
-    fuso da cidade — usar o relógio do PC daria hora errada quando ele estiver
-    em outra região. Sem o campo, devolve None e o chamador mantém o turno
-    completo.
+    O Open-Meteo **não** aceita `time` dentro de `current` (HTTP 400). Com
+    `timezone=auto` ele devolve `utc_offset_seconds`; a hora local é calculada
+    a partir do UTC + esse offset, sem depender do fuso do PC. Mantemos a
+    leitura de `current.time` apenas para respostas antigas/ caches que já
+    tenham o campo.
     """
-    atual = (dados or {}).get("current") or {}
+    dados = dados or {}
+    atual = dados.get("current") or {}
     valor = str(atual.get("time") or "")
+    if valor:
+        try:
+            hora = int(valor[11:13])
+            return hora if 0 <= hora <= 23 else None
+        except (TypeError, ValueError, IndexError):
+            return None
     try:
-        hora = int(valor[11:13])
-    except (TypeError, ValueError, IndexError):
+        offset = int(dados.get("utc_offset_seconds"))
+    except (TypeError, ValueError):
         return None
+    agora = agora or datetime.now(timezone.utc)
+    if agora.tzinfo is None:
+        agora = agora.replace(tzinfo=timezone.utc)
+    hora = (agora + timedelta(seconds=offset)).hour
     return hora if 0 <= hora <= 23 else None
 
 
@@ -417,7 +429,7 @@ def weather_action(
             f"&latitude={lat}&longitude={lon}"
             "&current=temperature_2m,weather_code,apparent_temperature,"
             "relative_humidity_2m,wind_speed_10m,pressure_msl,visibility,"
-            "uv_index,time"
+            "uv_index"
             "&hourly=temperature_2m,precipitation_probability,weather_code"
             "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
             "precipitation_probability_max,sunrise,sunset,uv_index_max")
@@ -456,8 +468,8 @@ def weather_action(
                 horas = _filtrar_horas((card_previo or {}).get("horas") or [], turno)
                 if "agora" in _sem_acento(quando):
                     # Só as horas que ainda podem acontecer na cidade consultada.
-                    # `current=time` vem com timezone=auto, então não depende do
-                    # fuso do PC. Sem o campo, mantém o turno inteiro.
+                    # `utc_offset_seconds` vem com timezone=auto, então a hora
+                    # local não depende do fuso do PC. Sem ele, turno inteiro.
                     desde = _hora_local_atual(dados)
                     if desde is not None:
                         restantes = _filtrar_horas(

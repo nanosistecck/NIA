@@ -205,3 +205,231 @@ Para cada etapa registre: data, tarefa, arquivos, motivo, testes executados, res
 - Evidencia: frase chega em `CH.reconhecer`, log "Tocando música no YouTube",
   nenhuma listagem de planos.
 - Decisao: sem commit nesta rodada; aguardando aprovacao.
+
+## 23/11/2026 — Rodada 11: Agenda (etapa de desenho)
+- Tarefa: nova aplicacao de Agenda no dock e no Canvas principal.
+- Diagnostico: recon do dock, `CanvasStage.hoje_host`, `resumo_dia.py`,
+  `lembretes.py` e `comandos_lembretes.py`; estado Git e suíte conferidos.
+- Play back aprovado pelo usuario, com duas correcoes dele:
+  - o card vai no Canvas principal (clima/horas), nao no Canvas dos planos;
+  - calendario parecido com o Google, porem mais moderno/elegante; com data,
+    hora e sugestao de quando comecar a preparar.
+- Abordagem A escolhida: modulo proprio, sem tocar em planos/lembretes.
+- Arquivo criado: `docs/superpowers/specs/2026-11-23-agenda-design.md`.
+- Estado atualizado: `baseline.md`, `impact-map.md`.
+- Revisao de builder executada: 4 perguntas.
+  - Decisoes do construtor: reexibicao do card via checkbox no dashboard + comando
+    "mostrar card da agenda"; "bom dia" ganha intent propria e helper
+    `resumo_proximo()`; campos `plano_id`/`card_id` removidos do registro.
+  - Decisao do dono: alvo de comando sem ID = titulo/data ditos, senao proximo
+    compromisso, com pergunta quando ambiguo.
+- Desenho aprovado; `writing-plans` executado.
+- Plano salvo em `docs/superpowers/plans/2026-11-23-agenda.md` (6 tarefas,
+  RED→GREEN, capturas obrigatorias nas tasks 4 e 5).
+- Self-review do plano: especificacao coberta, tipos consistentes entre tasks,
+  5 inputs de risco com teste, sem TBD.
+- Metodo de execucao escolhido pelo dono: Native (`executing-plans`).
+- Workspace/ledger manuais (scripts bash indisponiveis no WSL sem distro).
+- Tasks 1-5 completas, cada uma RED→GREEN e commitada:
+  - `ad4ed95` persistencia, `200365f` comandos, `ed20174` rota,
+    `a80e3bb` janela, `ba38866` card.
+- Task 6: suite **685 passed, 0 failed, exit 0**; compileall e diff limpos.
+- Correcoes por teste registradas em `acceptance.md`.
+- Evidencias visuais inspecionadas (janela e card no Canvas principal).
+- Revisao final com servico gratuito: 5 achados corrigidos (1 Critical, 3 Important,
+  1 Minor), 4 testes novos, suite 689/689, commit `caa9b90`.
+- Decisao registrada: somente servicos gratuitos (revisor pago falhou por credito).
+
+## 23/11/2026 — Rodada 12: correcoes dos testes reais
+- Tarefa: o dono testou a NIA e pediu correcao de 6 erros + varredura extra.
+- Arquivos: `core/agenda.py`, `core/comandos_agenda.py`, `main.py`,
+  `tests/test_agenda_correcoes.py` (novo, 18 testes).
+- Correcoes: prioridade da Agenda sobre o Canvas, acao excluir, alvo por
+  tokens (com ambiguidade), mensagens por acao, filtro de periodo nas listagens
+  com citacao do proximo, saudacoes bom dia/tarde/noite, titulo sem data,
+  "dia N", e "exclua todos" sem apagar em lote.
+- Duas regressoes encontradas e corrigidas durante a suite: "Exclua o card
+  Validação" e "Conecte o card ... Entrega" voltaram ao Canvas ao exigir que
+  frases com "card" nao entrem na Agenda (exceto "card da agenda").
+- Suite final 707/707, exit 0; compileall e diff limpos.
+- Duas varreduras reais executadas: todas as frases do relato e as extras
+  responderam corretamente.
+- Nenhum commit feito nesta rodada; branch AGENDA com mudancas pendentes.
+
+## 23/11/2026 — Rodada 13: CRUD completo da Agenda
+- Usuario aprovou o desenho e autorizou alteracoes.
+- Spec `docs/superpowers/specs/2026-11-23-agenda-crud-design.md` e plano
+  `docs/superpowers/plans/2026-11-23-agenda-crud.md` escritos.
+- Builder check (gratuito) com 5 perguntas: respondidas no spec; a primeira
+  revelou bug real (ValueError sem tratamento na rota) — corrigido com teste.
+- Tasks 1-3: validacao/reabrir no modelo, novos comandos, rota com rotulos por
+  campo e tratamento de erro. Commit `0936ce4`.
+- Task 4: janela com lista clicavel, notas, estado, botoes Salvar/Cancelar/
+  Concluir/Reabrir/Excluir e confirmacao. Commit `97ce4a8`.
+- Regressao encontrada e corrigida: "Renomeie o produto..." foi capturado pela
+  Agenda ao adicionar verbos genericos ao detector; removidos.
+- Suite final 724/724, exit 0; compileall e diff limpos.
+- Evidencia `logs/captura_agenda_crud.png` inspecionada.
+
+## 23/11/2026 — Rodada 14: frase real de criacao na Agenda
+- Relato: `adicione na agenda buscar a maria as 21:06` respondeu "Abra um plano...".
+- Causa: `processar` exigia termo de tipo e nao reconhecia "adicione na agenda";
+  `interpretar` devolvia None para hora sem data.
+- Arquivos: `core/agenda.py`, `core/comandos_agenda.py`,
+  `tests/test_agenda_frase_real.py` (novo, 6 testes).
+- Correcoes: criacao direta na agenda com titulo extrativo; hora sem data
+  infere hoje se futura e amanha se passou.
+- Teste real: frase cria "buscar a maria" as 21:06 e fala do proximo compromisso.
+- Suite 730/730, exit 0 (duas execucoes); compileall e diff limpos.
+- Servidor reiniciou durante a suíte; retomado sem repetir trabalho concluido.
+
+
+## 2026-11-23T22:50:56.900283-03:00 — checkpoint EVOLUCAO-NIA
+
+Programa EVOLUCAO-NIA: etapas 01–04 completas; 05 parcial. Produto e arquivos alterados descritos em EVOLUCAO-NIA/registros/RELATORIO.md. Nenhum commit ou publicação. 167 testes combinados passaram; baseline integral anterior tinha 1 falha Canvas que não foi reproduzida isoladamente.
+
+## 2026-11-24 — Avaliação da Central, causa do Canvas e credenciais nas Configurações
+
+- Diagnóstico antes de editar: lidas instruções `.opencode/safe-evolution/*`,
+  comparados Git/código/estado persistente e executada suíte baseline de
+  **895 passed** (`EVOLUCAO-NIA/registros/avaliacao-01-baseline-pytest.log`).
+- Causa raiz do Canvas reproduzida de forma determinística: criar outra
+  `MainWindow` antes do teste deixa o driver de animação Qt offscreen sem
+  avançar (`state=Running`, geometria intacta após 1 s). O `settle` media
+  quadros transitórios. Correção apenas no helper de teste: entrega sinais
+  enfileirados, espera a animação e aplica `arrange(False)` se o driver não
+  progredir. Asserções inalteradas; teste passa com animação de 1500 ms.
+- `ui.py`: timer de lembretes passou a ser timer filho da janela, sem
+  `QTimer.singleShot` órfão (teste novo `test_timers_interface.py`).
+- Novo `core/credenciais_integracoes.py`: URL/workspace/usuário em
+  `config/integracoes.json` (atômico) e token no Windows Credential Manager
+  (`win32cred`, sem nova dependência); sem credencial em texto puro nem
+  migração de banco. Injeção de store para testes.
+- `core/config_dashboard.py`: terceiro segmento "Serviços externos" em
+  Configurações → Integrações, com Penpot/Plane/Nextcloud, botão "Abrir site"
+  (links oficiais), Salvar/Limpar e status sem segredo. Construção lazy.
+- Testes novos: 5 de credenciais + 4 de UI + 1 de timer; uma falha de
+  poluição de `os.environ` no teste de credenciais foi corrigida.
+- Suíte final: **905 passed, exit 0** (`avaliacao-09-integral-final-pytest.log`).
+  `git diff --check` limpo e 239 fontes AST sem erros.
+- Evidência visual inspecionada: `captura_integracoes.png` (página legível,
+  cartões e botões visíveis).
+- Decisão: nenhum commit, branch, publicação ou acesso a serviço externo.
+- Próximo: quando o dono configurar URLs/tokens na nova página, homologar
+  leituras reais; dispositivos e DPI físico seguem pendentes.
+
+## 2026-11-24 — Remoção dos conectores com limites de uso
+
+- Decisão do dono: só ferramentas totalmente gratuitas e de código aberto.
+  Penpot/Plane/Nextcloud foram removidos (planos gratuitos com limites).
+- Removidos os 3 conectores, o módulo de credenciais, 5 arquivos de teste, a
+  página "Serviços externos" e todas as referências em registro/descrições.
+- Preservados: laboratório HTTP local, dispositivos pareados, pesquisa,
+  biblioteca, diagrama, janelas, contexto e registro central.
+- Não tocados: Agenda e suas 4 falhas dependentes de data (fora do escopo).
+- Validação: 118 testes da área verdes; suíte integral com 875 verdes e as
+  4 falhas pré-existentes da Agenda; AST e diff limpos.
+- Detalhes em `EVOLUCAO-NIA/registros/18-REMOCAO-CONECTORES.md`.
+
+## 2026-11-24 — Correção das últimas 4 falhas (Agenda)
+
+- Causa: `tests/test_agenda_correcoes.py` usava datas relativas a 23/11/2026
+  mas dependia do relógio real para "próximo" e saudações; após a meia-noite
+  os eventos de "amanhã" passaram a estar no passado.
+- Correção apenas no fixture do teste: congelar `core.agenda._agora` em
+  2026-11-23T13:00Z (10:00 em -03), preservando o comportamento quando um
+  `agora` explícito é passado. Produto não alterado.
+- Resultado: 18/18 testes da Agenda e **879 passed, exit 0** na suíte completa
+  (`correcao-final-integral-pytest.log`). `git diff --check` limpo; 230 fontes
+  AST sem erros. Nenhum commit/publicação.
+
+## 2026-11-24 — Acesso completo às ferramentas restantes
+
+- Auditoria confirmou que pesquisa/biblioteca/diagrama/integrador e globo
+  estavam na Central, mas sem janela registrada; o clique gerava ação `usar`
+  rejeitada. Corrigido:
+  - `core/painel_ferramenta.py` (novo): painel leve sob demanda com metadados,
+    ações reais e campo de argumentos JSON; emite a ação pela ponte existente.
+  - `ui.py`: registro de janelas para os 4 domínios + globo; habilidades sem
+    interface mostram o exemplo de uso em vez de ação inválida.
+  - `core/central_aplicativos.py`: fundo da grade corrigido (antes branco com
+    nomes ilegíveis) — evidência visual recapturada.
+  - `core/config_dashboard.py`: botão "Abrir Central de Aplicativos" na página
+    Geral (funciona quando a ponte da NIA está disponível).
+- Validação: 881 passed, exit 0; AST 232 fontes sem erros; diff limpo.
+- Evidências: `EVOLUCAO-NIA/registros/captura_configuracoes_geral.png`,
+  `captura_integracoes.png`, `captura_central_aplicativos.png`,
+  `captura_painel_biblioteca.png` (inspecionadas).
+
+## 2026-11-24 — Manual de uso local
+
+- Criado `docs/manual-nia/index.html`: exemplos de todas as ferramentas,
+  busca, filtros e botão copiar, sem rede/CDN/WebEngine.
+- Abertura por voz ("abra o manual", "quais comandos você entende?"), por
+  sinal Qt e por botão em Configurações → Geral.
+- 885 testes verdes; 234 fontes AST; diff limpo. Detalhes em
+  `EVOLUCAO-NIA/registros/19-MANUAL-USO.md`. Sem inspeção visual do HTML em
+  navegador (ferramenta indisponível nesta sessão).
+
+## 2026-11-24 — Revisão da bandeja e formulários sem JSON
+
+- Diagnóstico: 2 blocos não acionáveis (`microfone`, `interromper`) e, no app
+  real, 44 atalhos `tool_*` inúteis apareceriam na Central; painéis exigiam JSON.
+- Correções:
+  - `core/registro_aplicativos.py`: `tool_*` com `visivel_na_central=False`.
+  - `core/registro_nativo.py`: controles do dock removidos do registro da Central.
+  - `core/ferramentas_agrupadas.py`: `CAMPOS_ACAO` + `preparar_argumentos`
+    convertem campos de formulário em argumentos tipados (sem JSON do usuário).
+  - `core/painel_ferramenta.py`: combo de ações e campos dinâmicos (texto,
+    opções, número, confirmação), com rótulos acessíveis.
+  - `ui.py`: habilidade sem interface agora preenche o exemplo no chat e foca
+    o campo, em vez de apenas registrar log.
+  - Manual HTML e imports mortos atualizados.
+- Evidência: bandeja com 12 blocos, todos acionáveis (probe), capturas
+  `captura_central_aplicativos.png` e `captura_painel_biblioteca.png`.
+- Validação: 886 testes verdes, 234 fontes AST, diff limpo. Sem commit.
+
+## 2026-11-24 — Correção final: pesquisa local por termo simples
+
+- Simulação de ponta a ponta das 4 ferramentas revelou que `pesquisa.local`
+  exigia a frase "procure nos meus arquivos por ..."; o painel pede só um termo.
+- Corrigido em `core/executor_agrupado.py`: extrai o termo quando a frase é
+  reconhecida e usa o texto direto quando não é, com motivo honesto quando o
+  índice está vazio. Teste novo adicionado.
+- Suíte final: **887 passed, exit 0**; 234 fontes AST; `git diff --check` limpo.
+- Nenhuma nova arquitetura, nenhum repositório baixado, nenhum commit.
+
+## 2026-11-24 — Remoção das 4 ferramentas insatisfatórias
+
+- Usuário escolheu remover pesquisa nova, biblioteca, diagrama e integrador
+  após diagnóstico: saídas em JSON, sem editor visual e integrador sem adaptador.
+- Removidos 8 módulos, 7 arquivos de teste e todas as referências em catálogo,
+  permissões, registro nativo, ui.py, main.py, frases locais e manual HTML.
+- Mantidos: busca local antiga (FTS5/citações), Canvas/Planos, Agenda, dock,
+  Central enxuta, gerenciador de janelas, contexto e permissões.
+- Suíte: 840 passed, exit 0; 219 fontes AST; diff limpo. Sem commit.
+- Detalhes em `EVOLUCAO-NIA/registros/20-REMOCAO-FERRAMENTAS.md`.
+
+## 25/11/2026 — Rodada 15: exclusão de `EVOLUCAO-NIA/`
+
+- Tarefa: limpeza geral de código morto; primeiro passo autorizado foi apagar o
+  diretório de diagnóstico/relatórios `EVOLUCAO-NIA/`.
+- Antes de apagar: 201 arquivos, ~984 KB, `.gitignore:53`, `git ls-files` vazio,
+  nenhuma referência em qualquer `.py`. Avisado ao dono de que não havia backup
+  no Git e que a exclusão seria irreversível; ele confirmou "Apagar agora, sem
+  backup".
+- Arquivos alterados até aqui: somente `.opencode/safe-evolution/*.md`
+  (baseline, scope, impact-map, acceptance, changes). Nenhum arquivo de produto
+  ou teste tocado; nenhum commit, push, branch ou stash.
+- Motivo: o dono considera o diretório descartável e ele não participa do produto.
+- Risco: perda irreversível dos relatórios históricos; aceito explicitamente.
+  Referências antigas nos state files permanecem como registro histórico.
+- Execução: `Remove-Item -Recurse -Force EVOLUCAO-NIA` → `exists=False`,
+  `git ls-files` continua com 0 linhas. Suíte de sanidade: 22 passed em
+  `test_homologacao_evolucao.py` + `test_windows_frame.py` +
+  `test_frame_nativo_secundarias.py`. Nenhuma falha; nenhum arquivo de produto
+  alterado; `git status` inalterado fora dos state files.
+- Decisão/proxima etapa: triagem individual dos demais candidatos de código
+  morto; nada será removido em bloco. Aguardando decisão sobre os outros 5
+  módulos órfãos.
+

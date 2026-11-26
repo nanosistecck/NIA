@@ -77,7 +77,7 @@ def test_sem_hora_local_cai_para_o_turno_completo():
     assert "80% de chance" in fala
 
 
-def test_url_pede_o_campo_time_no_current():
+def test_url_nao_pede_time_no_current():
     chamadas = []
 
     def falso_baixar(url):
@@ -88,4 +88,5 @@ def test_url_pede_o_campo_time_no_current():
          patch.object(wr, "_onde", return_value=(0, 0, "Cidade")), \
          patch.object(wr, "_baixar", side_effect=falso_baixar):
         wr.weather_action({"city": "Cidade", "time": "agora a tarde"})
-    assert "current=" in chamadas[0] and "time" in chamadas[0]
+    assert "current=" in chamadas[0]
+    assert ",time" not in chamadas[0].split("&hourly=")[0]

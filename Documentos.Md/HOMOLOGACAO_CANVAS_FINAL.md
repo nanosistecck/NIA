@@ -256,3 +256,22 @@ individual, bloqueio de plano ativo, conflito de revisão, restauração entre s
 exclusão, lote parcial com retry, dois planos com o mesmo título, cancelamento e seleção
 múltipla pela interface. Suíte: **390 testes passaram**; `compileall` e `git diff --check`
 limpos. Interface Qt offscreen; falha parcial e conflito simulados.
+
+## Barra nativa nas janelas secundárias (25/11/2026)
+
+Com a generalização do `WindowsFrame` (Task 1) e o mixin `FrameNativoMixin` (Task 2), as
+janelas secundárias passaram a usar o quadro nativo do DWM: barra de título sem texto,
+botões do Windows à direita e hit-testing do DWM.
+
+**Janelas incluídas (todas herdam `FrameNativoMixin`):**
+- **Configurações** — `ConfigDashboardWindow` (`core/config_dashboard.py`), cor da faixa passada.
+- **Agenda** — `AgendaWindow` (`core/interface_agenda.py`).
+- **Planos** — `PlanosWindow` (`core/interface_planos.py`).
+- **Globo** — `JanelaGlobo` (`globo/janela.py`, aberta por `_abrir_com_qt()`).
+
+**Fora do escopo:** o **WhatsApp** não foi incluído — janela própria, sem mudança de barra
+nesta revisão.
+
+**Regra para janelas futuras:** herdar `FrameNativoMixin` e, no fim de `__init__`, chamar
+`self._instalar_frame_nativo(cor=...)`, com a cor da faixa da janela. Fora do Windows, o
+helper não altera a janela.

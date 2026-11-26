@@ -135,6 +135,54 @@
      vaza para o teste seguinte.
 - Todas sao corrigiveis sem mudar contratos publicos nem dados do usuario.
 
+## Rodada 14 — frase real "adicione na agenda ..." (23/11/2026)
+- Relato: `adicione na agenda buscar a maria as 21:06` → "Abra um plano e selecione um card".
+- Reproducao: `CA.processar` devolve `tratado=False` porque o ramo de criar exige
+  um termo de tipo (compromisso/reunião/tarefa/...) e "agenda" nao conta;
+  `CP.reconhecer` devolve NENHUMA, entao `AP.reconhecer_intencao` captura
+  "adicione" como EDICAO do Canvas.
+- Segundo defeito: `agenda.interpretar("... as 21:06")` sem data devolve None;
+  com hora sem data o razoavel e hoje se futura, amanha se ja passou.
+- Branch `AGENDA`, suite anterior 724/724, worktree limpo.
+- A preservar: "adicione um card ..." continua no Canvas; criacao sem hora
+  continua perguntando data e hora.
+
+## Rodada 13 — CRUD completo da Agenda (23/11/2026)
+- Branch `AGENDA`, worktree com mudancas pendentes da rodada 12 (nao commitadas).
+- Suite anterior: 707 passed, 0 failed; `compileall`/`git diff --check` limpos.
+- Pedido do dono: "criar o crud completo da agenda, pra que possamos ter controle total".
+- Recon: `AG.editar` ja aceita todos os campos, mas a janela so adiciona e le;
+  a voz so edita preparo/data/estado; falta renomear, tipo, notas e reabrir;
+  falta validacao em `editar()` e botoes de editar/excluir/concluir na janela.
+- Desenho aprovado; spec em `docs/superpowers/specs/2026-11-23-agenda-crud-design.md`.
+- Builder check em andamento (modelo gratuito).
+- Nenhum codigo de produto alterado nesta etapa.
+
+## Rodada 12 — correcoes dos testes do dono (23/11/2026)
+- Teste real da NIA (interface offscreen, perfil isolado) revelou 6 falhas:
+  1. "adicione/mude/exclua ..." caem no Canvas de planos ("Abra um plano...")
+     porque `_processar_pedido_assistido` roda antes de `_processar_pedido_agenda`.
+  2. `excluir` nao existe como acao no parser da Agenda.
+  3. referencia de titulo inexistente silenciosamente cai para o proximo.
+  4. mensagem "Compromisso concluir:" gramaticalmente errada.
+  5. listagens nao filtram "proximo mes"/"hoje" e nao citam o proximo.
+  6. "bom dia" responde sem saudacao.
+- Branco: branch AGENDA, 689 testes verdes antes das mudancas.
+- A preservar: comportamentos ja validados e Rulings da rodada 11.
+
+## Rodada 11 — Agenda (23/11/2026)
+- Branch: `AGENDA` (criada de `CANVAS-INFINITO`), limpa e sincronizada com `origin/AGENDA`.
+- Commits na origem: `cd72528` (roteamento de acao no PC), PR #4 aberto em CANVAS-INFINITO.
+- Suite anterior: **654 passed, 0 failed**; `compileall`/`git diff --check` limpos.
+- Ideia aprovada no play back: modulo proprio `core/agenda.py`, janela estilo
+  Google Calendar com identidade NIA, card no CANVAS PRINCIPAL (clima/horas),
+  nao no Canvas dos planos; sugestao automatica de preparo por tipo, editavel.
+- Recon: nao existe `autonomous-builder`; `core/lembretes.py` e atrelado a planos;
+  `ui._build_dock` monta botoes; `CanvasStage.hoje_host` e o molde do card;
+  `core/resumo_dia.py` define persistencia por perfil fora do Git.
+- Documento de desenho: `docs/superpowers/specs/2026-11-23-agenda-design.md`.
+- Nenhum codigo de produto alterado nesta etapa.
+
 ## Rodada 10 — baseline antes das mudancas (22/11/2026)
 - Relato: "abra o youtube e toque uma musica" → NIA listou 23 planos.
 - Suite anterior: 643 passed, 0 failed; commit/push `8c8c499`.
@@ -145,3 +193,24 @@
   abertura de plano. O regex especifico da linha 113 ja cobre "abra o plano/projeto/produto".
 - A preservar: "abra o plano X", "Abre o projeto Y", retomar estudo, gerenciador.
 - Rotas corretas existentes: `_rede_de_abrir`, `_rede_do_site`, `CH.reconhecer`.
+
+
+## 2026-11-23T22:29:56.762125-03:00 — Programa EVOLUCAO-NIA
+
+Nova auditoria do programa EVOLUCAO-NIA. Estado inicial: whatsapp_bridge/last_disconnect.json modificado, EVOLUCAO-NIA nao rastreado. Python local 3.12.14. Baseline seguro em copia temporaria, sem rede nem dados reais; evidencia em EVOLUCAO-NIA/registros/. Numeros historicos nao reutilizados como resultado novo.
+
+
+## 2026-11-23T22:50:56.900283-03:00 — checkpoint EVOLUCAO-NIA
+
+Resultado desta execução: baseline corrigido 729 passed/1 failed (Canvas); reprodução isolada passou; regressão combinada final 167 passed/0 failed. Não houve nova suíte integral final. Ver logs específicos em EVOLUCAO-NIA/registros/.
+
+## Rodada 15 — limpeza de código morto (25/11/2026)
+
+- Ideia: análise geral do projeto para remover código morto, funções sem uso e chamadas sem função, sem prejudicar a NIA.
+- Branch `AGENDA`, HEAD `a846c36` (inclui o fix da barra nativa). Upstream `origin/AGENDA`.
+- `.opencode/autonomous-builder/` não existe; não há `AGENTS.md` no repositório; instruções lidas em `.opencode/safe-evolution/*.md`.
+- Git: 43 entradas locais (modificados + untracked), incluindo `tests/test_interface_canvas.py`, `whatsapp_bridge/last_disconnect.json`, módulos novos em `core/`, `docs/manual-nia/`, spec/plans e testes novos. Tudo preservado; nada foi descartado.
+- Baseline seguro executado **antes de qualquer edição**: `.venv-apis\Scripts\python.exe -m pytest -q` → **862 passed, 0 failed** (10min29s, saída do shell `sh_2128c4ffb0010Ofw0EbixxoSD9`). Nenhuma falha preexistente registrada nesta rodada.
+- Ambiente: Windows, Python do `.venv-apis`, PyQt6, testes offscreen. Sem `ruff`/`vulture`/`pyflakes`/`radon` instalados — a varredura será feita com AST da stdlib, sem instalar dependências.
+- Nenhuma linha de produto alterada até aqui; nenhum commit, push, branch, stash ou limpeza de arquivos.
+

@@ -860,11 +860,13 @@ def _voice_diag(event: str, detail: str = "") -> None:
     """Log técnico sem transcrições ou chaves para diagnosticar quedas da sessão."""
     try:
         stamp = datetime.now().isoformat(timespec="milliseconds")
-        safe_detail = str(detail or "").replace("\x00", "")
+        from core.permissoes_ferramentas import redigir_diagnostico
+        safe_detail = redigir_diagnostico(detail)
+        safe_event = re.sub(r'[^A-Za-z0-9_-]', '_', str(event))[:80]
         with _VOICE_DIAG_LOCK:
             VOICE_DIAG_PATH.parent.mkdir(parents=True, exist_ok=True)
             with VOICE_DIAG_PATH.open("a", encoding="utf-8") as fh:
-                fh.write(f"{stamp}\t{event}\t{safe_detail}\n")
+                fh.write(f"{stamp}\t{safe_event}\t{safe_detail}\n")
     except Exception:
         pass
 
@@ -2456,6 +2458,11 @@ TOOL_DECLARATIONS = [
     },
 ]
 
+# CENTRAL DE APLICATIVOS: liga o registro central às declarações reais sem
+# importar `main` de dentro do registro (evita ciclo e mantém descoberta leve).
+from core import registro_aplicativos as _registro_central  # noqa: E402
+_registro_central.definir_provedor_ferramentas(lambda: TOOL_DECLARATIONS)
+
 # --- Plugin system ---
 
 
@@ -2649,6 +2656,8 @@ class NiaLive:
         self.ui.on_interrupt        = self.interrupt
         self.ui.on_atividade        = self.atividade_em_andamento
         self.ui.on_falar_resumo     = self._falar_resumo
+        # CENTRAL DE APLICATIVOS: ações locais da Central (__ui__) são
+        # despachadas pelos sinais da própria janela, sem domínios extras.
         # SKILL 07: catálogo, dock, chat e voz usam o mesmo executor.
         CH.registrar_executor(self._executar_habilidade)
         self._configurar_agendador_resumo()
@@ -2770,6 +2779,9 @@ class NiaLive:
         self._current_input_transcript = ""
         self._pending_manual_save_destination = ""
         self._pending_manual_save_extension = ""
+        # ETAPA 07: contexto da ferramenta ativa, separado do motor de voz.
+        from core.contexto_ferramentas import ContextoFerramentas
+        self._contexto_ferramentas = ContextoFerramentas()
 
     def _open_whatsapp_from_button(self) -> None:
         """Abre/conecta o WhatsApp direto pelo botão da interface, sem depender de voz."""
@@ -3449,6 +3461,24 @@ class NiaLive:
             return
         _cmd = re.sub(r"\s+", " ", str(text or "")).strip()
         _low = _cmd.lower()
+        if NiaLive._tratar_confirmacao_permissao(self, _cmd):
+            return
+        # ETAPA 07: "repita/novamente" reaplica a AÇÃO TIPADA ativa pelo mesmo
+        # caminho de sempre. Frase ambigua nao vira comando (resolver -> None).
+        try:
+            contexto = getattr(self, '_contexto_ferramentas', None)
+            seguite = contexto.resolver(_cmd) if contexto is not None else None
+            if seguite is not None:
+                self.ui.write_log(
+                    "SIS: repetindo ação tipada: " + seguite.ferramenta)
+                threading.Thread(
+                    target=self._executar_ferramenta_local,
+                    args=(seguite.ferramenta, dict(seguite.argumentos)),
+                    daemon=True,
+                ).start()
+                return
+        except Exception:
+            pass
         self._turno_seq += 1
         if self._tratar_confirmacao_sintese(_cmd):
             return
@@ -3542,6 +3572,15 @@ class NiaLive:
         # BUSCA LOCAL COM FONTES (Skill 03): pedido explícito, sem modelo e
         # sem rede. Conversa comum continua exatamente pelo fluxo atual.
         if self._buscar_arquivos_local(_cmd, origem='texto'):
+            return
+
+        # Hora/data são determinísticos e não consomem tokens: precisam vir
+        # ANTES do cérebro local, senão o modo local manda tudo para o modelo.
+        if self._rede_do_relogio(_cmd):
+            return
+        if self._responder_status_local(_cmd):
+            return
+        if self._responder_ferramenta_local(_cmd):
             return
 
         # Sem sessao da Gemini (modo local), o texto digitado vai para o mesmo
@@ -4553,11 +4592,12 @@ class NiaLive:
         r"(comp[uú]t\w*|pc)(\s+us\w*)?\W*$", re.I)
 
     _ATIVAR_PC = re.compile(
-        r"\b(ativa|ative|ativar|ativado|liga|ligue|ligar)\s+"
+        r"\b(ativa|ative|ativar|ativado|liga|ligue|ligar|controle|controlar|"
+        r"controla|assum[ei]r?|assuma|toma|tome)\s+"
         r"(o\s+|no\s+|meu\s+|esse\s+|este\s+)?"
         r"(comp[uú]t\w*(\s*us\w*)?|pc)\b"
         # Em ingles (24/09/2026): "activate computer", "turn on computer use".
-        r"|\b(activate|enable|turn\s+on|start)\s+(the\s+|my\s+)?"
+        r"|\b(activate|enable|turn\s+on|start|control|take)\s+(the\s+|my\s+)?"
         r"(computer(\s*us\w*)?|pc)\b", re.I)
 
     # ── FALAR SOBRE O COMPUTER USE NAO PODE LIGAR O COMPUTER USE ─────────
@@ -4588,7 +4628,8 @@ class NiaLive:
     # que separa os dois.
     _ATIVAR_NEGADO = re.compile(
         r"\b(nao|não|nunca|jamais|sem|nem)\b[^.!?]{0,45}?"
-        r"\b(ativa|ative|ativar|ativado|liga|ligue|ligar|mexe|mexer|usa|usar|use)\b"
+        r"\b(ativa|ative|ativar|ativado|liga|ligue|ligar|mexe|mexer|usa|usar|use|"
+        r"controle|controlar|controla)\b"
         r"[^.!?]{0,30}?\b(computador|computer|conputer|compute|pc|maquina|máquina|"
         r"tela|mouse|teclado|meu pc)\b"
         r"|\b(don'?t|do not|never|without)\b[^.!?]{0,45}?"
@@ -5723,6 +5764,13 @@ class NiaLive:
         r"|^(?:me\s+)?(?:diz|fala|informa|da)\s+(?:a|o)\s+(?:hora|horas|data)\s*$"
         r"|^qual\s+(?:e\s+|eh\s+)?(?:a|o)\s+(?:hora|horas|data)\s*$"
         r"|^qual\s+(?:e\s+|eh\s+)?o\s+dia\s+(?:de\s+hoje\s*)?$"
+        # Variações naturais que antes caíam no modelo no modo local.
+        r"|^(?:me\s+)?(?:digas?|fale|informe)\s+(?:a|o)\s+"
+        r"(?:hora|horas|data|horario)\s*$"
+        r"|^voce sabe que horas\s+(?:sao|e)\s*(?:agora)?\s*$"
+        r"|^me informa o horario atual\s*$"
+        r"|^qual\s+(?:e\s+|eh\s+)?a\s+hora(?:\s+ai)?\s*$"
+        r"|^horario\s+atual\s*$"
     )
     # Se ele DITOU um horario, nao esta perguntando: esta mandando anotar.
     _RE_HORARIO_DITADO = re.compile(r"\b\d{1,2}\s*(?:h|horas?|:\d{2})\b")
@@ -5755,6 +5803,60 @@ class NiaLive:
             'dados': dict(dados or {}),
             'token': self._novo_brief_token(),
         })
+
+    _RE_STATUS_LOCAL = re.compile(
+        r"^(?:como\s+(?:esta|vai)|qual\s+(?:e\s+|eh\s+)?o\s+estado)"
+        r"(?:\s+meu|\s+o)?\s+(?:computador|pc|maquina|sistema|status)\s*$")
+
+    _RE_CLIMA_LOCAL = re.compile(
+        r"^(?:como\s+esta\s+(?:o\s+)?(?:tempo|clima)|vai\s+chover|"
+        r"qual\s+(?:e\s+|eh\s+)?a\s+previsao(?:\s+do\s+tempo)?)\b")
+    _RE_WEB_LOCAL = re.compile(
+        r"^(?:pesquise|procure|busque)(?:\s+(?:na\s+internet|na\s+web|online|sobre))?"
+        r"\s+(.+)$")
+
+    def _responder_ferramenta_local(self, texto: str) -> bool:
+        """Clima/pesquisa online deterministicamente no modo local."""
+        import unicodedata as _u  # noqa: PLC0415
+        bruto = str(texto or "").strip().lower()
+        limpo = "".join(c for c in _u.normalize("NFD", bruto)
+                        if _u.category(c) != "Mn")
+        limpo = " ".join("".join(c if c.isalnum() or c.isspace() else " "
+                                 for c in limpo).split())
+        if self._RE_CLIMA_LOCAL.search(limpo):
+            try:
+                self._falar_local(str(weather_action(parameters={'city': ''})))
+                return True
+            except Exception:
+                return False
+        encontrado = self._RE_WEB_LOCAL.search(limpo)
+        pedido_local = re.search(
+            r"\b(?:nos|nas|em|no|na)\s+(?:meus|minhas|meu|minha)?\s*"
+            r"(?:arquivos|documentos)\b", limpo)
+        if encontrado and not pedido_local:
+            try:
+                self._falar_local(str(web_search_action(
+                    parameters={'query': encontrado.group(1).strip(' .!?')})))
+                return True
+            except Exception:
+                return False
+        return False
+
+    def _responder_status_local(self, texto: str) -> bool:
+        """Status do sistema sem modelo e sem token, no modo local."""
+        import unicodedata as _u  # noqa: PLC0415
+        bruto = str(texto or "").strip().lower()
+        limpo = "".join(c for c in _u.normalize("NFD", bruto)
+                        if _u.category(c) != "Mn")
+        limpo = "".join(c if c.isalnum() or c.isspace() else " " for c in limpo)
+        if not self._RE_STATUS_LOCAL.search(" ".join(limpo.split())):
+            return False
+        try:
+            estado = str(get_system_status())
+        except Exception:
+            return False
+        self._falar_local(estado)
+        return True
 
     def _rede_do_relogio(self, texto: str, _so_a_ultima: bool = False) -> bool:
         """Hora e data sem ir na rede. Devolve True quando ja respondeu.
@@ -6649,6 +6751,15 @@ class NiaLive:
         """Monta o plano do desenho e desenha, fora do modelo."""
         self._parar_pc = False
         self._usando_pc = True
+        _sessao_ov, _token_ov = self._abrir_sessao_overlay("desenhar_na_tela")
+        if _token_ov is None:
+            self._usando_pc = False
+            try:
+                self._falar_local("Nao consegui mostrar o indicador de controle, "
+                                  "entao nao mexi em nada.")
+            except Exception:
+                pass
+            return
         try:
             # SEM AVISO AQUI: quem abre falando e o narrador, la dentro, e
             # so DEPOIS do plano pronto — assim ele ja diz O QUE vai desenhar.
@@ -6665,11 +6776,12 @@ class NiaLive:
                                  gerar=self._openrouter.escrever_em_camadas,
                                  falar=self._falar_local,
                                  olhar=self._olhar_o_desenho,
-                                 deve_parar=lambda: self._parar_pc)
+                                 deve_parar=self._freio_do_controle)
         except Exception as exc:
             r = f"Nao consegui desenhar: {str(exc)[:80]}"
         finally:
             self._usando_pc = False
+            self._fechar_sessao_overlay(_sessao_ov, _token_ov)
             # A PORTA FICA ABERTA MAIS 2 MINUTOS depois do desenho. "Ficou
             # ruim, melhora essa casa" vem logo em seguida e e a continuacao do
             # mesmo pedido — mandar ele dizer "ativar computador" de novo ali
@@ -6684,6 +6796,15 @@ class NiaLive:
         """Gera o conteudo e digita na janela aberta, fora do modelo."""
         self._parar_pc = False
         self._usando_pc = True
+        _sessao_ov, _token_ov = self._abrir_sessao_overlay("digitar_na_tela")
+        if _token_ov is None:
+            self._usando_pc = False
+            try:
+                self._falar_local("Nao consegui mostrar o indicador de controle, "
+                                  "entao nao mexi em nada.")
+            except Exception:
+                pass
+            return
         try:
             try:
                 self._falar_local("Deixa comigo, vou digitar ai.")
@@ -6696,11 +6817,12 @@ class NiaLive:
             self._openrouter.falar = self._falar_local
             r = digitar_na_tela({"pedido": pedido}, player=self.ui,
                                 gerar=self._openrouter.escrever_texto_em_camadas,
-                                deve_parar=lambda: self._parar_pc)
+                                deve_parar=self._freio_do_controle)
         except Exception as exc:
             r = f"Nao consegui digitar: {str(exc)[:80]}"
         finally:
             self._usando_pc = False
+            self._fechar_sessao_overlay(_sessao_ov, _token_ov)
         try:
             self._falar_local(str(r), ao_primeiro_som=lambda: self.ui.write_log(f"{_nome_falante(self.ui)}: {r}"))
         except Exception:
@@ -6805,6 +6927,48 @@ class NiaLive:
                     pass
 
         threading.Thread(target=_dizer, daemon=True).start()
+
+    def _abrir_sessao_overlay(self, motivo: str):
+        """Abre a sessão de controle; (None, None) quando o indicador falha."""
+        try:
+            from core import controle_sessao as _cs  # noqa: PLC0415
+            s = _cs.sessao
+            token = s.iniciar(motivo, monitorar_esc=False,
+                              ao_parar=lambda: setattr(self, "_parar_pc", True))
+            return s, token
+        except Exception as exc:
+            _voice_diag("overlay_indisponivel", f"{motivo}: {str(exc)[:120]}")
+            return None, None
+
+    @staticmethod
+    def _fechar_sessao_overlay(sessao, token) -> None:
+        if sessao is None or token is None:
+            return
+        try:
+            sessao.encerrar(token, 'tarefa encerrada')
+        except Exception:
+            pass
+
+    def _freio_do_controle(self) -> bool:
+        """`deve_parar` das ferramentas de desktop: ESC, parada e pausa.
+
+        Enquanto o overlay estiver pausado, a ferramenta fica bloqueada aqui —
+        sem digitar, desenhar ou clicar. Se o usuário encerrar, devolve True e
+        a ferramenta para no próximo ponto de checagem.
+        """
+        if getattr(self, "_parar_pc", False):
+            return True
+        try:
+            from core import controle_sessao as _cs  # noqa: PLC0415
+            s = _cs.sessao
+            if s.ativo():
+                while not s.permitido():
+                    if s.parada_solicitada():
+                        return True
+                    time.sleep(0.08)
+        except Exception:
+            pass
+        return False
 
     def _olhar_e_clicar(self, tarefa: str) -> None:
         """Roda o olhar-e-clicar fora do modelo, com os mesmos freios."""
@@ -6943,6 +7107,21 @@ class NiaLive:
         habilidade = CH.por_id(identificador)
         if habilidade is None:
             return False, 'Habilidade desconhecida.'
+        if CH.modulo_registrado(identificador):
+            from core import permissoes_ferramentas as PF
+            if PF.tem_autorizacao(identificador, {'termo': termo}, habilidade.permissoes):
+                return CH.executar_modulo(identificador, termo).como_tupla()
+            loop = getattr(self, '_loop', None)
+            if loop is not None and loop.is_running():
+                anterior = getattr(self, '_modulo_futuro', None)
+                worker = getattr(self, '_modulo_worker', None)
+                if ((anterior is not None and not anterior.done())
+                        or (worker is not None and not worker.done())):
+                    return False, 'Já há uma ferramenta em andamento. Interrompa-a antes de iniciar outra.'
+                self._modulo_futuro = asyncio.run_coroutine_threadsafe(
+                    NiaLive._executar_modulo_com_confirmacao(self, habilidade, termo, CH.origem()), loop)
+                return True, 'Confira a prévia para permitir esta ferramenta uma vez.'
+            return CH.executar_modulo(identificador, termo).como_tupla()
         origem = CH.origem()
         if habilidade.acao == 'abrir_secretaria':
             if not CH.disponibilidade(habilidade.id).pronta:
@@ -7431,6 +7610,119 @@ class NiaLive:
             self.ui.write_log("SIS: Não foi possível salvar o lembrete.")
         return True
 
+    def _processar_pedido_agenda(self, texto: str, origem: str) -> bool:
+        """Cria/consulta/edit a Agenda no mesmo fluxo de chat e voz."""
+        from core import agenda as AG
+        from core import comandos_agenda as CAG
+        resultado = CAG.processar(texto)
+        if not resultado.get("tratado"):
+            return False
+        acao = resultado.get("acao")
+        rotulos = {
+            "concluir": "Compromisso concluído",
+            "cancelar": "Compromisso cancelado",
+            "excluir": "Compromisso excluído",
+            "mover": "Compromisso movido",
+            "editar": "Compromisso atualizado",
+        }
+        campos_editados = resultado.get("campos") or {}
+        rotulos_campos = {
+            "titulo": "Compromisso renomeado",
+            "tipo": "Tipo atualizado",
+            "notas": "Notas atualizadas",
+            "preparo_minutos": "Preparo atualizado",
+            "estado": ("Compromisso reaberto"
+                       if campos_editados.get("estado") == "pendente"
+                       else "Estado atualizado"),
+        }
+        if acao == "pendente":
+            mensagem = resultado.get("resposta") or "Informe a data e a hora."
+        elif acao == "saudacao":
+            n = AP.normalizar(texto)
+            if "boa tarde" in n:
+                saudacao = "Boa tarde!"
+            elif "boa noite" in n:
+                saudacao = "Boa noite!"
+            else:
+                saudacao = "Bom dia!"
+            mensagem = saudacao + " " + AG.resumo_proximo()
+        elif acao == "proximo":
+            mensagem = AG.resumo_proximo()
+        elif acao == "listar":
+            todos = [i for i in AG.listar() if i.get("estado") == "pendente"]
+            itens = AG.filtrar_por_periodo(
+                todos, resultado.get("periodo"))[:5]
+            if itens:
+                mensagem = ("Compromissos: " + "; ".join(
+                    f'{i["titulo"]} ({str(i["inicio"])[:16]})' for i in itens)
+                    + ". " + AG.resumo_proximo())
+            else:
+                mensagem = ("Nenhum compromisso nesse período. "
+                            + AG.resumo_proximo())
+        elif acao == "criar":
+            item = AG.criar(resultado["titulo"], resultado["inicio"],
+                            resultado.get("tipo", "outro"))
+            mensagem = (f'Compromisso salvo: {item["titulo"]}. '
+                        + AG.resumo_proximo())
+        elif acao in ("mover", "editar", "concluir", "cancelar", "excluir"):
+            todos_pedidos = acao == "excluir" and bool(
+                re.search(r"\b(?:todos|todas)\b", str(texto or ""), re.I))
+            if todos_pedidos:
+                mensagem = "Posso excluir um compromisso por vez. Qual devo excluir?"
+            else:
+                alvo = CAG.resolver_alvo(texto, AG.listar(), AG.proximo())
+            if not todos_pedidos and alvo is None:
+                pendentes = [i for i in AG.listar()
+                             if i.get("estado") == "pendente"]
+                if not pendentes:
+                    mensagem = "Não há compromisso pendente para isso."
+                elif CAG.contar_casados(texto, AG.listar()) > 1:
+                    mensagem = "Há mais de um compromisso com esse nome. Qual deles?"
+                elif CAG.tem_referencia(texto):
+                    mensagem = "Não encontrei compromisso com esse nome."
+                else:
+                    mensagem = "Há mais de um compromisso com esse nome. Qual deles?"
+            elif not todos_pedidos and alvo is not None:
+                try:
+                    if acao == "mover":
+                        AG.mover(alvo["id"], resultado["inicio"])
+                    elif acao == "editar":
+                        AG.editar(alvo["id"], campos_editados)
+                    elif acao == "concluir":
+                        AG.concluir(alvo["id"])
+                    elif acao == "cancelar":
+                        AG.cancelar(alvo["id"])
+                    else:
+                        AG.excluir(alvo["id"])
+                    rotulo_acao = (rotulos_campos.get(next(iter(campos_editados), ""),
+                                                      rotulos[acao])
+                                   if acao == "editar" else rotulos[acao])
+                    mensagem = f'{rotulo_acao}: {alvo["titulo"]}.'
+                except ValueError as exc:
+                    mensagem = f"Não foi possível alterar: {exc}"
+        elif acao == "mostrar_card":
+            mostrar = getattr(self.ui, "mostrar_agenda", None)
+            if mostrar is not None:
+                mostrar()
+            mensagem = ("Card da agenda exibido."
+                        if AG.proximo() else
+                        "Não há compromisso para exibir no card.")
+        else:
+            return False
+        self.ui.write_log("SIS: " + mensagem)
+        falar = getattr(self, "_falar_resposta_comando", None)
+        if falar is not None:
+            falar(mensagem, origem)
+        # Compromisso alterado via chat: atualiza o card do Canvas principal.
+        atualizar = getattr(getattr(self.ui, "_win", None),
+                            "_atualizar_cartao_agenda", None)
+        if atualizar is not None:
+            try:
+                atualizar()
+            except Exception:
+                pass
+        return True
+
     def _retomar_pedido_canvas(self, texto: str) -> tuple[str, bool, bool]:
         """Devolve (texto efetivo, é retomada, existe pedido anterior)."""
         from core import controle_canvas as CC
@@ -7445,6 +7737,79 @@ class NiaLive:
         if not valido:
             return texto, True, False
         return anterior["texto"], True, True
+
+    def _aprendizado(self):
+        """Armazenamento de aprendizado explícito do perfil atual."""
+        from core import aprendizado as _AP  # noqa: PLC0415
+        from core import registro_aplicativos as _RA  # noqa: PLC0415
+        from core import registro_nativo as _RN  # noqa: PLC0415
+        _RN.registrar_nativos()
+        _RA.sincronizar_habilidades()
+        capacidades = tuple(h.id for h in CH.todas()) + tuple(
+            i.id for i in _RA.todos() if i.tipo != 'ferramenta')
+        return _AP.Aprendizado(
+            caminho=Path.home() / '.nia' / 'aprendizado.json',
+            capacidades=capacidades)
+
+    def _responder_aprendizado(self, mensagem: str, origem: str) -> None:
+        escrever = getattr(self.ui, 'write_log', None)
+        if callable(escrever):
+            escrever('SIS: ' + mensagem)
+        falar = getattr(self, '_falar_resposta_comando', None)
+        if callable(falar):
+            falar(mensagem, origem)
+
+    def _processar_comando_aprendizado(self, texto: str, origem: str) -> bool:
+        """Ensino, esquecimento, preferências e consulta por voz/chat."""
+        from core import comandos_aprendizado as _CA  # noqa: PLC0415
+        tipo, dados = _CA.reconhecer(texto)
+        if not tipo:
+            return False
+        try:
+            memoria = self._aprendizado()
+            if tipo == 'aprender':
+                criado = memoria.aprender(dados['frase'], dados['capacidade'])
+                mensagem = (f'Aprendi: “{dados["frase"]}”.' if criado
+                            else 'Já sei essa associação.')
+            elif tipo == 'esquecer':
+                removido = memoria.esquecer(dados['frase'])
+                mensagem = ('Esqueci essa associação.' if removido
+                            else 'Não havia essa associação.')
+            elif tipo == 'preferencia':
+                memoria.definir_preferencia('respostas', dados['valor'])
+                mensagem = f'Preferência salva: respostas {dados["valor"]}.'
+            elif tipo == 'procedimento':
+                memoria.registrar_procedimento('ultima_vez', (str(dados.get('detalhe') or ''),))
+                mensagem = 'Procedimento registrado.'
+            else:
+                itens = memoria.listar()
+                mensagem = ('Aprendi: ' + ', '.join(i['frase'] for i in itens)
+                            if itens else 'Ainda não aprendi nada com você.')
+        except Exception:
+            mensagem = 'Não consegui registrar esse aprendizado.'
+        self._responder_aprendizado(mensagem, origem)
+        return True
+
+    def _habilidade_aprendida(self, texto: str) -> tuple:
+        """Resolve somente associações explícitas, reavaliando a capacidade."""
+        try:
+            from core import aprendizado as _AP  # noqa: PLC0415
+            from core import registro_aplicativos as _RA  # noqa: PLC0415
+            from core import registro_nativo as _RN  # noqa: PLC0415
+            _RN.registrar_nativos()
+            _RA.sincronizar_habilidades()
+            capacidades = tuple(h.id for h in CH.todas()) + tuple(
+                i.id for i in _RA.todos() if i.tipo != 'ferramenta')
+            aprendizado = _AP.Aprendizado(
+                caminho=Path.home() / '.nia' / 'aprendizado.json',
+                capacidades=capacidades)
+            identificador = aprendizado.resolver(texto)
+            if not identificador:
+                return None, ''
+            alvo = CH.por_id(identificador) or _RA.por_id(identificador)
+            return alvo, ''
+        except Exception:
+            return None, ''
 
     def _executar_frase_habilidade(self, texto: str, origem: str) -> bool:
         """Reconhece frases do catálogo e comandos de planejamento no chat/voz."""
@@ -7462,6 +7827,22 @@ class NiaLive:
             if falar is not None:
                 falar(mensagem, origem)
             return True
+        # Aprendizado por linguagem natural vem antes dos domínios: ensinar
+        # uma frase não deve cair como plano, agenda ou ferramenta.
+        aprender_comando = getattr(self, '_processar_comando_aprendizado', None)
+        if aprender_comando is not None:
+            try:
+                if aprender_comando(texto, origem):
+                    return True
+            except Exception:
+                pass
+        # A Agenda vem ANTES do Canvas: "adicione/mude/exclua ..." sao pedidos
+        # de compromisso e nao podem ser capturados pela edicao de planos.
+        try:
+            if self._processar_pedido_agenda(texto, origem):
+                return True
+        except Exception as exc:
+            _voice_diag('agenda_rota_erro', type(exc).__name__)
         canvas_tratado = False
         try:
             contexto = self._contexto_planos()
@@ -7500,7 +7881,18 @@ class NiaLive:
                 return True
         except Exception as exc:
             _voice_diag('conversa_plano_erro', type(exc).__name__)
+        try:
+            if self._executar_central_por_frase(texto, origem):
+                return True
+        except Exception as exc:
+            _voice_diag('central_frase_erro', type(exc).__name__)
         habilidade, termo = CH.reconhecer(texto)
+        if habilidade is None:
+            # Fase 07 integrada: somente associações explicitamente aprendidas
+            # pelo dono. Gancho opcional preserva esqueletos/ponte de testes.
+            aprender = getattr(self, '_habilidade_aprendida', None)
+            if aprender is not None:
+                habilidade, termo = aprender(texto)
         if habilidade is None:
             return False
         token = CH.definir_origem(origem)
@@ -7530,6 +7922,16 @@ class NiaLive:
             agendador.ao_resumo = self._falar_resumo
             agendador.resumo_leitura_automatica = (
                 ConfigService().resumo_leitura_automatica)
+            # Fase 14 integrada: avisos do agendador passam pelo outbox local,
+            # com dedupe/retry e o mesmo canal de notificação de antes.
+            from core import integracao_notificacoes as _IN  # noqa: PLC0415
+            from core import outbox_notificacoes as _ON  # noqa: PLC0415
+            from actions import reminder as _reminder  # noqa: PLC0415
+            _outbox = _ON.Outbox(
+                caminho=Path.home() / '.nia' / 'outbox.json',
+                canais={'painel': lambda texto: bool(_reminder.notificar(texto))})
+            agendador.definir_notificador(_IN.notificador_outbox(
+                _outbox, canal='painel', destino='agendador'))
         except Exception:
             pass
 
@@ -7544,13 +7946,17 @@ class NiaLive:
 
     def atividade_em_andamento(self) -> bool:
         """Fala ou ferramenta em curso — usado pelo chat para interromper."""
+        consentimentos = getattr(self, '_consentimentos', None)
+        if consentimentos is not None and consentimentos.pendente:
+            return False  # Responder à prévia não interrompe a tarefa que a aguarda.
         trava = getattr(self, "_speaking_lock", None)
         if trava is None:
             falando = bool(getattr(self, "_is_speaking", False))
         else:
             with trava:
                 falando = bool(getattr(self, "_is_speaking", False))
-        return falando or bool(getattr(self, "_tool_busy", False))
+        modulo = getattr(self, '_modulo_futuro', None)
+        return falando or bool(getattr(self, "_tool_busy", False)) or bool(modulo is not None and not modulo.done())
 
     def _tratar_interrupcao(self, texto: str, origem: str) -> bool:
         """Devolve True quando a mensagem foi consumida e não deve seguir."""
@@ -7568,10 +7974,83 @@ class NiaLive:
             self.interrupt(silencioso=True)
         return False
 
+    def _executar_central_por_frase(self, texto: str, origem: str) -> bool:
+        """Voz/texto para a Central: abrir, listar e gerenciar o dock."""
+        from core import registro_aplicativos as RA
+        tipo, dados = RA.reconhecer_comando_central(texto)
+        if not tipo:
+            return False
+        if tipo == 'abrir_central':
+            self.ui.abrir_central(True)
+        elif tipo == 'fechar_central':
+            self.ui.abrir_central(False)
+        elif tipo in ('abrir_manual', 'ajuda'):
+            self.ui.abrir_manual()
+        elif tipo == 'ferramentas_pesquisa':
+            mensagem = ('Busca local: diga "procure nos meus arquivos por ..." '
+                        'e configure as pastas em Configurações → Documentos.')
+            self.ui.write_log('SIS: ' + mensagem)
+            falar = getattr(self, '_falar_resposta_comando', None)
+            if falar is not None:
+                falar(mensagem, origem)
+        elif tipo in ('listar', 'config_pendente'):
+            itens = RA.todos()
+            if tipo == 'config_pendente':
+                itens = [i for i in itens if i.exigir_config]
+            nomes = ', '.join(i.nome for i in itens[:12]) or 'nenhuma'
+            self.ui.write_log('SIS: ' + nomes + '.')
+            falar = getattr(self, '_falar_resposta_comando', None)
+            if falar is not None:
+                falar('Disponíveis: ' + nomes + '.', origem)
+        elif tipo == 'abrir_app':
+            alvo = str(dados.get('app') or '').replace('configuracoes', 'config')
+            descritor = RA.por_id(alvo)
+            if descritor is None:
+                return False
+            self.ui.executar_dominio('__ui__', 'abrir_app', {'id': descritor.id})
+        elif tipo == 'dock':
+            alvo = str(dados.get('app') or '').replace('configuracoes', 'config')
+            self.ui.executar_dominio('__ui__', dados['acao'], {'id': alvo})
+        else:
+            return False
+        return True
+
+    def _ctx_concluir(self, ok: bool, resumo: str = '') -> None:
+        """Fecha o contexto da ferramenta com o resultado real (se houver)."""
+        contexto = getattr(self, '_contexto_ferramentas', None)
+        if contexto is None:
+            return
+        try:
+            contexto.concluir(bool(ok), resumo)
+        except Exception:
+            pass
+
+    def _ctx_cancelar(self) -> None:
+        contexto = getattr(self, '_contexto_ferramentas', None)
+        if contexto is not None:
+            try:
+                contexto.cancelar()
+            except Exception:
+                pass
+
     def interrupt(self, silencioso: bool = False) -> None:
         """Para fala/tarefa corrente para atender a nova mensagem do dono."""
+        consentimentos = getattr(self, '_consentimentos', None)
+        if consentimentos is not None:
+            consentimentos.cancelar()
+        # Troca de assunto: resultado em voo não vale mais. Chamada via getattr
+        # porque alguns contratos usam objetos duck-typed em testes antigos.
+        try:
+            contexto = getattr(self, '_contexto_ferramentas', None)
+            if contexto is not None:
+                contexto.cancelar()
+        except Exception:
+            pass
         if not getattr(self, "_interruptivel", True):
             return
+        modulo = getattr(self, '_modulo_futuro', None)
+        if modulo is not None and not modulo.done():
+            modulo.cancel()
         self._interrupted = True
         self._boca_bypass = True   # proxima fala nao espera a que foi calada
         self._turno_seq += 1   # resultados em voo não alcançam mais esta conversa
@@ -8619,6 +9098,13 @@ class NiaLive:
             faixa = "manha" if 5 <= hora < 12 else ("tarde" if 12 <= hora < 18 else "noite")
             _tabela = self._SAUDACOES_EN if _em_ingles() else self._SAUDACOES
             frase = _r.choice(_tabela[faixa]).format(nome=nome)
+            try:
+                from core import agenda as _AG  # noqa: PLC0415
+                proximo = _AG.resumo_proximo()
+                if proximo and "nenhum compromisso" not in proximo.lower():
+                    frase += " " + proximo
+            except Exception:
+                pass
             _voice_diag("saudacao", frase[:60])
             self._falar_local(
                 frase,
@@ -10383,6 +10869,8 @@ class NiaLive:
             # proativo achava que a casa estava vazia ha horas e ficava
             # perguntando "o que o senhor quer fazer" (08/09/2026).
             self._last_user_speech = _t.monotonic()
+            if NiaLive._tratar_confirmacao_permissao(self, texto):
+                return
             self._turno_seq += 1
             if self._tratar_confirmacao_sintese(texto):
                 return
@@ -10827,16 +11315,135 @@ class NiaLive:
         except Exception as exc:
             print(f"[NIA] ⚠️ Falha ao pré-aquecer voz literal: {exc}")
 
+    def _tratar_confirmacao_permissao(self, texto: str) -> bool:
+        from core.permissoes_ferramentas import decisao_consentimento
+        broker = getattr(self, '_consentimentos', None)
+        if broker is None or not broker.pendente:
+            return False
+        decisao = decisao_consentimento(texto)
+        if decisao is None:
+            broker.cancelar()  # Troca de assunto revoga a prévia anterior.
+            return False
+        broker.responder(broker.pendente, decisao)
+        return True
+
+    async def _solicitar_autorizacao(self, nome, args, escopos):
+        from core import permissoes_ferramentas as PF
+        exibir_ui = getattr(self.ui, 'solicitar_permissao', None)
+        if not callable(exibir_ui):
+            return None
+        broker = getattr(self, '_consentimentos', None)
+        if broker is None:
+            self._consentimentos = broker = PF.Consentimentos()
+        pedido_id = None
+        def exibir(identificador, ferramenta, resumo, responder):
+            nonlocal pedido_id
+            pedido_id = identificador
+            exibir_ui(identificador, ferramenta, resumo, responder)
+            self.ui.write_log('SIS: Confirme a ação na prévia, por voz ou no chat. Dizer não ou trocar de assunto cancela.')
+        try:
+            token = await broker.solicitar(nome, args, escopos, exibir)
+        finally:
+            fechar = getattr(self.ui, 'fechar_permissao', None)
+            if pedido_id and callable(fechar):
+                try:
+                    fechar(pedido_id)
+                except RuntimeError:
+                    pass
+        if token is not None and _SEGUNDO_PLANO.is_set():
+            PF.revogar(token)
+            return None
+        return token
+
+    async def _executar_modulo_com_confirmacao(self, habilidade, termo, origem):
+        import contextvars
+        from core import autonomia_total as _AT
+        from core import permissoes_ferramentas as PF
+        marcador = CH.definir_origem(origem)
+        token = None
+        try:
+            if _AT.ativado():
+                token = _AT.autorizar(
+                    habilidade.id, {'termo': termo}, habilidade.permissoes)
+            else:
+                token = await NiaLive._solicitar_autorizacao(
+                    self, habilidade.id, {'termo': termo}, habilidade.permissoes)
+            if token is None:
+                self.ui.write_log('SIS: Ferramenta não autorizada; nada foi executado.')
+                return
+            with PF.usar(token):
+                contexto = contextvars.copy_context()
+                self._modulo_worker = asyncio.get_running_loop().run_in_executor(
+                    None, lambda: contexto.run(CH.executar_modulo, habilidade.id, termo))
+                resultado = await asyncio.shield(self._modulo_worker)
+            self.ui.write_log('SIS: ' + resultado.mensagem)
+        finally:
+            if token:
+                PF.revogar(token)
+            CH.restaurar_origem(marcador)
+
+    async def _autorizar_ferramenta(self, nome: str, args: dict) -> bool:
+        from core import autonomia_total as _AT
+        from core import permissoes_ferramentas as PF
+        try:
+            escopos = PF.validar_chamada(nome, args, TOOL_DECLARATIONS)
+            # Modo livre: a política continua validando nome/esquema/escopo,
+            # mas nenhuma prévia é exibida ao usuário.
+            if _AT.ativado() or not PF.exige_confirmacao(nome):
+                return True
+            token = await NiaLive._solicitar_autorizacao(self, nome, args, escopos)
+            if token is None:
+                return False
+            # Revalida no uso: alteração de argumento após a prévia não passa.
+            try:
+                PF.validar_chamada(nome, args, TOOL_DECLARATIONS)
+                with PF.usar(token):
+                    PF.verificar(nome, args, escopos)
+            finally:
+                PF.revogar(token)
+            return True
+        except (ValueError, TypeError, PermissionError, OSError, RuntimeError):
+            _voice_diag('permissao_recusada', nome)
+            return False
+
     async def _execute_tool(self, fc) -> "types.FunctionResponse":
         name = fc.name
-        args = dict(fc.args or {})
+        try:
+            if fc.args is not None and not isinstance(fc.args, dict):
+                raise ValueError('Argumentos inválidos')
+            args = dict(fc.args or {})
+        except (ValueError, TypeError):
+            return types.FunctionResponse(id=fc.id, name=fc.name,
+                response={'result': 'Argumentos da ferramenta inválidos.', 'permitido': False})
         # SEGUNDO PLANO: porta unica de TODAS as ferramentas (a Gemini e o
         # cerebro local passam por aqui). Escondido, nada e executado.
         if _SEGUNDO_PLANO.is_set():
+            broker = getattr(self, '_consentimentos', None)
+            if broker is not None:
+                broker.cancelar()
             _voice_diag("segundo_plano", f"ferramenta barrada: {name}")
             return types.FunctionResponse(
                 id=fc.id, name=fc.name,
                 response={"result": "Nada foi feito: o NIA esta em segundo plano."})
+        # Fase 03: a porta real passa a usar o gateway, que reaproveita a
+        # política existente e acrescenta origem, timeout e correlação.
+        # A criação é preguiçosa e por instância; nada muda quando a origem
+        # não foi marcada explicitamente (o padrão do catálogo vira 'chat').
+        from core import capability_gateway as _CG
+        from core import catalogo_habilidades as _CH_GATEWAY
+        _gateway = getattr(self, '_gateway', None)
+        if _gateway is None:
+            _gateway = _CG.CapabilityGateway(declaracoes=TOOL_DECLARATIONS)
+            self._gateway = _gateway
+        _origem = _CH_GATEWAY.origem()
+        if _origem in ('', 'catalogo'):
+            _origem = 'chat'
+        try:
+            _gateway.validar(_CG.Solicitacao(
+                ferramenta=name, argumentos=args, origem=_origem))
+        except (ValueError, TypeError, PermissionError, OSError, RuntimeError):
+            return types.FunctionResponse(id=fc.id, name=fc.name,
+                response={'result': 'Ferramenta ou argumentos recusados pela política.', 'permitido': False})
         # Qual ferramenta e quanto ela custou. Sem isto, "ferramenta=True" no
         # diagnostico nao diz NADA sobre onde o tempo foi parar — e em 30/08 o
         # Diego levou 34 s entre a pergunta e a resposta com ferramenta no meio.
@@ -10996,7 +11603,24 @@ class NiaLive:
                     self._pending_manual_save_destination = ""
                     self._pending_manual_save_extension = ""
 
-        print(f"[NIA] 🔧 {name}  {args}")
+        if name == 'file_processor' and not args.get('file_path') and self.ui.current_file:
+            args['file_path'] = self.ui.current_file
+        # Contexto tipado da etapa 07: registrado DEPOIS de todos os
+        # redirecionamentos, com a ferramenta e os argumentos que vão rodar.
+        self._ctx_cancelar()
+        self._ctx_iniciada = False
+        try:
+            contexto = getattr(self, '_contexto_ferramentas', None)
+            if contexto is not None:
+                contexto.iniciar(name, args)
+                self._ctx_iniciada = True
+        except (ValueError, PermissionError):
+            pass
+        if not await NiaLive._autorizar_ferramenta(self, name, args):
+            self._ctx_cancelar()
+            return types.FunctionResponse(id=fc.id, name=fc.name,
+                response={'result': 'Ação não autorizada ou argumentos inválidos; nada foi executado.', 'permitido': False})
+        print(f"[NIA] ferramenta autorizada: {name}")
         if name == "vision_control":
             self._last_vision_tool_at = time.monotonic()
         if name != "save_memory":
@@ -11026,7 +11650,7 @@ class NiaLive:
             value    = args.get("value", "")
             if key and value:
                 update_memory({category: {key: {"value": value}}})
-                print(f"[Memory] 💾 save_memory: {category}/{key} = {value}")
+                print('[Memory] registro atualizado')
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             return types.FunctionResponse(
@@ -11036,6 +11660,34 @@ class NiaLive:
 
         loop   = asyncio.get_event_loop()
         result = "Done."
+
+        # FERRAMENTAS QUE TOMAM O DESKTOP: o indicador entra antes da ação e
+        # sai depois. `usar_computador` cuida da própria sessão (inclusive
+        # receitas e chamadas diretas de `_olhar_e_clicar`), então fica fora.
+        _sessao_overlay = None
+        _token_overlay = None
+        if name in ("computer_control", "digitar_na_tela", "desenhar_na_tela"):
+            try:
+                from core import controle_sessao as _cs_overlay  # noqa: PLC0415
+                _sessao_overlay = _cs_overlay.sessao
+                self._parar_pc = False
+                _token_overlay = _sessao_overlay.iniciar(
+                    f"ferramenta: {name}", monitorar_esc=False,
+                    ao_parar=lambda: setattr(self, "_parar_pc", True))
+            except Exception as _exc_overlay:
+                _voice_diag("overlay_indisponivel", f"{name}: {str(_exc_overlay)[:120]}")
+                try:
+                    self._ctx_concluir(False, 'indicador de controle indisponivel')
+                except Exception:
+                    pass
+                self._ctx_iniciada = False
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+                return types.FunctionResponse(
+                    id=fc.id, name=fc.name,
+                    response={"result": ("Não consegui mostrar o indicador de controle "
+                                         "na tela; nada foi executado."),
+                              "permitido": False})
 
         try:
             if name == "open_app":
@@ -11277,8 +11929,11 @@ class NiaLive:
                       except Exception as _exc_cmd:
                         _voice_diag("tarefa_codex_falhou", str(_exc_cmd)[:110])
                     _voice_diag("tarefa_comando", _cmd[:180])
-                    self.ui.write_log(f"[comando] {_cmd[:120]}")
-                    _r = executar(_cmd)
+                    if not _cmd or not await NiaLive._autorizar_ferramenta(self, 'executar_comando', {'comando': _cmd}):
+                        return types.FunctionResponse(id=fc.id, name=fc.name,
+                            response={'result': 'Comando não autorizado; nada foi executado.', 'permitido': False})
+                    self.ui.write_log('[comando] execução autorizada pela prévia')
+                    _r = await loop.run_in_executor(None, lambda: executar(_cmd))
                     if _r.get("recusado"):
                         result = (f"Recusei esse comando por seguranca: "
                                   f"{_r['motivo']}. Nao executei nada.")
@@ -11355,7 +12010,7 @@ class NiaLive:
                     r = await loop.run_in_executor(None, lambda: digitar_na_tela(
                         parameters=args, player=self.ui,
                         gerar=self._openrouter.escrever_texto_em_camadas,
-                        deve_parar=lambda: self._parar_pc))
+                        deve_parar=self._freio_do_controle))
                 finally:
                     self._usando_pc = False
                 result = r or "Feito."
@@ -11379,7 +12034,7 @@ class NiaLive:
                             gerar=self._openrouter.escrever_em_camadas,
                             falar=self._falar_local,
                             olhar=self._olhar_o_desenho,
-                            deve_parar=lambda: self._parar_pc))
+                            deve_parar=self._freio_do_controle))
                     finally:
                         self._usando_pc = False
                         self._pc_liberado_ate = time.monotonic() + 120
@@ -11576,18 +12231,37 @@ class NiaLive:
                 result = f"Unknown tool: {name}"
 
         except Exception as e:
-            result = f"Tool '{name}' failed: {e}"
-            traceback.print_exc()
-            self.speak_error(name, e)
+            from core.permissoes_ferramentas import redigir_diagnostico
+            result = f"Tool '{name}' failed: {type(e).__name__}"
+            _voice_diag_exception('ferramenta_erro', e)
+            self.speak_error(name, RuntimeError(redigir_diagnostico(str(e))))
+
+        finally:
+            if _sessao_overlay is not None and _token_overlay is not None:
+                try:
+                    _sessao_overlay.encerrar(_token_overlay, 'ferramenta concluida')
+                except Exception:
+                    pass
 
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
+
+        if getattr(self, '_ctx_iniciada', False):
+            try:
+                from core.permissoes_ferramentas import redigir_diagnostico
+                texto = str(result)
+                falhou = (texto.startswith("Tool '")
+                          or texto.startswith('Unknown tool:'))
+                self._ctx_concluir(not falhou, redigir_diagnostico(texto))
+            except Exception:
+                pass
+            self._ctx_iniciada = False
 
         response_payload = {"result": result}
         if name == "whatsapp_bridge" and self._prepare_whatsapp_literal_confirmation(args, str(result)):
             response_payload.update({"silent": True, "literal_confirmation": True})
 
-        print(f"[NIA] 📤 {name} → {str(result)[:80]}")
+        print(f"[NIA] ferramenta finalizada: {name}")
         return types.FunctionResponse(
             id=fc.id, name=name,
             response=response_payload
@@ -11629,6 +12303,10 @@ class NiaLive:
         batch_args.pop("message", None)
         batch_args.pop("message_text", None)
         batch_args.pop("text", None)
+        if not await NiaLive._autorizar_ferramenta(self, 'whatsapp_bridge', batch_args):
+            return [types.FunctionResponse(id=fc.id, name=fc.name,
+                    response={'result': 'Lote não autorizado; nenhuma mensagem enviada.', 'permitido': False})
+                    for fc in calls]
         self.ui.set_state(_tool_task_state("whatsapp_bridge", batch_args))
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
@@ -12710,6 +13388,10 @@ class NiaLive:
                                 f"ferramenta={turn_had_tool_call}",
                             )
                             if full_in:
+                                if NiaLive._tratar_confirmacao_permissao(self, full_in):
+                                    in_buf = []
+                                    out_buf = []
+                                    continue
                                 self.ui.write_log(f"You: {full_in}")
                                 if self._dashboard:
                                     asyncio.create_task(self._dashboard.broadcast({
@@ -14462,6 +15144,25 @@ def _ja_existe_um_nia() -> bool:
 
 
 def main():
+    # PREFLIGHT (auditoria final): verificações essenciais, rápidas e sem rede.
+    # Falha crítica impede a abertura; degradação apenas é informada.
+    try:
+        from core import preflight as _preflight  # noqa: PLC0415
+        _relatorio_preflight = _preflight.executar()
+        if not _relatorio_preflight['ok']:
+            print('[NIA] Preflight recusou a inicialização: ' +
+                  '; '.join(_relatorio_preflight['falhas_criticas'][:5]))
+            return
+        if _relatorio_preflight['degradacoes']:
+            print('[NIA] Preflight: ' +
+                  '; '.join(_relatorio_preflight['degradacoes'][:5]))
+        else:
+            print('[NIA] Preflight OK: ' +
+                  str(_relatorio_preflight['verificacoes'].get('python', '')) +
+                  ', ' + str(_relatorio_preflight['verificacoes'].get('ferramentas', 0)) +
+                  ' ferramentas')
+    except Exception as _exc_preflight:
+        print('[NIA] Preflight indisponível: ' + type(_exc_preflight).__name__)
     # UM DE CADA VEZ (01/09/2026).
     #
     # Instalar por cima com o programa aberto, ou so clicar duas vezes no
@@ -14508,6 +15209,15 @@ def main():
 
     _rastrear_cameras()
     ui = NiaUI("face.png")
+
+    # NIA CONTROL OVERLAY: criado uma vez, na thread da interface. Nenhuma
+    # janela nasce aqui — elas só aparecem quando uma sessão de controle
+    # realmente começa, e morrem com o programa.
+    try:
+        from core.overlay_controle.gerenciador import GerenciadorOverlay  # noqa: PLC0415
+        ui._overlay_controle = GerenciadorOverlay()
+    except Exception as exc:
+        print(f"[NIA] Overlay de controle indisponível: {exc}")
 
     # Rotinas persistentes vivem fora do loop de voz: reconexões e F9 não
     # podem cancelar o agendador. Um único daemon espera a próxima ocorrência.
@@ -14948,6 +15658,16 @@ def _encerrar_tudo(motivo: str = "") -> None:
     except Exception:
         pass
     _voice_diag("programa_encerrou", f"fechando tudo ({motivo or 'pedido'})")
+
+    # Controle de tela: cancela a sessão e fecha as janelas do overlay antes
+    # de qualquer limpeza longa. Nenhuma ação pode seguir depois disso.
+    try:
+        from core import controle_sessao as _cs_fim  # noqa: PLC0415
+        _cs_fim.sessao.solicitar_parada('programa encerrando')
+        from core.overlay_controle.gerenciador import encerrar_global  # noqa: PLC0415
+        encerrar_global()
+    except Exception:
+        pass
 
     def _rede_de_seguranca() -> None:
         time.sleep(10.0)

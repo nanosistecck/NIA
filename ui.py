@@ -46,10 +46,11 @@ from PyQt6.QtWidgets import (
 from core import segundo_plano as _segundo_plano
 from core import catalogo_habilidades as _catalogo_habilidades
 from core import interface_planos as _interface_planos
+from core import interface_agenda as _interface_agenda
 from core import interface_canvas_planos as _interface_canvas_planos
 from core import assistencia_planos as _assistencia
 from core import lembretes as _lembretes
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # ── CORES DO CLIENTE (08/10/2026) ──────────────────────────────────────────
 # Toda folha de estilo passa pelo `core/tema.py` na hora de ser aplicada. O
@@ -392,18 +393,10 @@ class _SysMetrics:
         except Exception:
             pass
 
-        # Windows: wmi module (pure Python COM, zero subprocess)
-        if _OS == "Windows":
-            try:
-                import wmi  # type: ignore
-                w = wmi.WMI(namespace="root/wmi")
-                tz = w.MSAcpi_ThermalZoneTemperature()
-                if tz:
-                    return (tz[0].CurrentTemperature / 10.0) - 273.15
-            except Exception:
-                pass
-
-        return -1.0   # N/A — zero subprocess on all platforms
+        # Windows: sem WMI. `wmi.WMI()` usa COM e esta função roda na thread
+        # de métricas, sem CoInitialize: isso causava 0x800401f0 e abortava
+        # o processo (vide logs/queda_nativa.log). Temperatura fica N/A.
+        return -1.0   # N/A — zero subprocess e zero COM em worker thread
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -2242,6 +2235,8 @@ class LogWidget(QScrollArea):
         self.verticalScrollBar().rangeChanged.connect(self._rolar_fim)
 
     def append_log(self, text: str):
+        from core.permissoes_ferramentas import redigir_diagnostico
+        text = redigir_diagnostico(text, manter_linhas=True)
         self._sig.emit(_translate_log_text(text))
 
     def append_fontes(self, titulo: str, fontes) -> None:
@@ -3797,6 +3792,11 @@ class MainWindow(QMainWindow):
     _hoje_status_sig  = pyqtSignal(str, str)       # (mensagem, estado)
     _canvas_action_sig = pyqtSignal(object)
     _brief_sig        = pyqtSignal(object)         # card temporário (hora/data/clima)
+    _permissao_sig    = pyqtSignal(object)
+    _fechar_permissao_sig = pyqtSignal(str)
+    _central_sig      = pyqtSignal(bool)              # abrir/fechar Central
+    _acao_central_sig = pyqtSignal(str, str, dict)    # domínio, ação, argumentos
+    _manual_sig       = pyqtSignal()                  # abrir manual local
 
     def __init__(self, face_path: str):
         # ANTES DE MONTAR QUALQUER PAINEL. O cartao "so com o nome" e criado
@@ -3930,6 +3930,9 @@ class MainWindow(QMainWindow):
         cartoes = self._prefs.data.get('cards')
         visivel = bool(cartoes.get('hoje', True)) if isinstance(cartoes, dict) else True
         self._stage.set_hoje_visible(visivel)
+        agenda_visivel = bool(cartoes.get('agenda', True)) if isinstance(cartoes, dict) else True
+        self._stage.set_agenda_visivel(agenda_visivel)
+        self._atualizar_cartao_agenda()
         corpo.addWidget(self._stage, 1)
         self._left_panel = QScrollArea(self._stage)
         self._left_panel.setWidgetResizable(True)
@@ -4004,7 +4007,11 @@ class MainWindow(QMainWindow):
         # Lembretes locais: um único timer rearmado para o próximo vencimento.
         self._lembrete_timer = QTimer(self)
         self._lembrete_timer.setSingleShot(True)
-        QTimer.singleShot(2000, self._reagendar_lembretes)
+        # Timer filho da janela: o teardown de testes e o fechamento param este
+        # timer. QTimer.singleShot sem pai criava disparos órfãos que podiam
+        # alcançar janelas já destruídas em suítes longas.
+        self._lembrete_timer.timeout.connect(self._reagendar_lembretes)
+        self._lembrete_timer.start(2000)
 
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
@@ -4017,6 +4024,7 @@ class MainWindow(QMainWindow):
         self._stage.hoje_ouvir.connect(self._ouvir_resumo)
         self._stage.hoje_rotinas.connect(self._abrir_rotinas_config)
         self._stage.hoje_visibilidade.connect(self._hoje_visibilidade_mudou)
+        self._stage.agenda_visibilidade.connect(self._agenda_visibilidade_mudou)
         QTimer.singleShot(0, self._atualizar_cartao_hoje)
         self._reconfig_sig.connect(self._ao_reconfigurar)
         self._camera_sig.connect(self._show_camera_frame)
@@ -4027,6 +4035,46 @@ class MainWindow(QMainWindow):
         self._open_whatsapp_sig.connect(self._show_whatsapp_overlay)
         self._aviso_pc_sig.connect(self._aplicar_aviso_pc)
         self._cowork_sig.connect(self._aplicar_cowork_estado)
+        self._permissoes_abertas = {}
+        self._permissao_sig.connect(self._mostrar_permissao)
+        self._fechar_permissao_sig.connect(self._fechar_permissao)
+        # JANELAS DE FERRAMENTAS (etapa 06): substitui o codigo repetido de
+        # abrir/focar por um registro unico. As janelas atuais do dock seguem
+        # nos metodos proprios; o registro serve as ferramentas novas e ao F7.
+        from core.janelas_ferramentas import GerenciadorJanelas
+        self._janelas_ferramentas = GerenciadorJanelas(
+            self, tema=self._tema_preferido, log=self._log_ferramenta)
+        self._janelas_ferramentas.estado.connect(self._estado_ferramenta)
+        self._janelas_ferramentas.registrar(
+            'config', lambda: self._abrir_dashboard_config(), titulo='Configurações')
+        self._janelas_ferramentas.registrar(
+            'agenda', self._abrir_agenda, titulo='Agenda')
+        self._janelas_ferramentas.registrar(
+            'planos', self._abrir_planos, titulo='Planos')
+        self._janelas_ferramentas.registrar(
+            'globo', self._abrir_globo, titulo='Globo Terra 3D')
+        # CENTRAL DE APLICATIVOS: registro único + widget leve, sem importar
+        # módulos de pesquisa/diagrama/integrações nesta inicialização.
+        from core import registro_aplicativos as RA
+        from core.registro_nativo import registrar_nativos
+        from core.central_aplicativos import CentralAplicativos
+        registrar_nativos()
+        self._registro_aplicativos = RA
+        self._central = CentralAplicativos(
+            self.centralWidget(), registro=RA,
+            gerenciador=self._janelas_ferramentas)
+        self._central.hide()
+        self._central.app_aberto.connect(self._central_app_aberto)
+        self._central.ferramenta_solicitada.connect(
+            self._central_solicitar_ferramenta)
+        self._central.acao_interface.connect(self._central_acao_interface)
+        self._central.definir_acoes_dock(self._right_panel.buttons)
+        self._central.dock_acao_solicitada.connect(
+            self._executar_dock_pela_central)
+        self._central_anchor = None
+        self._central_sig.connect(self._aplicar_central)
+        self._acao_central_sig.connect(self._despachar_acao_central)
+        self._manual_sig.connect(self._abrir_manual_local)
         self._trans_voz_sig.connect(self.hud.transicao)
         self._cu_tmr = QTimer(self)
         self._cu_tmr.timeout.connect(self._atualizar_computer_use)
@@ -4065,6 +4113,8 @@ class MainWindow(QMainWindow):
         sc_fundo = QShortcut(QKeySequence(_segundo_plano.TECLA), self)
         sc_fundo.activated.connect(self._ir_para_segundo_plano)
         QShortcut(QKeySequence("F6"), self).activated.connect(self._abrir_globo)
+        QShortcut(QKeySequence("F7"), self).activated.connect(
+            lambda: self.abrir_ferramenta('agenda'))
         # Alguem clicou no atalho com este NIA aberto (o segundo NIA nao
         # abre: deixa um pedido para este aparecer). Barato: um `exists` a
         # cada 0,7 s, e e o unico relogio que nao para no segundo plano.
@@ -4868,6 +4918,51 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _mostrar_permissao(self, pedido):
+        identificador, ferramenta, resumo, responder = pedido
+        if _segundo_plano.ligado() or self._permissoes_abertas:
+            responder(False)
+            return
+        caixa = QMessageBox(self)
+        caixa.setWindowTitle('Permissão da NIA')
+        caixa.setObjectName('ConfirmacaoFerramenta')
+        caixa.setTextFormat(Qt.TextFormat.PlainText)
+        caixa.setIcon(QMessageBox.Icon.Question)
+        caixa.setText(f'Permitir uma vez: {ferramenta}?')
+        caixa.setInformativeText(str(resumo)[:1600] + '\n\nConfira os detalhes antes de permitir. Você também pode responder “sim” ou “não” no chat ou por voz.')
+        caixa.setDetailedText(str(resumo))
+        caixa.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        caixa.button(QMessageBox.StandardButton.Yes).setText('Permitir uma vez')
+        caixa.button(QMessageBox.StandardButton.No).setText('Negar')
+        caixa.setDefaultButton(QMessageBox.StandardButton.No)
+        caixa.setEscapeButton(QMessageBox.StandardButton.No)
+        caixa.setWindowModality(Qt.WindowModality.NonModal)
+        caixa.setStyleSheet(f'QMessageBox {{ background: {C.PANEL}; }} '
+                           f'QLabel {{ color: {C.WHITE}; }} '
+                           f'QPushButton {{ background: {C.PANEL2}; color: {C.WHITE}; '
+                           f'border: 1px solid {C.BORDER_B}; padding: 8px 12px; border-radius: 6px; }} '
+                           f'QPushButton:focus {{ border: 2px solid {C.PRI}; }}')
+        self._permissoes_abertas[identificador] = caixa
+        def terminou(resultado):
+            self._permissoes_abertas.pop(identificador, None)
+            responder(resultado == int(QMessageBox.StandardButton.Yes))
+            caixa.deleteLater()
+        caixa.finished.connect(terminou)
+        caixa.show()
+        caixa.raise_()
+
+    def _fechar_permissao(self, identificador):
+        caixa = self._permissoes_abertas.get(identificador)
+        if caixa is not None:
+            caixa.reject()
+
+    def hideEvent(self, event):
+        for identificador in tuple(getattr(self, '_permissoes_abertas', {})):
+            self._fechar_permissao(identificador)
+        if getattr(self, '_central', None) is not None and self._central.aberta:
+            self._central_sig.emit(False)
+        super().hideEvent(event)
+
     def closeEvent(self, event):
         canvas = getattr(self, '_canvas_editor', None)
         if canvas is not None and canvas.isVisible():
@@ -4885,6 +4980,8 @@ class MainWindow(QMainWindow):
         # uma caixa de dialogo esquecida seguravam o programa vivo sem janela.
         # (E no segundo plano o "ultima janela fechada" fica desligado.)
         if event.isAccepted():
+            for identificador in tuple(self._permissoes_abertas):
+                self._fechar_permissao(identificador)
             if self._bandeja is not None:
                 self._bandeja.hide()
             # FECHAR = TUDO: o globo vai junto (ele tambem se fecha sozinho se o
@@ -5176,8 +5273,67 @@ class MainWindow(QMainWindow):
                     f"{type(exc).__name__}: {str(exc)[:110]}")
             return None
 
+    def _tema_preferido(self) -> str:
+        """Tema salvo no ConfigService; usado pelo gerenciador de ferramentas."""
+        try:
+            from core.config_preferencias import ConfigService
+            return ConfigService(host=getattr(self, '_ui', None)).carregar_tema()
+        except Exception:
+            return 'escuro'
+
+    def _log_ferramenta(self, texto: str) -> None:
+        casca = getattr(self, '_ui', None)
+        escrever = getattr(casca, 'write_log', None) if casca is not None else None
+        if callable(escrever):
+            try:
+                escrever(texto)
+            except Exception:
+                pass
+
+    def _estado_ferramenta(self, estado) -> None:
+        if estado.erro:
+            self._log_ferramenta('SIS: Falha ao abrir ferramenta: ' + estado.erro)
+
+    def abrir_ferramenta(self, chave: str):
+        """Abre/traz para frente uma janela registrada (instância única)."""
+        gerenciador = getattr(self, '_janelas_ferramentas', None)
+        return gerenciador.abrir(chave) if gerenciador is not None else None
+
     def _planos_fechou(self) -> None:
         self._planos_window = None
+
+    def _abrir_agenda(self):
+        """Abre (ou traz de volta) a janela da Agenda pelo dock."""
+        atual = getattr(self, "_agenda_window", None)
+        if atual is not None:
+            try:
+                atual.showNormal()
+                atual.raise_()
+                atual.activateWindow()
+                return atual
+            except RuntimeError:
+                self._agenda_window = None
+        try:
+            janela = _interface_agenda.AgendaWindow()
+            janela.fechada.connect(lambda: setattr(self, "_agenda_window", None))
+            janela.alterado.connect(self._agenda_alterou)
+            self._agenda_window = janela
+            janela.show()
+            janela.raise_()
+            janela.activateWindow()
+            return janela
+        except Exception as exc:
+            casca = getattr(self, "_ui", None)
+            if casca is not None:
+                casca.write_log(
+                    f"ERR: nao abri a agenda — {type(exc).__name__}: {str(exc)[:110]}")
+            return None
+
+    def _agenda_alterou(self) -> None:
+        """Atualiza o card do Canvas principal após mudança na Agenda."""
+        atualizar = getattr(self, "_atualizar_cartao_agenda", None)
+        if atualizar is not None:
+            atualizar()
 
     def _abrir_planos(self):
         """Abre (ou traz de volta) o Gerenciador de Planos pelo dock."""
@@ -5366,8 +5522,8 @@ class MainWindow(QMainWindow):
                     str(proximo["horario"]).replace("Z", "+00:00"))
                 segundos = max(
                     1.0, (quando - datetime.now(timezone.utc)).total_seconds())
-                self._lembrete_timer.singleShot(
-                    int(min(segundos, 86400) * 1000), self._reagendar_lembretes)
+                self._lembrete_timer.start(
+                    int(min(segundos, 86400) * 1000))
         except Exception:
             pass
 
@@ -5553,6 +5709,14 @@ class MainWindow(QMainWindow):
         self._planos_btn.clicked.connect(self._abrir_planos)
         row.addWidget(self._planos_btn)
 
+        # AGENDA: janela de controle e acompanhamento de compromissos.
+        self._agenda_btn = self._make_control_button("agenda", "▦\nAGENDA\nABRIR", C.PRI)
+        self._agenda_btn.setToolTip(
+            "Agenda: compromissos, tarefas e prazos com data, hora e preparo. "
+            "A NIA adiciona e consulta por chat ou voz.")
+        self._agenda_btn.clicked.connect(self._abrir_agenda)
+        row.addWidget(self._agenda_btn)
+
         # SEGUNDO PLANO (01/11/2026, v1.0.37, pedido do Diego): o NIA sai da
         # tela e fica so no icone perto do relogio, sem ouvir nem fazer nada.
         # "SEGUNDO PLANO" inteiro nao cabe na linha do titulo (85 px medidos
@@ -5589,6 +5753,16 @@ class MainWindow(QMainWindow):
             self._botoes_habilidades[habilidade.id] = botao
             row.addWidget(botao)
 
+        # CENTRAL DE APLICATIVOS (etapa 06): botão permanente, nunca oculto
+        # pelas migrações do dock — é a porta para ferramentas escondidas.
+        self._central_btn = self._make_control_button(
+            "central", "▦\nCENTRAL\nAPLICATIVOS", C.PRI, "#00091a")
+        self._central_btn.setToolTip(
+            "Central de Aplicativos: todas as ferramentas e habilidades da NIA")
+        self._central_btn.setAccessibleName("Abrir Central de Aplicativos")
+        self._central_btn.clicked.connect(self._toggle_central)
+        row.addWidget(self._central_btn)
+
         self._drop_zone = FileDropZone()
         self._drop_zone.setObjectName("fileUpload")
         self._drop_zone.setFixedSize(80, 84)
@@ -5613,6 +5787,159 @@ class MainWindow(QMainWindow):
         self._drop_zone.setParent(dock)
         collector.deleteLater()
         return dock
+
+    # ── CENTRAL DE APLICATIVOS (etapa 05 da Central) ───────────────────────
+    def _prefs_central(self):
+        from core.interface_canvas import DockPreferences
+        from core.config_preferencias import ConfigService
+        return DockPreferences(ConfigService().interface_path)
+
+    def _favoritos_central(self, prefs):
+        dados = prefs.data.get('central_favoritos', ())
+        if not isinstance(dados, (list, tuple, set)):
+            return set()
+        return {str(x) for x in dados if isinstance(x, str)}
+
+    def _posicionar_central(self):
+        area = self.centralWidget().rect()
+        margem = 24 if area.width() > 900 else 12
+        dock_largura = self._right_panel.width() if self._right_panel.isVisible() else 0
+        compositor = self._composer.height() if self._composer.isVisible() else 0
+        from PyQt6.QtCore import QRect
+        regiao = QRect(area.x() + margem, area.y() + margem,
+                       max(240, area.width() - dock_largura - margem * 2),
+                       max(240, area.height() - compositor - margem * 2 - 16))
+        self._central.setGeometry(regiao)
+
+    def _toggle_central(self):
+        self._central_sig.emit(not self._central.aberta)
+
+    def abrir_central(self, abrir: bool = True):
+        self._central_sig.emit(bool(abrir))
+
+    def _abrir_manual_local(self):
+        """Abre o HTML no navegador padrão do sistema (sem WebEngine)."""
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        from core.manual_uso import caminho_manual
+        arquivo = caminho_manual()
+        if arquivo.is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(arquivo)))
+        else:
+            self._log_ferramenta('Manual não encontrado nesta instalação.')
+
+    def _aplicar_central(self, abrir: bool):
+        try:
+            if abrir:
+                if self._central.aberta:
+                    return
+                self._central_anchor = getattr(self._stage, 'anchor', 'center')
+                prefs = self._prefs_central()
+                self._central.definir_favoritos(self._favoritos_central(prefs))
+                self._central.definir_fixados(prefs.data.get('order', ()))
+                self._posicionar_central()
+                self._central.abrir()
+                self._central_btn.setDown(True)
+                try:
+                    self._stage.set_anchor('bottom-left')
+                except Exception:
+                    pass
+            else:
+                if not self._central.aberta:
+                    return
+                self._central.fechar()
+                self._central_btn.setDown(False)
+                if getattr(self, '_central_anchor', None):
+                    try:
+                        self._stage.set_anchor(self._central_anchor)
+                    except Exception:
+                        pass
+                    self._central_anchor = None
+        except Exception as exc:
+            self._log_ferramenta('Falha na Central: ' + type(exc).__name__)
+
+    def _central_app_aberto(self, identificador: str):
+        self._central_sig.emit(False)
+        self._log_ferramenta('Abrindo ' + str(identificador) + '.')
+
+    def _central_solicitar_ferramenta(self, dominio: str, acao: str, args: dict):
+        self._acao_central_sig.emit(str(dominio), str(acao), dict(args or {}))
+
+    def _executar_dock_pela_central(self, chave: str) -> None:
+        """Bandeja aciona o botão real do dock, oculto ou não."""
+        self._central_sig.emit(False)
+        # O bloco da própria Central já a fechou; clicar no botão do dock
+        # em seguida faria toggle e a reabriria no mesmo evento.
+        if chave == 'central':
+            return
+        painel = getattr(self, '_right_panel', None)
+        botao = painel.buttons.get(chave) if painel is not None else None
+        if botao is None:
+            self._log_ferramenta('Botão do dock não encontrado: ' + str(chave))
+            return
+        botao.click()
+
+    def _despachar_acao_central(self, dominio: str, acao: str, args: dict):
+        if acao == 'usar' or dominio == 'habilidades':
+            self._central_acao_interface('usar', str(args.get('app') or ''))
+            return
+        if dominio == '__ui__':
+            if acao == 'abrir_app':
+                descritor = self._registro_aplicativos.por_id(str(args.get('id') or ''))
+                chave = descritor.janela if descritor is not None else ''
+                if chave and chave in self._janelas_ferramentas.registradas():
+                    self._janelas_ferramentas.abrir(chave)
+                else:
+                    self._log_ferramenta('Aplicativo sem janela registrada nesta sessão.')
+            else:
+                self._central_acao_interface(str(acao), str(args.get('id') or ''))
+            return
+        self._log_ferramenta('Ação ' + str(acao) + ' não disponível nesta sessão.')
+
+    def _central_acao_interface(self, chave: str, valor: str):
+        try:
+            prefs = self._prefs_central()
+            if chave in ('favorito_adicionar', 'favorito_remover', 'dock_fixar', 'dock_remover'):
+                favoritos = self._favoritos_central(prefs)
+                hidden = list(prefs.data.get('hidden', ()))
+                ordem = list(prefs.data.get('order', ()))
+                if chave == 'favorito_adicionar':
+                    favoritos.add(valor)
+                elif chave == 'favorito_remover':
+                    favoritos.discard(valor)
+                elif chave == 'dock_fixar':
+                    if valor in hidden:
+                        hidden.remove(valor)
+                    if valor not in ordem:
+                        ordem.append(valor)
+                else:
+                    if valor not in hidden:
+                        hidden.append(valor)
+                prefs.data['central_favoritos'] = sorted(favoritos)
+                prefs.data['hidden'] = hidden
+                prefs.data['order'] = ordem
+                prefs.save()
+                self._right_panel.preferences.data.update(prefs.data)
+                self._right_panel.apply()
+                self._central.refresh()
+                return
+            if chave == 'usar':
+                from core import catalogo_habilidades as CH
+                hab = CH.por_id(str(valor).replace('hab_', '', 1))
+                exemplo = hab.exemplo if hab is not None else str(valor)
+                entrada = getattr(self, '_input', None)
+                if entrada is not None:
+                    entrada.setText(exemplo)
+                    entrada.setFocus()
+                    self._central_sig.emit(False)
+                self._log_ferramenta('SIS: frase pronta no chat — pressione Enter.')
+                return
+            if chave == 'configurar':
+                self._abrir_dashboard_config('integracoes')
+                return
+            self._log_ferramenta(str(valor)[:160])
+        except Exception as exc:
+            self._log_ferramenta('Falha ao atualizar Central: ' + type(exc).__name__)
 
     def _toggle_tools_panel(self):
         self._left_panel.setVisible(not self._left_panel.isVisible())
@@ -5641,6 +5968,9 @@ class MainWindow(QMainWindow):
         if canvas is not None and canvas.isVisible():
             canvas._reposicionar()
         if not hasattr(self, "_drawer"): return
+        # Os cards fixos (Hoje/Agenda) so recebem geometria quando o stage ja
+        # tem o tamanho final; sem isto eles nascem empilhados em (0,0).
+        self._stage.arrange(False)
         cw = self.centralWidget()
         pos = self._composer.mapTo(cw, self._composer.rect().topLeft())
         height = min(260, max(130, self.height() // 3))
@@ -6178,6 +6508,44 @@ class MainWindow(QMainWindow):
             self._atualizar_cartao_hoje()
         else:
             self._tmr_hoje.stop()
+
+    def _agenda_visibilidade_mudou(self, visivel: bool) -> None:
+        cartoes = self._prefs.data.get('cards')
+        if not isinstance(cartoes, dict):
+            cartoes = {}
+            self._prefs.data['cards'] = cartoes
+        cartoes['agenda'] = bool(visivel)
+        try:
+            self._prefs.save()
+        except Exception:
+            pass
+        if visivel:
+            self._atualizar_cartao_agenda()
+
+    def _atualizar_cartao_agenda(self) -> None:
+        """Preenche o card do Canvas principal; só aparece com compromisso."""
+        try:
+            from core import agenda as _agenda
+            item = _agenda.proximo()
+            if item is None:
+                # Sem compromisso próximo: o card não aparece. Sem mudar a
+                # preferência salva (fechamento explícito do usuário).
+                self._stage.ocultar_agenda()
+                return
+            cartoes = self._prefs.data.get('cards')
+            pref = bool(cartoes.get('agenda', True)) if isinstance(cartoes, dict) else True
+            if not self._stage.agenda_visivel() and pref:
+                # Compromisso existe e a preferência permite: o card reaparece.
+                self._stage.set_agenda_visivel(True, sinal=False)
+            inicio = datetime.fromisoformat(str(item['inicio']))
+            preparo = inicio - timedelta(
+                minutes=int(item.get('preparo_minutos') or 0))
+            self._stage.set_agenda_texto(
+                str(item.get('titulo') or 'Compromisso'),
+                inicio.strftime('%a %d/%m %H:%M'),
+                f'preparar às {preparo:%H:%M}')
+        except Exception:
+            self._stage.set_agenda_texto('Nenhum compromisso próximo.', '', '')
 
     def _mostrar_hoje(self, texto: str, gerado_em: str, status: str) -> None:
         self._stage.set_hoje_texto(texto, gerado_em)
@@ -6887,6 +7255,26 @@ class NiaUI:
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
 
+    def abrir_central(self, abrir: bool = True):
+        """Thread-safe: a Central é um widget da thread Qt."""
+        self._win._central_sig.emit(bool(abrir))
+
+    def abrir_manual(self):
+        """Abre o manual local no navegador padrão."""
+        self._win._manual_sig.emit()
+
+    def executar_dominio(self, dominio: str, acao: str, argumentos=None):
+        """Solicita uma ação tipada ao motor, sem executar na thread Qt."""
+        self._win._acao_central_sig.emit(str(dominio), str(acao),
+                                         dict(argumentos or {}))
+
+    def solicitar_permissao(self, identificador, ferramenta, resumo, responder):
+        """Só emite sinal; nenhuma espera ou acesso a widget fora da thread Qt."""
+        self._win._permissao_sig.emit((identificador, ferramenta, resumo, responder))
+
+    def fechar_permissao(self, identificador):
+        self._win._fechar_permissao_sig.emit(identificador)
+
     def nivel_do_microfone(self, nivel: float) -> None:
         """Repasse do nivel do microfone para a faixa de baixo.
 
@@ -6997,6 +7385,17 @@ class NiaUI:
     def abrir_planos(self) -> None:
         """Thread-safe: abre o Gerenciador de Planos pelo mesmo caminho do dock."""
         self._win._canvas_action_sig.emit(self._win._abrir_planos)
+
+    def mostrar_agenda(self) -> None:
+        """Thread-safe: reexibe o card do próximo compromisso no Canvas."""
+        def aplicar():
+            self._win._stage.set_agenda_visivel(True)
+            self._win._atualizar_cartao_agenda()
+        self._win._canvas_action_sig.emit(aplicar)
+
+    def abrir_agenda(self) -> None:
+        """Thread-safe: abre a janela da Agenda pelo mesmo caminho do dock."""
+        self._win._canvas_action_sig.emit(self._win._abrir_agenda)
 
     def abrir_plano(self, plano_id: str) -> None:
         """Thread-safe: abre o mapa de um plano pelo mesmo ponto do gerenciador."""

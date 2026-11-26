@@ -1,0 +1,41 @@
+﻿{
+  "total": 61,
+  "por_tipo": {
+    "habilidade": 6,
+    "ferramenta": 40,
+    "aplicativo": 15
+  },
+  "visiveis_na_central": 21,
+  "fixaveis_no_dock": 18,
+  "ferramentas_declaradas": 40,
+  "ferramentas_sem_branch_em_main": [],
+  "itens_sem_interface": 17,
+  "categorias": [
+    "conhecimento",
+    "habilidades",
+    "produtividade",
+    "sistema"
+  ],
+  "amostras_central": [
+    "hab_secretaria",
+    "hab_buscar_arquivos",
+    "hab_resumo_dia",
+    "planos",
+    "agenda",
+    "config",
+    "globo",
+    "mute",
+    "so_nome",
+    "interrupt",
+    "whatsapp",
+    "remote",
+    "webcam",
+    "cowork",
+    "computer_use",
+    "segundo_plano",
+    "central",
+    "system",
+    "skill_secretaria",
+    "skill_buscar_arquivos"
+  ]
+}

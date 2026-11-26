@@ -4,8 +4,8 @@ import json
 import time
 
 from PyQt6.QtCore import (
-    Qt, QPointF, QUrl, QPropertyAnimation, QEasingCurve, QByteArray, QRect,
-    QRectF, QSize, QTimer, pyqtSignal,
+    Qt, QPointF, QEvent, QUrl, QPropertyAnimation, QEasingCurve, QByteArray,
+    QRect, QRectF, QSize, QTimer, pyqtSignal,
 )
 from PyQt6.QtGui import QColor, QPainter, QPixmap, QRadialGradient, QDesktopServices, QIcon, QFont
 from PyQt6.QtSvg import QSvgRenderer
@@ -42,6 +42,11 @@ _ICONS = {
     'cowork':'<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
     'computer_use':'<rect x="3" y="3" width="18" height="13" rx="2"/><path d="M7 21h10M12 16v5M9 7l6 3-3 1-1 3z"/>',
     'globo':'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 7h14M5 17h14"/>',
+    'canvas':'<rect x="3" y="4" width="18" height="14" rx="2"/><circle cx="8" cy="9" r="2"/><circle cx="16" cy="13" r="2"/><path d="M10 10l4 2M4 21h16"/>',
+    'agenda':'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M8 14h3M8 18h7"/>',
+    'secretaria':'<path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2z"/>',
+    'buscar_arquivos':'<path d="M13 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><circle cx="16" cy="15" r="4"/><path d="M19 18l3 3M8 8h6M8 12h4"/>',
+    'resumo':'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 9h6M9 13h6M9 17h4"/>',
     'segundo_plano':'<path d="M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11z"/>',
     'config':'<path d="m9.6 3-.5 2.1-1.6.9-2.1-.6-2.4 4.2 1.6 1.5v1.8L3 14.4l2.4 4.2 2.1-.6 1.6.9.5 2.1h4.8l.5-2.1 1.6-.9 2.1.6 2.4-4.2-1.6-1.5v-1.8L21 9.6l-2.4-4.2-2.1.6-1.6-.9L14.4 3z"/><circle cx="12" cy="12" r="3.4"/>',
     'mic':'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
@@ -195,6 +200,7 @@ class CanvasStage(QWidget):
     hoje_ouvir = pyqtSignal()
     hoje_rotinas = pyqtSignal()
     hoje_visibilidade = pyqtSignal(bool)
+    agenda_visibilidade = pyqtSignal(bool)
 
     def __init__(self, hud_stack, parent=None):
         super().__init__(parent)
@@ -272,6 +278,43 @@ class CanvasStage(QWidget):
         hoje_layout.addLayout(hoje_botoes)
         self.hoje_host.hide()
 
+        # Cartão do próximo compromisso (Agenda), no mesmo padrão do Hoje.
+        self.agenda_host = QFrame(self)
+        self.agenda_host.setObjectName('Glass')
+        self.agenda_host.setStyleSheet(
+            GLASS + '\nQFrame#Glass {border-radius:18px;}')
+        agenda_layout = QVBoxLayout(self.agenda_host)
+        agenda_layout.setContentsMargins(14, 10, 14, 10)
+        agenda_layout.setSpacing(5)
+        topo_agenda = QHBoxLayout()
+        self.agenda_titulo = QLabel('PRÓXIMO COMPROMISSO', self.agenda_host)
+        self.agenda_titulo.setObjectName('AgendaTitulo')
+        self.agenda_titulo.setStyleSheet('color:#8ceaf0; font-weight:600;')
+        topo_agenda.addWidget(self.agenda_titulo, 1)
+        self.agenda_fechar = QPushButton('×', self.agenda_host)
+        self.agenda_fechar.setObjectName('AgendaFechar')
+        self.agenda_fechar.setAccessibleName('Fechar cartão Agenda')
+        self.agenda_fechar.setToolTip('Fechar cartão Agenda')
+        self.agenda_fechar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.agenda_fechar.setFixedSize(22, 22)
+        self.agenda_fechar.setStyleSheet(
+            'QPushButton {color:#8ceaf0; background:transparent; border:none;'
+            ' border-radius:11px; padding:0; font-size:15px; font-weight:600;}'
+            'QPushButton:hover, QPushButton:focus {color:#ffffff;'
+            ' background:rgba(50,215,232,65); border:none;}')
+        self.agenda_fechar.clicked.connect(lambda: self.set_agenda_visivel(False))
+        topo_agenda.addWidget(self.agenda_fechar, 0, Qt.AlignmentFlag.AlignTop)
+        agenda_layout.addLayout(topo_agenda)
+        self.agenda_texto = QLabel('Nenhum compromisso próximo.', self.agenda_host)
+        self.agenda_texto.setObjectName('AgendaTexto')
+        self.agenda_texto.setWordWrap(True)
+        self.agenda_texto.setTextFormat(Qt.TextFormat.PlainText)
+        self.agenda_texto.setStyleSheet('color:#d8f8ff;')
+        agenda_layout.addWidget(self.agenda_texto, 1)
+        self.agenda_host.hide()
+        self._agenda_estado = True      # False: o stage ocultou o card automaticamente
+        self.agenda_host.installEventFilter(self)
+
         # Card temporário (hora, data ou clima): ciclo próprio, um por vez.
         # Não entra em `self.cards` para não ser fechado por show_content().
         self.brief_host = BriefDeck(self)
@@ -320,6 +363,39 @@ class CanvasStage(QWidget):
 
     def set_hoje_status(self, texto: str) -> None:
         self.hoje_status.setText(str(texto or '')[:160])
+
+    def set_agenda_visivel(self, visivel: bool, sinal: bool = True) -> None:
+        self._agenda_estado = bool(visivel)
+        self.agenda_host.setVisible(bool(visivel))
+        self.arrange(True)
+        if sinal:
+            self.agenda_visibilidade.emit(bool(visivel))
+
+    def agenda_visivel(self) -> bool:
+        # O Qt pode re-mostrar o host ao mostrar a janela; o estado do stage
+        # (automatico, sem compromisso) prevalece sobre a funcao de visibilidade.
+        return self.agenda_host.isVisible() and self._agenda_estado
+
+    def ocultar_agenda(self) -> None:
+        """Oculta o card sem mudar a preferência salva (fechamento automático)."""
+        self._agenda_estado = False
+        self.agenda_host.setVisible(False)
+        self.arrange(True)
+
+    def eventFilter(self, obj, event):
+        # Qt reenvia Show ao host ao mostrar a janela; reaplica o estado do stage.
+        if obj is self.agenda_host and event.type() == QEvent.Type.Show:
+            if not self._agenda_estado:
+                obj.setVisible(False)
+                return True
+        return False
+
+    def set_agenda_texto(self, titulo: str, quando: str, preparo: str = '') -> None:
+        texto = str(titulo or 'Nenhum compromisso próximo.')
+        detalhes = ' · '.join(x for x in (quando, preparo) if x)
+        if detalhes:
+            texto += f'\n{detalhes}'
+        self.agenda_texto.setText(texto[:240])
 
     def show_content(self,title,text):
         match = next((c for c in self.cards if c.title == title and not c.pinned),None)
@@ -447,7 +523,7 @@ class CanvasStage(QWidget):
             direita = max(direita, 12 + min(344, max(220, int(w * .5) - 24)))
         if self.results.isVisible():
             direita = max(direita, 12 + max(220, int(w * .50) - 24))
-        if self.hoje_host.isVisible():
+        if self.hoje_host.isVisible() or self.agenda_host.isVisible():
             direita = max(direita, 12 + max(220, min(320, int(w * .36))))
         return direita
 
@@ -540,6 +616,12 @@ class CanvasStage(QWidget):
             altura = max(150, min(240, bottom - 16))
             self.hoje_host.setGeometry(QRect(12, 8, largura, altura))
             self.hoje_host.raise_()
+        if self.agenda_host.isVisible() and not self._canvas_editor_ativo:
+            largura = max(220, min(320, int(w * .36)))
+            y = 8 + (self.hoje_host.height() + 10 if self.hoje_host.isVisible() else 0)
+            altura = max(96, min(170, bottom - y - 16))
+            self.agenda_host.setGeometry(QRect(12, y, largura, altura))
+            self.agenda_host.raise_()
 
 
 class DockPreferences:
@@ -582,7 +664,7 @@ class VerticalDock(QFrame):
         self.setFixedWidth(70)
         self.buttons = dict(buttons); self.preferences = DockPreferences(config)
         if 'hidden' not in self.preferences.data:
-            defaults = ['mute','cowork','globo','webcam','config','planos']
+            defaults = ['central','mute','cowork','globo','webcam','config','planos']
             self.preferences.data['hidden'] = [k for k in self.buttons if k not in defaults]
             self.preferences.data.setdefault('order',[k for k in defaults if k in self.buttons]+list(self.buttons))
         elif not self.preferences.data.get('skill_atalhos_v1'):

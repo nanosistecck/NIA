@@ -1208,6 +1208,74 @@ def _endereco_da_pagina(nome: str) -> str:
     return max(achados, key=lambda kv: len(kv[0]))[1]
 
 
+_CONTROLE_PARADO = "__NIA_CONTROLE_PARADO__"
+
+
+def _resumo_da_acao(acao: dict) -> str:
+    """Descrição curta e sem segredos para o painel de ações do overlay."""
+    tipo = str(acao.get("acao") or acao.get("action") or "passo").strip().lower()
+    texto = str(acao.get("texto") or acao.get("teclas") or acao.get("tecla")
+                or acao.get("nome") or acao.get("titulo") or acao.get("url")
+                or acao.get("comando") or "").strip()
+    rotulos = {
+        "clicar": "Clique", "click": "Clique", "clique": "Clique",
+        "duplo_clique": "Clique duplo", "botao_direito": "Clique direito",
+        "digitar": "Digitando", "type": "Digitando", "escrever": "Digitando",
+        "tecla": "Tecla", "teclas": "Teclas", "hotkey": "Atalho",
+        "abrir": "Abrindo", "abrir_programa": "Abrindo programa",
+        "abrir_url": "Abrindo site", "navegar": "Navegando",
+        "rolar": "Rolando", "scroll": "Rolando",
+        "arrastar": "Arrastando", "drag": "Arrastando",
+        "esperar": "Aguardando", "sleep": "Aguardando",
+        "comando": "Comando", "powershell": "PowerShell",
+        "cmd": "Comando", "capturar": "Lendo a tela",
+    }
+    rotulo = rotulos.get(tipo, tipo.replace("_", " ").capitalize() or "Passo")
+    if tipo in ("digitar", "type", "escrever", "comando", "powershell", "cmd"):
+        texto = ""  # nunca expõe o que foi digitado/executado
+    if texto:
+        return f"{rotulo}: {texto[:60]}"
+    return rotulo
+
+
+def _respeitar_pausa(ctx: dict) -> bool:
+    """Espera o overlay sair da pausa. False quando a sessão foi cancelada."""
+    try:
+        from core import controle_sessao as _cs  # noqa: PLC0415
+    except Exception:
+        return True
+    s = _cs.sessao
+    if not s.ativo():
+        return True
+    parar = (ctx or {}).get("deve_parar")
+    while not s.permitido():
+        if s.parada_solicitada():
+            return False
+        if parar and parar():
+            return False
+        time.sleep(0.08)
+    return True
+
+
+def _anotar_atividade(sessao, acao: dict) -> None:
+    """Registra no overlay o que está prestes a acontecer (texto já saneado)."""
+    if sessao is None:
+        return
+    try:
+        sessao.registrar_atividade(_resumo_da_acao(acao), 'executando')
+    except Exception:
+        pass
+
+
+def _concluir_atividade(sessao, ctx: dict) -> None:
+    if sessao is None:
+        return
+    try:
+        sessao.marcar_ultima('concluida' if ctx.get("ultimo_ok", True) else 'erro')
+    except Exception:
+        pass
+
+
 def _executar(acao: dict, ctx: dict) -> str:
     """Faz UM movimento no PC. Devolve a linha que entra no historico.
 
@@ -1216,6 +1284,10 @@ def _executar(acao: dict, ctx: dict) -> str:
     receita parar no primeiro tropeco em vez de seguir digitando no vazio.
     """
     import pyautogui  # noqa: PLC0415
+    # O FREIO DE PAUSA DO OVERLAY. Nenhum movimento acontece enquanto a sessão
+    # estiver pausada; se ela for cancelada, devolve o sentinela e o laço para.
+    if not _respeitar_pausa(ctx):
+        return _CONTROLE_PARADO
     # O FAIL-SAFE DO CANTO SAIU (04/09/2026), e o ESC entrou no lugar.
     #
     # O pyautogui aborta tudo se o mouse estiver num canto da tela quando um
@@ -3355,9 +3427,19 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
     freio_esc = FreioEsc(ao_apertar=ao_esc)
     freio_esc.ligar()
 
+    # A sessão de controle é preenchida logo antes do primeiro aviso/movimento.
+    sessao_controle = None
+    token_controle = None
+
     def parar_agora() -> bool:
         if freio_esc.apertado:
             return True
+        if sessao_controle is not None:
+            try:
+                if sessao_controle.parada_solicitada():
+                    return True
+            except Exception:
+                pass
         if trocado is not None and trocado.is_set():
             return True
         try:
@@ -3412,12 +3494,26 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
         except Exception as exc:
             log(f"[usar_computador] receitas fora: {str(exc)[:100]}")
 
+    # O INDICADOR DE CONTROLE ENTRA ANTES DO PRIMEIRO MOVIMENTO. Sem ele
+    # confirmado, a tarefa não começa (falha fechada).
+    try:
+        from core import controle_sessao as _cs  # noqa: PLC0415
+        sessao_controle = _cs.sessao
+        token_controle = sessao_controle.iniciar(
+            f"controle: {tarefa}", monitorar_esc=False)
+    except Exception as exc:
+        freio_esc.parar()
+        log(f"[usar_computador] overlay indisponivel: {str(exc)[:120]}")
+        return ("Nao consegui mostrar o indicador de controle na tela, entao "
+                "nao mexi em nada. Me pede de novo em instantes.")
+
     try:
         # "aperte ESC para parar" saiu porque na tela lia-se "para para"
         # (04/09/2026, o Diego viu na faixa). "ESC interrompe" e mais curto e
         # nao repete palavra.
-        aviso(True, "NIA ESTA USANDO O COMPUTADOR  ·  ESC interrompe  ·  "
-                    "nao mexa no mouse nem no teclado")
+        if sessao_controle is None or not sessao_controle.ativo():
+            aviso(True, "NIA ESTA USANDO O COMPUTADOR  ·  ESC interrompe  ·  "
+                        "nao mexa no mouse nem no teclado")
         _sair_da_frente(log)          # a janela do Bob nao pode tapar o servico
         tela_visao.aquecer()          # acorda a acessibilidade do navegador
         _escolher_receita()           # ja com a janela de verdade na frente
@@ -3444,11 +3540,15 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
             for passo_r in passos_receita:
                 if parar_agora():
                     return _parei()
+                _anotar_atividade(sessao_controle, passo_r)
                 try:
                     feito = _executar(passo_r, ctx)
                 except Exception as exc:
                     ctx["ultimo_ok"] = False
                     feito = f"{passo_r.get('acao')} deu erro: {str(exc)[:80]}"
+                _concluir_atividade(sessao_controle, ctx)
+                if feito == _CONTROLE_PARADO:
+                    return _parei()
                 historico.append(f"receita '{nome_receita}': {feito}")
                 log(f"[usar_computador]   {feito}")
                 if parar_agora():
@@ -4253,10 +4353,15 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
                         str(acao.get("texto") or ""), re.I) and not _comando_so_le(acao):
                     mexeu_no_registro = True
 
+                _anotar_atividade(sessao_controle, acao)
                 try:
                     feito = _executar(acao, ctx)
                 except Exception as exc:
+                    ctx["ultimo_ok"] = False
                     feito = f"{tipo} deu erro: {str(exc)[:80]}"
+                _concluir_atividade(sessao_controle, ctx)
+                if feito == _CONTROLE_PARADO:
+                    return _parei()
                 # RESULTADO LONGO EM PEDACOS (23/09/2026): a saida de comando e o
                 # texto lido da tela passam de 1.800 letras, e a VPS corta cada
                 # linha nesse teto. Fatiado, chega inteiro.
@@ -4478,6 +4583,11 @@ def _usar_computador(parameters: dict | None = None, player=None, falar=None,
                 "que eu retomo de onde parei.")
     finally:
         freio_esc.parar()
+        if sessao_controle is not None and token_controle is not None:
+            try:
+                sessao_controle.encerrar(token_controle, 'tarefa encerrada')
+            except Exception:
+                pass
         if narrador:
             narrador.parar()
         aviso(False)

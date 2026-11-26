@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from core import lembretes as LEM
 from core import modelos_planos as MP
 from core import planos as BP
+from core.frame_nativo import FrameNativoMixin
 from core.planos import (
     ConflitoDeRevisao, ErroPlano, PlanoInvalido, TIPOS,
     atualizar, buscar, criar, listar, restaurar,
@@ -366,7 +367,7 @@ class LembretesDialog(QDialog):
             self.recarregar()
 
 
-class PlanosWindow(QWidget):
+class PlanosWindow(FrameNativoMixin, QWidget):
     """Catálogo e formulário de planos, reaproveitando `core.planos`."""
 
     fechada = pyqtSignal()
@@ -394,6 +395,7 @@ class PlanosWindow(QWidget):
         self._construir()
         self._conectar()
         self.recarregar()
+        self._instalar_frame_nativo(cor=COR_FUNDO)
 
     # ── construção ──────────────────────────────────────────────────────
     def _construir(self) -> None:

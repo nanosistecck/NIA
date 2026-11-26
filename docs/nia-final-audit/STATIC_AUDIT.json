@@ -1,0 +1,714 @@
+﻿{
+  "arquivos_python": 274,
+  "erros_sintaxe": [],
+  "imports_nao_usados_total": 90,
+  "imports_nao_usados_amostras": [
+    {
+      "arquivo": "main.py",
+      "nome": "_mark_quiet",
+      "origem": "sitecustomize"
+    },
+    {
+      "arquivo": "modo_economico.py",
+      "nome": "json",
+      "origem": "json"
+    },
+    {
+      "arquivo": "ui.py",
+      "nome": "QConicalGradient",
+      "origem": "PyQt6.QtGui.QConicalGradient"
+    },
+    {
+      "arquivo": "ui.py",
+      "nome": "QTextEdit",
+      "origem": "PyQt6.QtWidgets.QTextEdit"
+    },
+    {
+      "arquivo": "actions/code_helper.py",
+      "nome": "json",
+      "origem": "json"
+    },
+    {
+      "arquivo": "actions/desfazer.py",
+      "nome": "Path",
+      "origem": "pathlib.Path"
+    },
+    {
+      "arquivo": "actions/desktop.py",
+      "nome": "json",
+      "origem": "json"
+    },
+    {
+      "arquivo": "actions/file_processor.py",
+      "nome": "os",
+      "origem": "os"
+    },
+    {
+      "arquivo": "actions/file_processor.py",
+      "nome": "datetime",
+      "origem": "datetime.datetime"
+    },
+    {
+      "arquivo": "actions/flight_finder.py",
+      "nome": "is_linux",
+      "origem": "config.is_linux"
+    },
+    {
+      "arquivo": "actions/game_updater.py",
+      "nome": "get_os",
+      "origem": "config.get_os"
+    },
+    {
+      "arquivo": "actions/marcar_tela.py",
+      "nome": "os",
+      "origem": "os"
+    },
+    {
+      "arquivo": "actions/marcar_tela.py",
+      "nome": "subprocess",
+      "origem": "subprocess"
+    },
+    {
+      "arquivo": "actions/open_app.py",
+      "nome": "psutil",
+      "origem": "psutil"
+    },
+    {
+      "arquivo": "actions/reminder.py",
+      "nome": "os",
+      "origem": "os"
+    },
+    {
+      "arquivo": "actions/web_search.py",
+      "nome": "json",
+      "origem": "json"
+    },
+    {
+      "arquivo": "actions/whatsapp_bridge.py",
+      "nome": "sys",
+      "origem": "sys"
+    },
+    {
+      "arquivo": "actions/youtube_video.py",
+      "nome": "json",
+      "origem": "json"
+    },
+    {
+      "arquivo": "actions/youtube_video.py",
+      "nome": "time",
+      "origem": "time"
+    },
+    {
+      "arquivo": "actions/youtube_video.py",
+      "nome": "shutil",
+      "origem": "shutil"
+    },
+    {
+      "arquivo": "actions/youtube_video.py",
+      "nome": "get_os",
+      "origem": "config.get_os"
+    },
+    {
+      "arquivo": "actions/youtube_video.py",
+      "nome": "pyautogui",
+      "origem": "pyautogui"
+    },
+    {
+      "arquivo": "actions/youtube_video.py",
+      "nome": "np",
+      "origem": "numpy"
+    },
+    {
+      "arquivo": "config/__init__.py",
+      "nome": "os",
+      "origem": "os"
+    },
+    {
+      "arquivo": "core/central_aplicativos.py",
+      "nome": "html",
+      "origem": "html"
+    },
+    {
+      "arquivo": "core/comandos_agenda.py",
+      "nome": "datetime",
+      "origem": "datetime.datetime"
+    },
+    {
+      "arquivo": "core/comandos_planos.py",
+      "nome": "buscar",
+      "origem": "core.planos.buscar"
+    },
+    {
+      "arquivo": "core/config_preferencias.py",
+      "nome": "nome_da_ia",
+      "origem": "core.personas.nome_da_ia"
+    },
+    {
+      "arquivo": "core/interface_canvas.py",
+      "nome": "QRectF",
+      "origem": "PyQt6.QtCore.QRectF"
+    },
+    {
+      "arquivo": "core/interface_canvas_planos.py",
+      "nome": "QRect",
+      "origem": "PyQt6.QtCore.QRect"
+    },
+    {
+      "arquivo": "core/interface_canvas_planos.py",
+      "nome": "Path",
+      "origem": "pathlib.Path"
+    },
+    {
+      "arquivo": "core/interface_mapa.py",
+      "nome": "QRadialGradient",
+      "origem": "PyQt6.QtGui.QRadialGradient"
+    },
+    {
+      "arquivo": "core/registro_aplicativos.py",
+      "nome": "field",
+      "origem": "dataclasses.field"
+    },
+    {
+      "arquivo": "core/registro_aplicativos.py",
+      "nome": "replace",
+      "origem": "dataclasses.replace"
+    },
+    {
+      "arquivo": "globo/janela.py",
+      "nome": "PyQt6",
+      "origem": "PyQt6.QtWebEngineWidgets"
+    },
+    {
+      "arquivo": "secretaria/motor.py",
+      "nome": "QtWebEngineCore",
+      "origem": "PyQt6.QtWebEngineCore"
+    },
+    {
+      "arquivo": "secretaria/motor.py",
+      "nome": "QtWebEngineWidgets",
+      "origem": "PyQt6.QtWebEngineWidgets"
+    },
+    {
+      "arquivo": "tests/test_agenda_correcoes.py",
+      "nome": "os",
+      "origem": "os"
+    },
+    {
+      "arquivo": "tests/test_agenda_rota.py",
+      "nome": "os",
+      "origem": "os"
+    },
+    {
+      "arquivo": "tests/test_assistencia_planos.py",
+      "nome": "carregar",
+      "origem": "core.planos.carregar"
+    }
+  ],
+  "esqueletos_total": 0,
+  "esqueletos_amostras": [],
+  "nomes_duplicados": {
+    "get_base_dir": [
+      "main.py",
+      "actions/code_helper.py",
+      "actions/dev_agent.py",
+      "core/llm_client.py",
+      "memory/config_manager.py",
+      "memory/memory_manager.py"
+    ],
+    "_get_api_key": [
+      "main.py",
+      "actions/code_helper.py",
+      "actions/computer_control.py",
+      "actions/computer_settings.py",
+      "actions/desktop.py",
+      "actions/dev_agent.py",
+      "actions/file_processor.py",
+      "actions/flight_finder.py",
+      "actions/screen_processor.py",
+      "actions/web_search.py",
+      "actions/youtube_video.py"
+    ],
+    "main": [
+      "main.py",
+      "verificar_chaves.py",
+      "verificar_voz.py",
+      "globo/janela.py",
+      "secretaria/motor.py",
+      "NIA_CORE_EVOLUTION/tools/boot_probe.py",
+      "NIA_CORE_EVOLUTION/tools/checkpoint_update.py",
+      "NIA_CORE_EVOLUTION/tools/nia_live_boot_probe.py",
+      "NIA_CORE_EVOLUTION/tools/perf_probe.py"
+    ],
+    "_base_dir": [
+      "ui.py",
+      "actions/computer_control.py",
+      "actions/reminder.py",
+      "actions/screen_processor.py",
+      "actions/send_message.py",
+      "core/config_preferencias.py"
+    ],
+    "_chave": [
+      "actions/acessos.py",
+      "core/aprendizado.py",
+      "core/consolidacao_memoria.py",
+      "core/contrato_universal.py",
+      "core/gemini_socorro.py",
+      "core/globo_passeio.py",
+      "core/idioma.py",
+      "core/interface_en.py"
+    ],
+    "listar": [
+      "actions/acessos.py",
+      "actions/janelas_windows.py",
+      "core/agenda.py",
+      "core/audio_dispositivos.py",
+      "core/lembretes.py",
+      "core/planos.py"
+    ],
+    "_get_os": [
+      "actions/computer_control.py",
+      "actions/reminder.py",
+      "actions/screen_processor.py",
+      "actions/send_message.py"
+    ],
+    "_get_base_dir": [
+      "actions/computer_settings.py",
+      "actions/desktop.py",
+      "actions/flight_finder.py",
+      "actions/web_search.py",
+      "actions/youtube_video.py"
+    ],
+    "_sem_acento": [
+      "actions/cowork.py",
+      "actions/desenhar_na_tela.py",
+      "actions/editar_video.py",
+      "actions/open_app.py",
+      "actions/receitas_pc.py",
+      "actions/tela_visao.py",
+      "actions/weather_report.py",
+      "core/personas.py",
+      "memory/diario.py"
+    ],
+    "_anotar": [
+      "actions/editar_video.py",
+      "actions/screen_processor.py",
+      "core/cerebro_codex.py",
+      "core/cerebro_rapido.py"
+    ],
+    "_normalizar": [
+      "actions/fechar_app.py",
+      "core/catalogo_habilidades.py",
+      "core/comandos_agenda.py",
+      "core/contexto_ferramentas.py",
+      "core/planos.py"
+    ],
+    "normalizar": [
+      "actions/janelas_windows.py",
+      "core/agenda.py",
+      "core/assistencia_planos.py",
+      "core/comandos_planos.py",
+      "core/globo_voz.py",
+      "core/indice_local.py",
+      "core/lembretes.py",
+      "core/modelos_planos.py",
+      "core/registro_aplicativos.py",
+      "core/tema.py"
+    ],
+    "_em_ingles": [
+      "actions/weather_report.py",
+      "core/canvas_brief.py",
+      "core/segundo_plano.py",
+      "secretaria/motor.py"
+    ],
+    "caminho_padrao": [
+      "core/agenda.py",
+      "core/indice_local.py",
+      "core/resumo_dia.py",
+      "core/rotinas.py"
+    ],
+    "carregar": [
+      "core/agenda.py",
+      "core/dono.py",
+      "core/lembretes.py",
+      "core/nomes_tela.py",
+      "core/planos.py",
+      "core/registro_aplicativos.py",
+      "core/resumo_dia.py",
+      "core/secretaria.py",
+      "core/tema.py"
+    ],
+    "salvar": [
+      "core/agenda.py",
+      "core/dono.py",
+      "core/nomes_tela.py",
+      "core/resumo_dia.py",
+      "core/secretaria.py",
+      "core/tema.py"
+    ],
+    "disponivel": [
+      "core/cerebro_rapido.py",
+      "core/entrada_uinput.py",
+      "core/globo.py",
+      "core/iniciar_com_sistema.py",
+      "core/manual_uso.py"
+    ],
+    "pedir": [
+      "core/globo.py",
+      "tests/test_cards_contexto_planos.py",
+      "tests/test_controle_canvas.py",
+      "tests/test_interacao_canvas_pedido.py",
+      "tests/test_simulacao_controle_canvas.py"
+    ],
+    "perfil": [
+      "core/perfil_audio.py",
+      "tests/test_homologacao.py",
+      "tests/test_homologacao_final.py",
+      "tests/test_integracao_aprendizado.py"
+    ],
+    "isolado": [
+      "tests/test_agenda.py",
+      "tests/test_agenda_crud.py",
+      "tests/test_apis_ollama.py",
+      "tests/test_boot_nia_live.py",
+      "tests/test_gateway_integrado.py",
+      "tests/test_integracao_contrato_registro.py",
+      "tests/test_permissoes_ferramentas.py",
+      "tests/test_permissoes_legadas.py",
+      "tests/test_registro_modular.py"
+    ],
+    "app": [
+      "tests/test_agenda_card.py",
+      "tests/test_arraste_sem_rastros.py",
+      "tests/test_assistencia_planos.py",
+      "tests/test_barra_nativa.py",
+      "tests/test_botao_salvar.py",
+      "tests/test_canvas_brief.py",
+      "tests/test_canvas_mapa.py",
+      "tests/test_cards_contexto_planos.py",
+      "tests/test_central_aplicativos.py",
+      "tests/test_central_icones.py",
+      "tests/test_chat_grade.py",
+      "tests/test_conexao_ui.py",
+      "tests/test_config_central_link.py",
+      "tests/test_config_dashboard.py",
+      "tests/test_controles_nativos.py",
+      "tests/test_controle_canvas.py",
+      "tests/test_dock_prancha.py",
+      "tests/test_edicao_texto.py",
+      "tests/test_exclusao_planos.py",
+      "tests/test_frame_nativo_secundarias.py",
+      "tests/test_homologacao.py",
+      "tests/test_homologacao_final.py",
+      "tests/test_integracao_canvas.py",
+      "tests/test_integracao_final.py",
+      "tests/test_integracao_ui_kit_dashboard.py",
+      "tests/test_interacao_canvas_pedido.py",
+      "tests/test_interface_agenda.py",
+      "tests/test_interface_agenda_crud.py",
+      "tests/test_interface_assistida.py",
+      "tests/test_interface_canvas.py",
+      "tests/test_interface_lembretes.py",
+      "tests/test_interface_permissoes.py",
+      "tests/test_interface_planos.py",
+      "tests/test_interrupcao_conversa.py",
+      "tests/test_janelas_ferramentas.py",
+      "tests/test_janela_maximizada.py",
+      "tests/test_janela_tela_cheia.py",
+      "tests/test_lembretes.py",
+      "tests/test_manual_uso.py",
+      "tests/test_modelos_planos.py",
+      "tests/test_nia_ui_kit.py",
+      "tests/test_nucleo_canvas.py",
+      "tests/test_previsao_richa.py",
+      "tests/test_prioridade_conversa_plano.py",
+      "tests/test_redesign_planos.py",
+      "tests/test_sem_titulo_python.py",
+      "tests/test_simulacao_controle_canvas.py",
+      "tests/test_task_runner_recursos.py",
+      "tests/test_timers_interface.py",
+      "tests/test_topo_compacto.py",
+      "tests/test_windows_frame.py"
+    ],
+    "janela": [
+      "tests/test_agenda_card.py",
+      "tests/test_barra_nativa.py",
+      "tests/test_botao_salvar.py",
+      "tests/test_chat_grade.py",
+      "tests/test_controles_nativos.py",
+      "tests/test_dock_prancha.py",
+      "tests/test_exclusao_planos.py",
+      "tests/test_interface_agenda.py",
+      "tests/test_interface_agenda_crud.py",
+      "tests/test_interface_permissoes.py",
+      "tests/test_interface_planos.py",
+      "tests/test_redesign_planos.py"
+    ],
+    "nia": [
+      "tests/test_agenda_correcoes.py",
+      "tests/test_agenda_crud.py",
+      "tests/test_agenda_frase_real.py",
+      "tests/test_agenda_rota.py",
+      "tests/test_central_comandos.py",
+      "tests/test_consulta_canvas.py",
+      "tests/test_contexto_acao_pc.py",
+      "tests/test_criacao_voz.py",
+      "tests/test_edicao_assistida_revisao.py",
+      "tests/test_gateway_integrado.py",
+      "tests/test_interrupcao_conversa.py",
+      "tests/test_permissoes_legadas.py"
+    ],
+    "plano": [
+      "tests/test_assistencia_planos.py",
+      "tests/test_canvas_mapa.py",
+      "tests/test_cards_contexto_planos.py",
+      "tests/test_conexao_ui.py",
+      "tests/test_consulta_canvas.py",
+      "tests/test_edicao_assistida_revisao.py",
+      "tests/test_edicao_texto.py",
+      "tests/test_lembretes.py",
+      "tests/test_modelos_planos.py",
+      "tests/test_prioridade_conversa_plano.py",
+      "tests/test_publicacao_segura.py"
+    ],
+    "editor": [
+      "tests/test_assistencia_planos.py",
+      "tests/test_canvas_mapa.py",
+      "tests/test_conexao_ui.py",
+      "tests/test_edicao_texto.py",
+      "tests/test_modelos_planos.py"
+    ],
+    "window": [
+      "tests/test_canvas_brief.py",
+      "tests/test_integracao_canvas.py",
+      "tests/test_interface_assistida.py",
+      "tests/test_interface_canvas.py",
+      "tests/test_interface_lembretes.py",
+      "tests/test_nucleo_canvas.py"
+    ],
+    "sessao": [
+      "tests/test_cards_contexto_planos.py",
+      "tests/test_comandos_planos.py",
+      "tests/test_controle_canvas.py",
+      "tests/test_interacao_canvas_pedido.py",
+      "tests/test_prioridade_conversa_plano.py",
+      "tests/test_simulacao_controle_canvas.py"
+    ]
+  },
+  "ferramentas_declaradas": 40,
+  "ferramentas_sem_literal_no_main": [],
+  "politicas_registradas": 41,
+  "seguranca": {
+    "eval": {
+      "total": 1,
+      "amostras": [
+        {
+          "arquivo": "actions/desktop.py",
+          "linha": 129,
+          "trecho": "- NO exec() or eval() inside the code"
+        }
+      ]
+    },
+    "exec": {
+      "total": 4,
+      "amostras": [
+        {
+          "arquivo": "actions/desktop.py",
+          "linha": 91,
+          "trecho": "exec(compile(code, \"<nia_desktop>\", \"exec\"), sandbox)"
+        },
+        {
+          "arquivo": "actions/desktop.py",
+          "linha": 129,
+          "trecho": "- NO exec() or eval() inside the code"
+        },
+        {
+          "arquivo": "tests/test_apis_ollama.py",
+          "linha": 354,
+          "trecho": "exec(compile(codigo, arquivo, 'exec'), ns)"
+        },
+        {
+          "arquivo": "tests/test_apis_ollama.py",
+          "linha": 880,
+          "trecho": "exec(compile(ast.Module(body=[funcao], type_ignores=[]), 'verificar_voz.py', 'exec'), ns)"
+        }
+      ]
+    },
+    "pickle_load": {
+      "total": 0,
+      "amostras": []
+    },
+    "yaml_load": {
+      "total": 0,
+      "amostras": []
+    },
+    "shell_true": {
+      "total": 9,
+      "amostras": [
+        {
+          "arquivo": "actions/computer_settings.py",
+          "linha": 260,
+          "trecho": "shell=True, capture_output=True"
+        },
+        {
+          "arquivo": "actions/computer_settings.py",
+          "linha": 289,
+          "trecho": "shell=True, capture_output=True"
+        },
+        {
+          "arquivo": "actions/cowork.py",
+          "linha": 1123,
+          "trecho": "proc = subprocess.Popen(cmd, cwd=str(self.pasta), shell=True, env=env2, stdout=saida_arq,"
+        },
+        {
+          "arquivo": "actions/cowork.py",
+          "linha": 1167,
+          "trecho": "proc = subprocess.Popen(cmd, cwd=str(self.pasta), shell=True, env=env, stdout=saida,"
+        },
+        {
+          "arquivo": "actions/cowork.py",
+          "linha": 1385,
+          "trecho": "self._processo = subprocess.Popen(cmd, cwd=str(self.pasta), shell=True, env=env,"
+        },
+        {
+          "arquivo": "actions/dev_agent.py",
+          "linha": 288,
+          "trecho": "shell=True,"
+        },
+        {
+          "arquivo": "actions/open_app.py",
+          "linha": 135,
+          "trecho": "shell=True,"
+        },
+        {
+          "arquivo": "actions/open_app.py",
+          "linha": 146,
+          "trecho": "subprocess.Popen(f\"start {app_name}\", shell=True)"
+        },
+        {
+          "arquivo": "dashboard/server.py",
+          "linha": 228,
+          "trecho": "[bat_path], capture_output=True, timeout=8, shell=True"
+        }
+      ]
+    },
+    "os_system": {
+      "total": 0,
+      "amostras": []
+    },
+    "todo": {
+      "total": 109,
+      "amostras": [
+        {
+          "arquivo": "main.py",
+          "linha": 354,
+          "trecho": "# SO OS NOMES DE TODO MUNDO FICAM AQUI (01/10/2026). A lista tinha os nomes do"
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 355,
+          "trecho": "# DIEGO (Diego, Caze, Casimiro, AlfaMu, MuTron, BotZapBR) e valia para todo"
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 424,
+          "trecho": "# Casimiro, AlfaMu, BotZapBR...) e ia igual para todo cliente. No PC de um"
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 681,
+          "trecho": "# errada. Ou seja: TODO atalho rapido morria em silencio para quem trocasse a"
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 945,
+          "trecho": "# Pergunta do Diego, e ela e a certa: \"funciona o dia todo eu conversando?\"."
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 997,
+          "trecho": "caminho de voz roda inteiro dentro de um TaskGroup, praticamente todo erro"
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 1590,
+          "trecho": "\"description\": \"A tarefa em portugues, com todo o detalhe que o usuario deu (nomes, caminhos, quantidades).\""
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 2857,
+          "trecho": "# Com o piso em 200 o ruido de fundo abria o portao sozinho o tempo todo, e"
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 2974,
+          "trecho": "# Eu tinha desligado para deixar tudo igual ao Mark-LI, que manda todo bloco"
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 3118,
+          "trecho": "# o `callback` dele enfileira TODO bloco enquanto o NIA n├úo est├í"
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 4565,
+          "trecho": "# o tempo todo numa conversa normal (\"ativa o wi-fi\", \"ativa o modo"
+        },
+        {
+          "arquivo": "main.py",
+          "linha": 5005,
+          "trecho": "# trabalho todo (mandar a pasta, aplicar, testar, corrigir) esta em"
+        }
+      ]
+    },
+    "credencial_literal": {
+      "total": 9,
+      "amostras": [
+        {
+          "arquivo": "tests/test_apis_ollama.py",
+          "linha": 68,
+          "trecho": "config(gemini_api_key='ficticia')"
+        },
+        {
+          "arquivo": "tests/test_apis_ollama.py",
+          "linha": 90,
+          "trecho": "config(gemini_api_key='ficticia-google')"
+        },
+        {
+          "arquivo": "tests/test_apis_ollama.py",
+          "linha": 116,
+          "trecho": "config(gemini_api_key='ficticia-a')"
+        },
+        {
+          "arquivo": "tests/test_apis_ollama.py",
+          "linha": 195,
+          "trecho": "config(gemini_api_key='ficticia-legada', outra_opcao={'a': 1})"
+        },
+        {
+          "arquivo": "tests/test_apis_ollama.py",
+          "linha": 577,
+          "trecho": "config(gemini_api_key='ficticia-anterior', preferencia_legada=123)"
+        },
+        {
+          "arquivo": "tests/test_apis_ollama.py",
+          "linha": 631,
+          "trecho": "config(gemini_api_key='ficticia-legada')"
+        },
+        {
+          "arquivo": "tests/test_plugin_sdk.py",
+          "linha": 51,
+          "trecho": "transporte = PS.TransporteLocal(token='segredo-de-teste')"
+        },
+        {
+          "arquivo": "tests/test_plugin_sdk.py",
+          "linha": 59,
+          "trecho": "transporte = PS.TransporteLocal(token='segredo-de-teste', plugin=plugin)"
+        },
+        {
+          "arquivo": "tests/test_plugin_sdk.py",
+          "linha": 60,
+          "trecho": "resposta = transporte.chamar('health_check', {}, token='segredo-de-teste')"
+        }
+      ]
+    }
+  }
+}

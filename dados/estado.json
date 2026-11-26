@@ -1,0 +1,12 @@
+{
+  "plugins": {
+    "airmouse": {
+      "estado": "instalado",
+      "ativo": true,
+      "versao": "1.0.0",
+      "origem": "importacao",
+      "carregador": "",
+      "hash": "292fd0612927465c09085de5dd6552a86b78428ef4e75eca6b7d88a11a22f437"
+    }
+  }
+}
